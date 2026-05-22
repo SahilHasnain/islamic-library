@@ -17,6 +17,10 @@ const assetsRepoPath = requireEnv(
 const assetsRepoBranch = requireEnv("ASSETS_REPO_BRANCH", "main");
 const assetsRepoOwner = requireEnv("ASSETS_REPO_OWNER", "your-github-user");
 const assetsRepoName = requireEnv("ASSETS_REPO_NAME", "islamic-library-assets");
+const gitPushEnabled = (process.env.GIT_PUSH_ENABLED || "false") === "true";
+const githubToken = process.env.GITHUB_TOKEN || "";
+const githubRepoHttps = process.env.GITHUB_REPO_HTTPS || "";
+const gitRemoteName = process.env.GIT_REMOTE_NAME || "origin";
 
 function runGit(args) {
   return new Promise((resolve, reject) => {
@@ -45,6 +49,42 @@ function runGit(args) {
       reject(new Error(stderr || stdout || `git ${args.join(" ")} failed with ${code}`));
     });
   });
+}
+
+function maskToken(value) {
+  if (!githubToken) {
+    return value;
+  }
+
+  return value.replaceAll(githubToken, "***");
+}
+
+async function ensurePushRemote() {
+  if (!gitPushEnabled) {
+    return { pushConfigured: false, remoteName: gitRemoteName };
+  }
+
+  if (!githubToken) {
+    throw new Error("GIT_PUSH_ENABLED=true requires GITHUB_TOKEN.");
+  }
+
+  const remoteUrl =
+    githubRepoHttps ||
+    `https://github.com/${assetsRepoOwner}/${assetsRepoName}.git`;
+  const authenticatedRemoteUrl = remoteUrl.replace(
+    "https://",
+    `https://x-access-token:${githubToken}@`,
+  );
+
+  await runGit(["remote", "set-url", gitRemoteName, authenticatedRemoteUrl]).catch(async () => {
+    await runGit(["remote", "add", gitRemoteName, authenticatedRemoteUrl]);
+  });
+
+  return {
+    pushConfigured: true,
+    remoteName: gitRemoteName,
+    remoteUrl: maskToken(authenticatedRemoteUrl),
+  };
 }
 
 async function copyFile(sourcePath, destinationPath) {
@@ -163,6 +203,13 @@ export async function publishWorkspace({
   const sha = (
     await runGit(["rev-parse", "HEAD"])
   ).stdout.trim();
+  const pushRemote = await ensurePushRemote();
+  let pushSummary = "Push skipped in local-only mode.";
+
+  if (gitPushEnabled) {
+    const push = await runGit(["push", gitRemoteName, assetsRepoBranch]);
+    pushSummary = [push.stdout.trim(), push.stderr.trim()].filter(Boolean).join("\n");
+  }
 
   return {
     gitCommitSha: sha,
@@ -174,6 +221,10 @@ export async function publishWorkspace({
     manifestUrl: jsdelivrUrl(manifestRelativePath),
     coverImageUrl: jsdelivrUrl(coverRelativePath),
     commitSummary: commit.stdout.trim() || commit.stderr.trim(),
+    pushSummary,
+    pushConfigured: pushRemote.pushConfigured,
+    remoteName: pushRemote.remoteName,
+    remoteUrl: pushRemote.remoteUrl,
   };
 }
 

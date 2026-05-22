@@ -86,6 +86,43 @@ Expected env values:
 - `ASSETS_REPO_OWNER`
 - `ASSETS_REPO_NAME`
 
+## GitHub Push Setup
+
+By default, the worker only writes and commits into the local assets repo clone.
+
+That means:
+
+- local `git add`
+- local `git commit`
+- no remote GitHub push unless you enable it
+
+To enable real VPS publishing, set these env values:
+
+```env
+GIT_PUSH_ENABLED=true
+GIT_REMOTE_NAME=origin
+GITHUB_REPO_HTTPS=https://github.com/<your-user>/islamic-library-assets.git
+GITHUB_TOKEN=<your-fine-grained-token>
+```
+
+Recommended VPS setup:
+
+1. Clone the assets repo on the VPS
+2. Set `ASSETS_REPO_PATH` to that clone path
+3. Add a fine-grained GitHub token in `.env.local`
+4. Enable `GIT_PUSH_ENABLED=true`
+5. Keep the token only on the VPS, never in the app
+
+The worker will then:
+
+1. write files into the clone
+2. `git add`
+3. `git commit`
+4. configure the authenticated remote URL
+5. `git push origin <branch>`
+
+If `GIT_PUSH_ENABLED=false`, the worker stays in local-only mode.
+
 ## Pending
 
 - `PyMuPDF` install is still pending in the current environment
