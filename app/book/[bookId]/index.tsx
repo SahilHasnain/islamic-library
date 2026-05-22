@@ -57,6 +57,8 @@ export default function BookHomeScreen() {
   const displayDescription = metadata?.description ?? book.description;
   const displayAuthor = metadata?.author ?? book.author;
   const displayCategory = metadata?.category ?? book.category;
+  const resolvedLanguageId = selectedLanguage?.id ?? language.id;
+  const resolvedVolumeId = manifest?.volumeId ?? volume.id;
   const displayLanguageTitle = selectedLanguage?.title ?? language.title;
   const totalPages = manifest?.totalPages ?? volume.totalPages;
 
@@ -132,7 +134,7 @@ export default function BookHomeScreen() {
             </Text>
             <Link
               href={
-                `/reader/${book.id}/${language.id}/${volume.id}/${effectiveProgress.page}` as const
+                `/reader/${book.id}/${resolvedLanguageId}/${resolvedVolumeId}/${effectiveProgress.page}` as const
               }
               asChild
             >

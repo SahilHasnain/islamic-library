@@ -1,9 +1,10 @@
 import { Link, Stack, useLocalSearchParams } from "expo-router";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { Pressable, ScrollView, Text, View } from "react-native";
+import { Image } from "expo-image";
 import { SafeAreaView } from "react-native-safe-area-context";
 
-import { ErrorCard } from "../../../../../components/ui";
+import { ErrorCard, LoadingCard } from "../../../../../components/ui";
 import {
   getBookById,
   getCurrentSectionForPage,
@@ -68,22 +69,45 @@ export default function ReaderScreen() {
   const currentSection = getCurrentSectionForPage(book, languageId, volumeId, currentPage);
   const pageContent = getGeneratedPageContent(book, languageId, volumeId, currentPage);
   const totalPages = manifest?.totalPages ?? volume.totalPages;
+  const resolvedLanguageId = selectedLanguage?.id ?? languageId;
+  const resolvedVolumeId = selectedVolume?.id ?? volumeId;
   const progressPercent = Math.round((currentPage / totalPages) * 100);
   const sectionIndex = currentSection
     ? volume.sections.findIndex((section) => section.id === currentSection.id) + 1
     : undefined;
-  const existingBookmark = getBookmarkForPage(book.id, languageId, volumeId, currentPage);
+  const existingBookmark = getBookmarkForPage(
+    book.id,
+    resolvedLanguageId,
+    resolvedVolumeId,
+    currentPage,
+  );
   const currentManifestPage = manifest?.pages?.find((entry) => entry.page === currentPage);
+  const remotePageUrl = currentManifestPage?.url;
+  const shouldUseRemotePage =
+    remoteState === "ready" && Boolean(remotePageUrl);
+  const [remoteImageState, setRemoteImageState] = useState<
+    "idle" | "loading" | "loaded" | "error"
+  >("idle");
+  const shouldDisplayRemoteImage = shouldUseRemotePage && remoteImageState !== "error";
 
   useEffect(() => {
     void saveProgress({
       bookId: book.id,
-      languageId,
-      volumeId,
+      languageId: resolvedLanguageId,
+      volumeId: resolvedVolumeId,
       page: currentPage,
       updatedAt: new Date().toISOString(),
     });
-  }, [book.id, currentPage, languageId, saveProgress, volumeId]);
+  }, [book.id, currentPage, resolvedLanguageId, resolvedVolumeId, saveProgress]);
+
+  useEffect(() => {
+    if (!shouldUseRemotePage) {
+      setRemoteImageState("idle");
+      return;
+    }
+
+    setRemoteImageState("loading");
+  }, [currentPage, remotePageUrl, shouldUseRemotePage]);
 
   async function toggleBookmark() {
     if (existingBookmark) {
@@ -93,8 +117,8 @@ export default function ReaderScreen() {
 
     await addBookmark({
       bookId: book.id,
-      languageId,
-      volumeId,
+      languageId: resolvedLanguageId,
+      volumeId: resolvedVolumeId,
       page: currentPage,
     });
   }
@@ -163,6 +187,12 @@ export default function ReaderScreen() {
               message="The published manifest could not be resolved for this edition, so the reader is using generated local fallback content."
             />
           ) : null}
+          {shouldUseRemotePage && remoteImageState === "error" ? (
+            <ErrorCard
+              title="Published page failed to load"
+              message="The remote page image could not be loaded, so the reader has fallen back to the generated local reading surface."
+            />
+          ) : null}
           <View
             style={{
               backgroundColor: colors.reader,
@@ -209,6 +239,16 @@ export default function ReaderScreen() {
                     Published manifest unavailable. Using local reader fallback.
                   </Text>
                 ) : null}
+                {shouldUseRemotePage ? (
+                  <Text style={{ color: colors.textMuted, fontSize: 13 }}>
+                    Rendering published page asset for this reader view.
+                  </Text>
+                ) : null}
+                {shouldUseRemotePage && remoteImageState === "loading" ? (
+                  <Text style={{ color: colors.textMuted, fontSize: 13 }}>
+                    Loading remote page image...
+                  </Text>
+                ) : null}
               </View>
               <View
                 style={{
@@ -224,43 +264,87 @@ export default function ReaderScreen() {
               </View>
             </View>
 
-            <View
-              style={{
-                gap: 16,
-              }}
-            >
-              <Text style={{ color: colors.textMuted, fontSize: 16, lineHeight: 26 }}>
-                {pageContent.summary}
-              </Text>
-              {pageContent.paragraphs.map((paragraph) => (
-                <Text
-                  key={paragraph}
+            {shouldDisplayRemoteImage ? (
+              <View
+                style={{
+                  gap: 16,
+                }}
+              >
+                {remoteImageState === "loading" ? (
+                  <LoadingCard
+                    title="Loading page"
+                    message="Fetching the published page image for this reading session."
+                  />
+                ) : null}
+                <Image
+                  source={{ uri: remotePageUrl }}
+                  contentFit="contain"
+                  transition={150}
+                  onLoad={() => {
+                    setRemoteImageState("loaded");
+                  }}
+                  onError={() => {
+                    setRemoteImageState("error");
+                  }}
                   style={{
-                    color: colors.text,
-                    fontSize: 18,
-                    lineHeight: 31,
+                    width: "100%",
+                    aspectRatio: currentManifestPage?.width && currentManifestPage?.height
+                      ? currentManifestPage.width / currentManifestPage.height
+                      : 0.707,
+                    borderRadius: 20,
+                    backgroundColor: colors.surface,
+                    borderWidth: 1,
+                    borderColor: colors.readerBorder,
+                    opacity: remoteImageState === "loaded" ? 1 : 0.35,
+                  }}
+                />
+                <Text style={{ color: colors.textMuted, fontSize: 14, lineHeight: 22 }}>
+                  {remoteImageState === "loaded"
+                    ? "Published page image loaded from the remote manifest. Local generated text remains available only as fallback when remote assets are missing."
+                    : "Remote page image is still loading. The reader will fall back automatically if the asset fails."}
+                </Text>
+              </View>
+            ) : (
+              <>
+                <View
+                  style={{
+                    gap: 16,
                   }}
                 >
-                  {paragraph}
-                </Text>
-              ))}
-            </View>
+                  <Text style={{ color: colors.textMuted, fontSize: 16, lineHeight: 26 }}>
+                    {pageContent.summary}
+                  </Text>
+                  {pageContent.paragraphs.map((paragraph) => (
+                    <Text
+                      key={paragraph}
+                      style={{
+                        color: colors.text,
+                        fontSize: 18,
+                        lineHeight: 31,
+                      }}
+                    >
+                      {paragraph}
+                    </Text>
+                  ))}
+                </View>
 
-            <View
-              style={{
-                borderRadius: 20,
-                backgroundColor: "#F1E4BC",
-                padding: 18,
-                gap: 8,
-              }}
-            >
-              <Text style={{ color: colors.text, fontSize: 15, fontWeight: "800" }}>
-                Reflection
-              </Text>
-              <Text style={{ color: colors.textMuted, fontSize: 15, lineHeight: 22 }}>
-                {pageContent.reflection}
-              </Text>
-            </View>
+                <View
+                  style={{
+                    borderRadius: 20,
+                    backgroundColor: "#F1E4BC",
+                    padding: 18,
+                    gap: 8,
+                  }}
+                >
+                  <Text style={{ color: colors.text, fontSize: 15, fontWeight: "800" }}>
+                    Reflection
+                  </Text>
+                  <Text style={{ color: colors.textMuted, fontSize: 15, lineHeight: 22 }}>
+                    {pageContent.reflection}
+                  </Text>
+                </View>
+              </>
+            )}
           </View>
 
           <View style={{ backgroundColor: colors.surface, borderRadius: 22, padding: 18, gap: 10 }}>
@@ -305,7 +389,7 @@ export default function ReaderScreen() {
           <View style={{ flexDirection: "row", gap: 12 }}>
             {currentPage > 1 ? (
               <Link
-                href={`/reader/${book.id}/${languageId}/${volumeId}/${currentPage - 1}` as const}
+                href={`/reader/${book.id}/${resolvedLanguageId}/${resolvedVolumeId}/${currentPage - 1}` as const}
                 asChild
               >
                 <Pressable
@@ -339,7 +423,7 @@ export default function ReaderScreen() {
             )}
             {currentPage < totalPages ? (
               <Link
-                href={`/reader/${book.id}/${languageId}/${volumeId}/${currentPage + 1}` as const}
+                href={`/reader/${book.id}/${resolvedLanguageId}/${resolvedVolumeId}/${currentPage + 1}` as const}
                 asChild
               >
                 <Pressable

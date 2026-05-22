@@ -19,13 +19,16 @@ export default function BookSectionsScreen() {
   const book = getBookById(bookId);
   const language = getLanguageForBook(book, book.continueReading.languageId);
   const volume = getVolumeForBook(book, language.id, book.continueReading.volumeId);
-  const { metadata, metadataError, isMetadataLoading, selectedLanguage } = useRemoteBookData(
+  const { metadata, metadataError, isMetadataLoading, selectedLanguage, selectedVolume } =
+    useRemoteBookData(
     book.id,
     language.id,
     volume.id,
   );
   const displayTitle = metadata?.title ?? book.title;
   const displayLanguageTitle = selectedLanguage?.title ?? language.title;
+  const resolvedLanguageId = selectedLanguage?.id ?? language.id;
+  const resolvedVolumeId = selectedVolume?.id ?? volume.id;
 
   return (
     <>
@@ -58,7 +61,7 @@ export default function BookSectionsScreen() {
           {volume.sections.map((section) => (
             <Link
               key={section.id}
-              href={`/reader/${book.id}/${language.id}/${volume.id}/${section.startPage}` as const}
+              href={`/reader/${book.id}/${resolvedLanguageId}/${resolvedVolumeId}/${section.startPage}` as const}
               asChild
             >
               <Pressable

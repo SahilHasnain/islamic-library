@@ -13,7 +13,7 @@ export default function BookPlansScreen() {
   const book = getBookById(bookId);
   const language = getLanguageForBook(book, book.continueReading.languageId);
   const volume = getVolumeForBook(book, language.id, book.continueReading.volumeId);
-  const { metadata, metadataError, isMetadataLoading, selectedLanguage } = useRemoteBookData(
+  const { metadata, metadataError, isMetadataLoading, selectedLanguage, selectedVolume } = useRemoteBookData(
     book.id,
     language.id,
     volume.id,
@@ -22,6 +22,8 @@ export default function BookPlansScreen() {
   const { error: progressError, isLoaded: progressLoaded, progress } = useReadingProgress(book.id);
   const displayTitle = metadata?.title ?? book.title;
   const displayLanguageTitle = selectedLanguage?.title ?? language.title;
+  const resolvedLanguageId = selectedLanguage?.id ?? language.id;
+  const resolvedVolumeId = selectedVolume?.id ?? volume.id;
 
   return (
     <>
@@ -125,8 +127,8 @@ export default function BookPlansScreen() {
                 onPress={() => {
                   void selectPlan({
                     bookId: book.id,
-                    languageId: language.id,
-                    volumeId: volume.id,
+                    languageId: resolvedLanguageId,
+                    volumeId: resolvedVolumeId,
                     planId: plan.id,
                     startedAt: new Date().toISOString(),
                   });
