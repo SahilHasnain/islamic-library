@@ -84,3 +84,66 @@ export type ActiveReadingPlan = {
   planId: string;
   startedAt: string;
 };
+
+export type PublicCatalogBook = {
+  id: string;
+  title: string;
+  subtitle?: string;
+  author?: string;
+  category?: string;
+  coverImage?: string;
+  status: "published";
+  metadataUrl: string;
+};
+
+export type PublicCatalog = {
+  version: string;
+  generatedAt: string;
+  books: PublicCatalogBook[];
+};
+
+export type PublicBookMetadataVolume = {
+  id: string;
+  title: string;
+  manifestUrl: string;
+};
+
+export type PublicBookMetadataLanguage = {
+  id: string;
+  title: string;
+  nativeTitle?: string;
+  volumes: PublicBookMetadataVolume[];
+};
+
+export type PublicBookMetadata = {
+  id: string;
+  title: string;
+  subtitle?: string;
+  author?: string;
+  description?: string;
+  category?: string;
+  coverImage?: string;
+  languages: PublicBookMetadataLanguage[];
+};
+
+export type PublicManifestPage = {
+  page: number;
+  fileName: string;
+  width: number;
+  height: number;
+  size: number;
+  url?: string;
+};
+
+export type PublicVolumeManifest = {
+  bookId: string;
+  languageId: string;
+  volumeId: string;
+  version: string;
+  totalPages: number;
+  baseUrl: string;
+  filePattern: string;
+  extension: "webp";
+  coverImage?: string;
+  pages?: PublicManifestPage[];
+};

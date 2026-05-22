@@ -46,6 +46,33 @@ This worker expects `PyMuPDF` to be installed for PDF rendering:
 python -m pip install PyMuPDF
 ```
 
+## Mock Test Mode
+
+To test the full pipeline without real PDF rendering:
+
+```bash
+MOCK_RENDER_ENABLED=true
+MOCK_RENDER_PAGE_COUNT=6
+```
+
+In this mode the worker will:
+
+- create fake page assets
+- create a fake cover
+- generate manifest and metadata
+- run validation
+- publish to the assets repo
+
+This lets you verify:
+
+- Appwrite job flow
+- worker handoff
+- validation
+- assets repo publishing
+- catalog updates
+
+without waiting on `PyMuPDF`.
+
 ## Assets Repo
 
 Default local publish target:

@@ -30,6 +30,7 @@ const workerId = requireEnv("WORKER_ID", "vps-worker");
 const workerVersion = requireEnv("WORKER_VERSION", "v1");
 const renderDpi = Number(requireEnv("RENDER_DPI", "144"));
 const maxRetryAttempts = Number(requireEnv("MAX_RETRY_ATTEMPTS", "3"));
+const mockRenderEnabled = requireEnv("MOCK_RENDER_ENABLED", "false") === "true";
 
 if (!workerApiToken) {
   throw new Error("Missing required environment variable: WORKER_API_TOKEN");
@@ -206,6 +207,7 @@ async function handleIngest(request, response) {
       pageFiles: renderResult.pages.map((page) => page.fileName),
       validation,
       dpi: renderDpi,
+      mockedRender: Boolean(renderResult.mocked),
       createdAt: now,
       phase: "validated",
     };
@@ -285,6 +287,7 @@ async function handleIngest(request, response) {
       metadataPath: publishResult.metadataPath,
       manifestPath: publishResult.manifestPath,
       assetBasePath: publishResult.assetBasePath,
+      mockedRender: mockRenderEnabled,
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown error";

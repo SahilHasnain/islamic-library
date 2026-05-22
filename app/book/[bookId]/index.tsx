@@ -2,6 +2,7 @@ import { Link, Stack, useLocalSearchParams } from "expo-router";
 import { Pressable, ScrollView, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
+import { ErrorCard, LoadingCard } from "../../../components/ui";
 import {
   formatLastReadLabel,
   getBookById,
@@ -11,6 +12,7 @@ import {
   getPlanProgress,
   getVolumeForBook,
 } from "../../../data/books";
+import { useRemoteBookData } from "../../../hooks/useRemoteBookData";
 import { useReadingPlans } from "../../../hooks/useReadingPlans";
 import { useReadingProgress } from "../../../hooks/useReadingProgress";
 
@@ -30,6 +32,18 @@ export default function BookHomeScreen() {
   const effectiveProgress = getEffectiveProgress(book, progress);
   const language = getLanguageForBook(book, effectiveProgress.languageId);
   const volume = getVolumeForBook(book, language.id, effectiveProgress.volumeId);
+  const {
+    catalogBook,
+    metadata,
+    metadataError,
+    isMetadataLoading,
+    manifest,
+    manifestError,
+    isManifestLoading,
+    remoteState,
+    selectedLanguage,
+    source,
+  } = useRemoteBookData(book.id, language.id, volume.id);
   const currentSection = getCurrentSectionForPage(
     book,
     language.id,
@@ -38,12 +52,19 @@ export default function BookHomeScreen() {
   );
   const featuredPlan = volume.plans[0];
   const planProgress = getPlanProgress(book, effectiveProgress, activePlan);
+  const displayTitle = metadata?.title ?? book.title;
+  const displaySubtitle = metadata?.subtitle ?? book.subtitle;
+  const displayDescription = metadata?.description ?? book.description;
+  const displayAuthor = metadata?.author ?? book.author;
+  const displayCategory = metadata?.category ?? book.category;
+  const displayLanguageTitle = selectedLanguage?.title ?? language.title;
+  const totalPages = manifest?.totalPages ?? volume.totalPages;
 
   return (
     <>
       <Stack.Screen
         options={{
-          title: book.title,
+          title: displayTitle,
           headerTintColor: colors.text,
           headerStyle: { backgroundColor: colors.background },
           headerShadowVisible: false,
@@ -51,6 +72,36 @@ export default function BookHomeScreen() {
       />
       <SafeAreaView style={{ flex: 1, backgroundColor: colors.background }}>
         <ScrollView contentContainerStyle={{ padding: 20, gap: 20, paddingBottom: 40 }}>
+          {isMetadataLoading || isManifestLoading ? (
+            <LoadingCard
+              title="Loading book data"
+              message="Fetching the published metadata and manifest for this book."
+            />
+          ) : null}
+          {metadataError || manifestError ? (
+            <ErrorCard
+              title="Remote book data unavailable"
+              message="Published metadata or manifest could not be loaded, so local seeded book data is being used."
+            />
+          ) : null}
+          {!catalogBook ? (
+            <ErrorCard
+              title="Book not in published catalog"
+              message="This route exists locally, but the book is not present in the current published catalog."
+            />
+          ) : null}
+          {catalogBook && remoteState === "language-missing" ? (
+            <ErrorCard
+              title="Published language unavailable"
+              message="This local language selection does not exist in the published book metadata."
+            />
+          ) : null}
+          {catalogBook && remoteState === "volume-missing" ? (
+            <ErrorCard
+              title="Published volume unavailable"
+              message="This local volume selection does not exist in the published book metadata."
+            />
+          ) : null}
           <View
             style={{
               backgroundColor: colors.text,
@@ -71,13 +122,13 @@ export default function BookHomeScreen() {
               Continue Reading
             </Text>
             <Text style={{ color: "#FFF9EA", fontSize: 30, fontWeight: "800" }}>
-              {book.title}
+              {displayTitle}
             </Text>
             <Text style={{ color: "#D9E2DC", fontSize: 16, lineHeight: 24 }}>
-              {currentSection?.title ?? book.subtitle}
+              {currentSection?.title ?? displaySubtitle}
             </Text>
             <Text style={{ color: "#C9D5CF", fontSize: 14, lineHeight: 22 }}>
-              {language.title} | Page {effectiveProgress.page} of {volume.totalPages} | {formatLastReadLabel(effectiveProgress.updatedAt)}
+              {displayLanguageTitle} | Page {effectiveProgress.page} of {totalPages} | {formatLastReadLabel(effectiveProgress.updatedAt)}
             </Text>
             <Link
               href={
@@ -106,7 +157,7 @@ export default function BookHomeScreen() {
               About this book
             </Text>
             <Text style={{ color: colors.textMuted, fontSize: 16, lineHeight: 24 }}>
-              {book.description}
+              {displayDescription}
             </Text>
             <Text
               style={{
@@ -117,7 +168,7 @@ export default function BookHomeScreen() {
                 letterSpacing: 0.4,
               }}
             >
-              {book.category} | {book.author ?? "Editorial selection"}
+              {displayCategory} | {displayAuthor ?? "Editorial selection"} | {source === "remote" ? "Remote metadata" : "Local fallback"}
             </Text>
           </View>
 

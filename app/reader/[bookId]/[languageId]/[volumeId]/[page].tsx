@@ -3,12 +3,14 @@ import { useEffect } from "react";
 import { Pressable, ScrollView, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
+import { ErrorCard } from "../../../../../components/ui";
 import {
   getBookById,
   getCurrentSectionForPage,
   getGeneratedPageContent,
   getVolumeForBook,
 } from "../../../../../data/books";
+import { useRemoteBookData } from "../../../../../hooks/useRemoteBookData";
 import { useBookmarks } from "../../../../../hooks/useBookmarks";
 import { useReaderPreferences } from "../../../../../hooks/useReaderPreferences";
 import { useReadingProgress } from "../../../../../hooks/useReadingProgress";
@@ -49,17 +51,29 @@ export default function ReaderScreen() {
   const book = getBookById(bookId);
   const volume = getVolumeForBook(book, languageId, volumeId);
   const currentPage = Number(page ?? 1) || 1;
+  const {
+    catalogBook,
+    manifest,
+    manifestError,
+    isManifestLoading,
+    metadata,
+    remoteState,
+    selectedLanguage,
+    selectedVolume,
+  } = useRemoteBookData(book.id, languageId, volumeId);
   const { saveProgress } = useReadingProgress(book.id);
   const { addBookmark, getBookmarkForPage, removeBookmark } = useBookmarks(book.id);
   const { theme, cycleTheme } = useReaderPreferences();
   const colors = themeColors[theme];
   const currentSection = getCurrentSectionForPage(book, languageId, volumeId, currentPage);
   const pageContent = getGeneratedPageContent(book, languageId, volumeId, currentPage);
-  const progressPercent = Math.round((currentPage / volume.totalPages) * 100);
+  const totalPages = manifest?.totalPages ?? volume.totalPages;
+  const progressPercent = Math.round((currentPage / totalPages) * 100);
   const sectionIndex = currentSection
     ? volume.sections.findIndex((section) => section.id === currentSection.id) + 1
     : undefined;
   const existingBookmark = getBookmarkForPage(book.id, languageId, volumeId, currentPage);
+  const currentManifestPage = manifest?.pages?.find((entry) => entry.page === currentPage);
 
   useEffect(() => {
     void saveProgress({
@@ -131,6 +145,24 @@ export default function ReaderScreen() {
       />
       <SafeAreaView style={{ flex: 1, backgroundColor: colors.background }}>
         <ScrollView contentContainerStyle={{ padding: 20, gap: 18, paddingBottom: 40 }}>
+          {!catalogBook ? (
+            <ErrorCard
+              title="Reader is using local fallback"
+              message="This book is not available in the published catalog, so the reader is using local seeded content only."
+            />
+          ) : null}
+          {catalogBook && (remoteState === "language-missing" || remoteState === "volume-missing") ? (
+            <ErrorCard
+              title="Published edition unavailable"
+              message="The requested language or volume is not present in the published metadata, so the reader is using local fallback content."
+            />
+          ) : null}
+          {catalogBook && (remoteState === "manifest-error" || remoteState === "manifest-missing") ? (
+            <ErrorCard
+              title="Published reader assets unavailable"
+              message="The published manifest could not be resolved for this edition, so the reader is using generated local fallback content."
+            />
+          ) : null}
           <View
             style={{
               backgroundColor: colors.reader,
@@ -167,6 +199,16 @@ export default function ReaderScreen() {
                 <Text style={{ color: colors.textMuted, fontSize: 15, lineHeight: 22 }}>
                   {pageContent.meta.sectionProgress}
                 </Text>
+                {isManifestLoading ? (
+                  <Text style={{ color: colors.textMuted, fontSize: 13 }}>
+                    Loading published manifest...
+                  </Text>
+                ) : null}
+                {manifestError ? (
+                  <Text style={{ color: colors.textMuted, fontSize: 13 }}>
+                    Published manifest unavailable. Using local reader fallback.
+                  </Text>
+                ) : null}
               </View>
               <View
                 style={{
@@ -226,7 +268,7 @@ export default function ReaderScreen() {
               Reading context
             </Text>
             <Text style={{ color: colors.textMuted, fontSize: 15, lineHeight: 22 }}>
-              {book.title} | {pageContent.meta.languageTitle} | {pageContent.meta.volumeTitle}
+              {metadata?.title ?? book.title} | {selectedLanguage?.title ?? pageContent.meta.languageTitle} | {selectedVolume?.title ?? pageContent.meta.volumeTitle}
             </Text>
             <Text style={{ color: colors.textMuted, fontSize: 15, lineHeight: 22 }}>
               {currentSection
@@ -251,8 +293,13 @@ export default function ReaderScreen() {
               />
             </View>
             <Text style={{ color: colors.textMuted, fontSize: 15, lineHeight: 22 }}>
-              Page {currentPage} of {volume.totalPages}
+              Page {currentPage} of {totalPages}
             </Text>
+            {currentManifestPage ? (
+              <Text style={{ color: colors.textMuted, fontSize: 13, lineHeight: 20 }}>
+                Published page asset: {currentManifestPage.fileName}
+              </Text>
+            ) : null}
           </View>
 
           <View style={{ flexDirection: "row", gap: 12 }}>
@@ -290,7 +337,7 @@ export default function ReaderScreen() {
                 </Text>
               </View>
             )}
-            {currentPage < volume.totalPages ? (
+            {currentPage < totalPages ? (
               <Link
                 href={`/reader/${book.id}/${languageId}/${volumeId}/${currentPage + 1}` as const}
                 asChild

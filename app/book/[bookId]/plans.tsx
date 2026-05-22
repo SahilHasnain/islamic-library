@@ -4,6 +4,7 @@ import { Pressable, ScrollView, Text, View } from "react-native";
 import { EmptyCard, ErrorCard, LoadingCard, ProgressBar, Screen } from "../../../components/ui";
 import { getBookById, getLanguageForBook, getPlanProgress, getVolumeForBook } from "../../../data/books";
 import { colors, radii } from "../../../constants/theme";
+import { useRemoteBookData } from "../../../hooks/useRemoteBookData";
 import { useReadingPlans } from "../../../hooks/useReadingPlans";
 import { useReadingProgress } from "../../../hooks/useReadingProgress";
 
@@ -12,8 +13,15 @@ export default function BookPlansScreen() {
   const book = getBookById(bookId);
   const language = getLanguageForBook(book, book.continueReading.languageId);
   const volume = getVolumeForBook(book, language.id, book.continueReading.volumeId);
+  const { metadata, metadataError, isMetadataLoading, selectedLanguage } = useRemoteBookData(
+    book.id,
+    language.id,
+    volume.id,
+  );
   const { activePlan, clearPlan, error: plansError, isLoaded: plansLoaded, selectPlan } = useReadingPlans(book.id);
   const { error: progressError, isLoaded: progressLoaded, progress } = useReadingProgress(book.id);
+  const displayTitle = metadata?.title ?? book.title;
+  const displayLanguageTitle = selectedLanguage?.title ?? language.title;
 
   return (
     <>
@@ -28,14 +36,21 @@ export default function BookPlansScreen() {
       <Screen>
         <ScrollView contentContainerStyle={{ padding: 20, gap: 16, paddingBottom: 40 }}>
           <Text style={{ color: colors.text, fontSize: 30, fontWeight: "800" }}>
-            {book.title}
+            {displayTitle}
           </Text>
+          {isMetadataLoading ? (
+            <LoadingCard
+              title="Loading book metadata"
+              message="Fetching the published edition details for this book."
+            />
+          ) : null}
           {!plansLoaded || !progressLoaded ? (
             <LoadingCard title="Loading plans" message="Restoring your selected plan and current position." />
           ) : null}
-          {plansError || progressError ? (
+          {plansError || progressError || metadataError ? (
             <ErrorCard title="Plan progress may be incomplete" message="Stored plan or progress data could not be fully loaded." />
           ) : null}
+          <Text style={{ color: colors.textMuted, fontSize: 15 }}>{displayLanguageTitle}</Text>
           {activePlan && progress ? (
             <View style={{ backgroundColor: colors.surface, borderRadius: radii.md, padding: 18, gap: 8 }}>
               {(() => {

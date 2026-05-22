@@ -57,7 +57,6 @@ export async function validateRenderedWorkspace({
     workspace.coverImagePath,
     workspace.metadataPath,
     workspace.manifestPath,
-    workspace.summaryPath,
     workspace.renderSummaryPath,
   ];
 

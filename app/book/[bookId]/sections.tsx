@@ -2,7 +2,9 @@ import { Link, Stack, useLocalSearchParams } from "expo-router";
 import { Pressable, ScrollView, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
+import { ErrorCard, LoadingCard } from "../../../components/ui";
 import { getBookById, getLanguageForBook, getVolumeForBook } from "../../../data/books";
+import { useRemoteBookData } from "../../../hooks/useRemoteBookData";
 
 const colors = {
   background: "#F7F1E3",
@@ -17,6 +19,13 @@ export default function BookSectionsScreen() {
   const book = getBookById(bookId);
   const language = getLanguageForBook(book, book.continueReading.languageId);
   const volume = getVolumeForBook(book, language.id, book.continueReading.volumeId);
+  const { metadata, metadataError, isMetadataLoading, selectedLanguage } = useRemoteBookData(
+    book.id,
+    language.id,
+    volume.id,
+  );
+  const displayTitle = metadata?.title ?? book.title;
+  const displayLanguageTitle = selectedLanguage?.title ?? language.title;
 
   return (
     <>
@@ -31,8 +40,21 @@ export default function BookSectionsScreen() {
       <SafeAreaView style={{ flex: 1, backgroundColor: colors.background }}>
         <ScrollView contentContainerStyle={{ padding: 20, gap: 16, paddingBottom: 40 }}>
           <Text style={{ color: colors.text, fontSize: 30, fontWeight: "800" }}>
-            {book.title}
+            {displayTitle}
           </Text>
+          {isMetadataLoading ? (
+            <LoadingCard
+              title="Loading book metadata"
+              message="Fetching the published edition details for this book."
+            />
+          ) : null}
+          {metadataError ? (
+            <ErrorCard
+              title="Using local section data"
+              message="Published metadata could not be loaded for this book."
+            />
+          ) : null}
+          <Text style={{ color: colors.textMuted, fontSize: 15 }}>{displayLanguageTitle}</Text>
           {volume.sections.map((section) => (
             <Link
               key={section.id}

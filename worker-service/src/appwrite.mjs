@@ -70,7 +70,7 @@ async function appwriteListDocuments(collectionId, queries) {
     `${appwriteConfig.APPWRITE_ENDPOINT}/databases/${appwriteConfig.APPWRITE_DATABASE_ID}/collections/${collectionId}/documents`,
   );
 
-  for (const query of queries) {
+  for (const query of queries || []) {
     url.searchParams.append("queries[]", query);
   }
 
@@ -109,28 +109,22 @@ export async function downloadSourcePdf(sourceFileId) {
 }
 
 export async function findJobDocument(jobId) {
-  const result = await appwriteListDocuments(appwriteConfig.APPWRITE_JOBS_COLLECTION_ID, [
-    `equal("jobId","${jobId}")`,
-    "limit(1)",
-  ]);
+  const result = await appwriteListDocuments(appwriteConfig.APPWRITE_JOBS_COLLECTION_ID, []);
 
-  return result.documents?.[0];
+  return result.documents?.find((document) => document.jobId === jobId);
 }
 
 export async function findBookBySlug(bookSlug) {
-  const result = await appwriteListDocuments(appwriteConfig.APPWRITE_BOOKS_COLLECTION_ID, [
-    `equal("slug","${bookSlug}")`,
-    "limit(1)",
-  ]);
+  const result = await appwriteListDocuments(appwriteConfig.APPWRITE_BOOKS_COLLECTION_ID, []);
 
-  return result.documents?.[0];
+  return result.documents?.find((document) => document.slug === bookSlug);
 }
 
 export async function updateJobDocument(documentId, data) {
   return appwriteJson(
     "PATCH",
     `/databases/${appwriteConfig.APPWRITE_DATABASE_ID}/collections/${appwriteConfig.APPWRITE_JOBS_COLLECTION_ID}/documents/${documentId}`,
-    data,
+    { data },
   );
 }
 
@@ -138,7 +132,7 @@ export async function updateBookDocument(documentId, data) {
   return appwriteJson(
     "PATCH",
     `/databases/${appwriteConfig.APPWRITE_DATABASE_ID}/collections/${appwriteConfig.APPWRITE_BOOKS_COLLECTION_ID}/documents/${documentId}`,
-    data,
+    { data },
   );
 }
 
