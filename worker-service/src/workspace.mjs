@@ -14,7 +14,7 @@ export async function createJobWorkspace(jobId) {
     workspaceDir,
     pagesDir,
     sourcePdfPath: path.join(workspaceDir, "source.pdf"),
-    coverImagePath: path.join(workspaceDir, "cover.webp"),
+    coverImagePath: path.join(workspaceDir, "cover.png"),
     renderSummaryPath: path.join(workspaceDir, "render-summary.json"),
     metadataPath: path.join(workspaceDir, "metadata.json"),
     manifestPath: path.join(workspaceDir, "manifest.json"),

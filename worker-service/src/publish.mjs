@@ -105,13 +105,14 @@ export async function publishWorkspace({
   manifest,
   version,
 }) {
+  const coverFileName = manifest.coverImage || path.basename(workspace.coverImagePath);
   const bookRoot = path.join(assetsRepoPath, "books", bookSlug);
   const volumeRoot = path.join(bookRoot, languageId, volumeId);
   const relativeBookRoot = path.join("books", bookSlug);
   const relativeVolumeRoot = path.join(relativeBookRoot, languageId, volumeId);
   const metadataRelativePath = path.join(relativeBookRoot, "metadata.json");
   const manifestRelativePath = path.join(relativeVolumeRoot, "manifest.json");
-  const coverRelativePath = path.join(relativeBookRoot, "cover.webp");
+  const coverRelativePath = path.join(relativeBookRoot, coverFileName);
 
   await fs.mkdir(volumeRoot, { recursive: true });
 
@@ -127,7 +128,7 @@ export async function publishWorkspace({
     }),
   );
 
-  await copyFile(workspace.coverImagePath, path.join(bookRoot, "cover.webp"));
+  await copyFile(workspace.coverImagePath, path.join(bookRoot, coverFileName));
 
   const publishedManifest = {
     ...manifest,

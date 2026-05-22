@@ -76,7 +76,7 @@ async function createMockRenderOutput({
   const pages = [];
 
   for (let index = 0; index < pageCount; index += 1) {
-    const fileName = `page-${String(index + 1).padStart(3, "0")}.webp`;
+    const fileName = `page-${String(index + 1).padStart(3, "0")}.png`;
     const pagePath = path.join(pagesDir, fileName);
     await fs.writeFile(pagePath, fileBuffer);
 
@@ -120,7 +120,7 @@ export function buildPublicMetadata({
     author: author || undefined,
     description: description || undefined,
     category: category || undefined,
-    coverImage: "cover.webp",
+    coverImage: "cover.png",
     languages: [
       {
         id: languageId,
@@ -146,6 +146,8 @@ export function buildVolumeManifest({
   coverImage,
   pages,
 }) {
+  const firstPageFileName = pages[0]?.fileName ?? "page-001.png";
+  const extension = firstPageFileName.split(".").pop() ?? "png";
   return {
     bookId: bookSlug,
     languageId,
@@ -153,8 +155,8 @@ export function buildVolumeManifest({
     version,
     totalPages,
     baseUrl: ".",
-    filePattern: "page-{page}.webp",
-    extension: "webp",
+    filePattern: `page-{page}.${extension}`,
+    extension,
     coverImage,
     pages,
   };

@@ -34,7 +34,7 @@ def main() -> int:
       for index in range(document.page_count):
           page = document.load_page(index)
           pixmap = page.get_pixmap(matrix=matrix, alpha=False)
-          page_name = f"page-{index + 1:03d}.webp"
+          page_name = f"page-{index + 1:03d}.png"
           page_path = pages_dir / page_name
           pixmap.save(page_path)
 
