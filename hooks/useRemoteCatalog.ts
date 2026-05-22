@@ -2,9 +2,8 @@ import { useEffect, useState } from "react";
 
 import type { PublicCatalog } from "../data/types";
 
-const catalogUrl = process.env.EXPO_PUBLIC_LIBRARY_CATALOG_URL;
-
 export function useRemoteCatalog() {
+  const catalogUrl = process.env.EXPO_PUBLIC_LIBRARY_CATALOG_URL;
   const [catalog, setCatalog] = useState<PublicCatalog | null>(null);
   const [isLoading, setIsLoading] = useState(Boolean(catalogUrl));
   const [error, setError] = useState<string | null>(null);
@@ -24,7 +23,12 @@ export function useRemoteCatalog() {
       }
 
       try {
-        const response = await fetch(catalogUrl);
+        const response = await fetch(catalogUrl, {
+          headers: {
+            Accept: "application/json",
+            "Cache-Control": "no-cache",
+          },
+        });
         if (!response.ok) {
           throw new Error(`catalog-request-failed:${response.status}`);
         }
@@ -55,7 +59,7 @@ export function useRemoteCatalog() {
     return () => {
       isMounted = false;
     };
-  }, []);
+  }, [catalogUrl]);
 
   return {
     catalog,

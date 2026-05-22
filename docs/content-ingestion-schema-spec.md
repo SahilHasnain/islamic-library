@@ -265,12 +265,20 @@ books/
 
 ## Public Delivery URL Rules
 
-Recommended jsDelivr pattern:
+Recommended split:
+
+`catalog.json` from raw GitHub:
 
 ```text
-https://cdn.jsdelivr.net/gh/<github-user>/<repo>@main/catalog.json
+https://raw.githubusercontent.com/<github-user>/<repo>/main/catalog.json
+```
+
+Metadata, manifests, covers, and page assets from jsDelivr:
+
+```text
 https://cdn.jsdelivr.net/gh/<github-user>/<repo>@main/books/<bookSlug>/metadata.json
 https://cdn.jsdelivr.net/gh/<github-user>/<repo>@main/books/<bookSlug>/<languageId>/<volumeId>/manifest.json
+https://cdn.jsdelivr.net/gh/<github-user>/<repo>@main/books/<bookSlug>/<languageId>/<volumeId>/page-001.png
 ```
 
 ## Worker Contract

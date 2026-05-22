@@ -15,12 +15,6 @@ import {
   SectionCard,
 } from "../../components/ui";
 import { colors, radii, spacing, typography } from "../../constants/theme";
-import {
-  BOOKS,
-  formatLastReadLabel,
-  getCurrentSectionForPage,
-  getEffectiveProgress,
-} from "../../data/books";
 import { useRemoteCatalog } from "../../hooks/useRemoteCatalog";
 import { useReadingProgress } from "../../hooks/useReadingProgress";
 
@@ -35,20 +29,14 @@ export default function LibraryScreen() {
     isLoading: isCatalogLoading,
     source: catalogSource,
   } = useRemoteCatalog();
-  const featuredBook = BOOKS.find((book) => book.featured) ?? BOOKS[0];
-  const featuredProgress = getEffectiveProgress(featuredBook, progressMap[featuredBook.id]);
-  const continueSection = getCurrentSectionForPage(
-    featuredBook,
-    featuredProgress.languageId,
-    featuredProgress.volumeId,
-    featuredProgress.page,
-  );
-  const inProgressBooks = BOOKS.filter((book) => !book.featured);
   const remoteBooks = catalog?.books ?? [];
+  const featuredBook = remoteBooks[0];
+  const featuredProgress = featuredBook ? progressMap[featuredBook.id] : undefined;
+  const inProgressBooks = remoteBooks.filter((book) => progressMap[book.id]);
   const categoryLabels =
     remoteBooks.length > 0
       ? Array.from(new Set(remoteBooks.map((book) => book.category).filter(Boolean)))
-      : Array.from(new Set(BOOKS.map((book) => book.category)));
+      : [];
   const safeCategoryLabels = categoryLabels.filter(
     (category): category is string => Boolean(category),
   );
@@ -79,13 +67,13 @@ export default function LibraryScreen() {
         {catalogError ? (
           <ErrorCard
             title="Remote catalog unavailable"
-            message="The app could not load the published catalog, so the local seeded library is being shown instead."
+            message="The app could not load the published catalog."
           />
         ) : null}
         {!isCatalogConfigured ? (
           <ErrorCard
             title="Catalog URL not configured"
-            message="Set EXPO_PUBLIC_LIBRARY_CATALOG_URL to switch this app from seeded books to the published remote catalog."
+            message="Set EXPO_PUBLIC_LIBRARY_CATALOG_URL to load the published remote catalog."
           />
         ) : null}
         {isCatalogConfigured && !isCatalogLoading && !catalogError && !hasRemoteCatalog ? (
@@ -95,60 +83,51 @@ export default function LibraryScreen() {
           />
         ) : null}
 
-        <HeroCard>
-          <Text
-            style={{
-              color: colors.textOnDark,
-              fontSize: typography.label,
-              fontWeight: "700",
-              textTransform: "uppercase",
-              letterSpacing: 0.5,
-            }}
-          >
-            Continue Reading
-          </Text>
-          <Text style={{ color: colors.textOnDark, fontSize: typography.sectionTitle, fontWeight: "800" }}>
-            {featuredBook.title}
-          </Text>
-          <BodyText color={colors.textOnDarkMuted}>
-            {continueSection?.title ?? featuredBook.subtitle}
-          </BodyText>
-          <Text style={{ color: colors.textOnDarkSubtle, fontSize: typography.label, lineHeight: 22 }}>
-            Page {featuredProgress.page} | {formatLastReadLabel(featuredProgress.updatedAt)}
-          </Text>
-          <Link
-            href={
-              `/reader/${featuredBook.id}/${featuredProgress.languageId}/${featuredProgress.volumeId}/${featuredProgress.page}` as const
-            }
-            asChild
-          >
-            <Pressable
+        {featuredBook ? (
+          <HeroCard>
+            <Text
               style={{
-                alignSelf: "flex-start",
-                borderRadius: radii.pill,
-                backgroundColor: colors.accent,
-                paddingHorizontal: 18,
-                paddingVertical: 12,
+                color: colors.textOnDark,
+                fontSize: typography.label,
+                fontWeight: "700",
+                textTransform: "uppercase",
+                letterSpacing: 0.5,
               }}
             >
-              <Text style={{ color: colors.text, fontSize: typography.bodySmall, fontWeight: "800" }}>
-                Resume Book
-              </Text>
-            </Pressable>
-          </Link>
-        </HeroCard>
+              Continue Reading
+            </Text>
+            <Text style={{ color: colors.textOnDark, fontSize: typography.sectionTitle, fontWeight: "800" }}>
+              {featuredBook.title}
+            </Text>
+            <BodyText color={colors.textOnDarkMuted}>
+              {featuredBook.subtitle ?? "Published book"}
+            </BodyText>
+            <Text style={{ color: colors.textOnDarkSubtle, fontSize: typography.label, lineHeight: 22 }}>
+              Page {featuredProgress?.page ?? 1}
+            </Text>
+            <Link href={`/book/${featuredBook.id}` as const} asChild>
+              <Pressable
+                style={{
+                  alignSelf: "flex-start",
+                  borderRadius: radii.pill,
+                  backgroundColor: colors.accent,
+                  paddingHorizontal: 18,
+                  paddingVertical: 12,
+                }}
+              >
+                <Text style={{ color: colors.text, fontSize: typography.bodySmall, fontWeight: "800" }}>
+                  Open Book
+                </Text>
+              </Pressable>
+            </Link>
+          </HeroCard>
+        ) : null}
 
         <SectionCard>
           <CardTitle>In progress</CardTitle>
           <View style={{ gap: 12 }}>
             {inProgressBooks.map((book) => {
-              const progress = getEffectiveProgress(book, progressMap[book.id]);
-              const section = getCurrentSectionForPage(
-                book,
-                progress.languageId,
-                progress.volumeId,
-                progress.page,
-              );
+              const progress = progressMap[book.id];
               return (
                 <Link key={book.id} href={`/book/${book.id}` as const} asChild>
                   <Pressable
@@ -163,15 +142,18 @@ export default function LibraryScreen() {
                       {book.title}
                     </Text>
                     <Text style={{ color: colors.textMuted, fontSize: typography.bodySmall, lineHeight: 22 }}>
-                      {section?.title ?? book.subtitle}
+                      {book.subtitle ?? "Continue from your saved remote position"}
                     </Text>
                     <MetaText>
-                      Page {progress.page} | {formatLastReadLabel(progress.updatedAt)}
+                      Page {progress?.page ?? 1}
                     </MetaText>
                   </Pressable>
                 </Link>
               );
             })}
+            {inProgressBooks.length === 0 ? (
+              <MetaText>No saved remote reading progress yet.</MetaText>
+            ) : null}
           </View>
         </SectionCard>
 
@@ -186,80 +168,47 @@ export default function LibraryScreen() {
 
         <SectionCard backgroundColor={colors.surfaceMuted} gap={spacing.gapXl}>
           <CardTitle>
-            Library collection {catalogSource === "remote" ? "(published catalog)" : "(local fallback)"}
+            Library collection {catalogSource === "remote" ? "(published catalog)" : "(remote unavailable)"}
           </CardTitle>
-          {remoteBooks.length > 0
-            ? remoteBooks.map((book) => {
-                const localBook = BOOKS.find((candidate) => candidate.id === book.id);
-                const href = localBook ? (`/book/${book.id}` as const) : undefined;
-                const supportLabel = localBook
-                  ? "Openable in app"
-                  : "Published remotely, app route fallback unavailable";
-                const card = (
-                  <Pressable
-                    disabled={!href}
-                    style={{
-                      backgroundColor: colors.surface,
-                      borderRadius: radii.md,
-                      padding: spacing.card,
-                      gap: spacing.gapMd,
-                      opacity: href ? 1 : 0.78,
-                    }}
-                  >
-                    <View style={{ flexDirection: "row", gap: 14, alignItems: "center" }}>
-                      <CoverBlock color={localBook?.coverTint ?? colors.accentStrong} />
-                      <View style={{ flex: 1, gap: 6 }}>
-                        <Text style={{ color: colors.text, fontSize: typography.title, fontWeight: "800" }}>
-                          {book.title}
-                        </Text>
-                        <Text style={{ color: colors.textMuted, fontSize: typography.bodySmall, lineHeight: 22 }}>
-                          {book.subtitle ?? "Published from the remote catalog"}
-                        </Text>
-                        <MetaText>
-                          {book.category ?? "Library"} | {supportLabel}
-                        </MetaText>
-                      </View>
+          {remoteBooks.length > 0 ? (
+            remoteBooks.map((book) => {
+              const href = `/book/${book.id}` as const;
+              const supportLabel = "Published remotely, remote-first book route";
+              const card = (
+                <Pressable
+                  style={{
+                    backgroundColor: colors.surface,
+                    borderRadius: radii.md,
+                    padding: spacing.card,
+                    gap: spacing.gapMd,
+                  }}
+                >
+                  <View style={{ flexDirection: "row", gap: 14, alignItems: "center" }}>
+                    <CoverBlock color={colors.accentStrong} />
+                    <View style={{ flex: 1, gap: 6 }}>
+                      <Text style={{ color: colors.text, fontSize: typography.title, fontWeight: "800" }}>
+                        {book.title}
+                      </Text>
+                      <Text style={{ color: colors.textMuted, fontSize: typography.bodySmall, lineHeight: 22 }}>
+                        {book.subtitle ?? "Published from the remote catalog"}
+                      </Text>
+                      <MetaText>
+                        {book.category ?? "Library"} | {supportLabel}
+                      </MetaText>
                     </View>
-                  </Pressable>
-                );
+                  </View>
+                </Pressable>
+              );
 
-                if (!href) {
-                  return <View key={book.id}>{card}</View>;
-                }
-
-                return (
-                  <Link key={book.id} href={href} asChild>
-                    {card}
-                  </Link>
-                );
-              })
-            : BOOKS.map((book) => (
-                <Link key={book.id} href={`/book/${book.id}` as const} asChild>
-                  <Pressable
-                    style={{
-                      backgroundColor: colors.surface,
-                      borderRadius: radii.md,
-                      padding: spacing.card,
-                      gap: spacing.gapMd,
-                    }}
-                  >
-                    <View style={{ flexDirection: "row", gap: 14, alignItems: "center" }}>
-                      <CoverBlock color={book.coverTint} />
-                      <View style={{ flex: 1, gap: 6 }}>
-                        <Text style={{ color: colors.text, fontSize: typography.title, fontWeight: "800" }}>
-                          {book.title}
-                        </Text>
-                        <Text style={{ color: colors.textMuted, fontSize: typography.bodySmall, lineHeight: 22 }}>
-                          {book.subtitle}
-                        </Text>
-                        <MetaText>
-                          {book.category} | {book.languages.length} language{book.languages.length > 1 ? "s" : ""}
-                        </MetaText>
-                      </View>
-                    </View>
-                  </Pressable>
+              return (
+                <Link key={book.id} href={href} asChild>
+                  {card}
                 </Link>
-              ))}
+              );
+            })
+          ) : (
+            <MetaText>No published remote books found.</MetaText>
+          )}
         </SectionCard>
       </ScrollView>
     </Screen>

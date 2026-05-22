@@ -12,8 +12,8 @@ import {
   SectionCard,
 } from "../../components/ui";
 import { colors, radii, spacing, typography } from "../../constants/theme";
-import { BOOKS } from "../../data/books";
 import { useBookmarks } from "../../hooks/useBookmarks";
+import { useRemoteCatalog } from "../../hooks/useRemoteCatalog";
 import { useReadingPlans } from "../../hooks/useReadingPlans";
 import { useReaderPreferences } from "../../hooks/useReaderPreferences";
 import { useReadingProgress } from "../../hooks/useReadingProgress";
@@ -54,6 +54,7 @@ function ActionButton({
 }
 
 export default function SettingsScreen() {
+  const { catalog } = useRemoteCatalog();
   const {
     clearBookmarks,
     error: bookmarksError,
@@ -139,7 +140,7 @@ export default function SettingsScreen() {
             <View style={{ gap: spacing.gapXs }}>
               <MetaText>Tracked books</MetaText>
               <Text style={{ color: colors.text, fontSize: typography.subtitle, fontWeight: "800" }}>
-                {progressCount} of {BOOKS.length}
+                {progressCount} of {catalog?.books.length ?? 0}
               </Text>
             </View>
             <View style={{ gap: spacing.gapXs }}>
@@ -160,8 +161,8 @@ export default function SettingsScreen() {
         <SectionCard backgroundColor={colors.surfaceMuted}>
           <CardTitle>Local data tools</CardTitle>
           <BodyText color={colors.text}>
-            These controls manage device-local app state only. They do not affect the seeded
-            book catalog.
+            These controls manage device-local app state only. They do not affect the published
+            remote catalog.
           </BodyText>
           <View style={{ flexDirection: "row", flexWrap: "wrap", gap: spacing.gapMd }}>
             <ActionButton
@@ -188,12 +189,13 @@ export default function SettingsScreen() {
         <SectionCard>
           <CardTitle>App scope</CardTitle>
           <BodyText>
-            This version of the app is currently offline-first, storage-backed, and focused
-            on guided reading flows rather than account sync.
+            This version of the app is remote-catalog driven, storage-backed, and focused
+            on published reading flows rather than account sync.
           </BodyText>
           <View style={{ gap: spacing.gapSm }}>
             {[
               "Offline-first reading state",
+              "Remote catalog, metadata, and manifest delivery",
               "Book, plan, and bookmark management on device",
               "Shared theme layer and reusable UI primitives",
             ].map((item) => (
@@ -211,10 +213,10 @@ export default function SettingsScreen() {
           </View>
         </SectionCard>
 
-        {BOOKS.length === 0 ? (
+        {(catalog?.books.length ?? 0) === 0 ? (
           <EmptyCard
-            title="No books configured"
-            message="The app shell is present, but the library catalog has not been seeded yet."
+            title="No remote books published"
+            message="The app shell is present, but the remote catalog does not currently expose any published books."
           />
         ) : null}
       </ScrollView>

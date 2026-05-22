@@ -1,7 +1,7 @@
 import { ScrollView, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
-import { BOOKS, getEffectiveProgress, getPlanProgress } from "../../data/books";
+import { useRemoteCatalog } from "../../hooks/useRemoteCatalog";
 import { useReadingPlans } from "../../hooks/useReadingPlans";
 import { useReadingProgress } from "../../hooks/useReadingProgress";
 
@@ -16,17 +16,12 @@ const colors = {
 export default function JourneyScreen() {
   const { progressMap } = useReadingProgress();
   const { activePlanMap } = useReadingPlans();
-  const totalPagesRead = BOOKS.reduce((sum, book) => {
-    const progress = getEffectiveProgress(book, progressMap[book.id]);
-    return sum + progress.page;
-  }, 0);
-  const activePlans = BOOKS.map((book) => {
-    const progress = getEffectiveProgress(book, progressMap[book.id]);
-    return {
-      book,
-      planProgress: getPlanProgress(book, progress, activePlanMap[book.id]),
-    };
-  }).filter((item) => item.planProgress);
+  const { catalog } = useRemoteCatalog();
+  const totalPagesRead = Object.values(progressMap).reduce((sum, progress) => sum + progress.page, 0);
+  const activePlans = Object.values(activePlanMap).map((plan) => ({
+    plan,
+    title: catalog?.books.find((book) => book.id === plan.bookId)?.title ?? plan.bookId,
+  }));
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.background }}>
@@ -48,7 +43,7 @@ export default function JourneyScreen() {
             {totalPagesRead}
           </Text>
           <Text style={{ color: colors.textMuted, fontSize: 16, lineHeight: 23 }}>
-            Pages reached across the current library seed.
+            Pages reached across the current remote library.
           </Text>
         </View>
 
@@ -61,13 +56,13 @@ export default function JourneyScreen() {
               No active plans yet. Choose one from a book to start tracking daily progress.
             </Text>
           ) : (
-            activePlans.map(({ book, planProgress }) => (
-              <View key={book.id} style={{ gap: 8 }}>
+            activePlans.map(({ plan, title }) => (
+              <View key={plan.bookId} style={{ gap: 8 }}>
                 <Text style={{ color: colors.text, fontSize: 18, fontWeight: "800" }}>
-                  {book.title}
+                  {title}
                 </Text>
                 <Text style={{ color: colors.textMuted, fontSize: 15, lineHeight: 22 }}>
-                  {planProgress?.plan.title} | Day {planProgress?.currentDay} of {planProgress?.plan.totalDays}
+                  {plan.planId} | Started {new Date(plan.startedAt).toLocaleDateString()}
                 </Text>
                 <View
                   style={{
@@ -79,7 +74,7 @@ export default function JourneyScreen() {
                 >
                   <View
                     style={{
-                      width: `${planProgress?.progressPercent ?? 0}%`,
+                      width: "100%",
                       height: "100%",
                       backgroundColor: colors.accent,
                     }}

@@ -5,12 +5,6 @@ import { Image } from "expo-image";
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { ErrorCard, LoadingCard } from "../../../../../components/ui";
-import {
-  getBookById,
-  getCurrentSectionForPage,
-  getGeneratedPageContent,
-  getVolumeForBook,
-} from "../../../../../data/books";
 import { useRemoteBookData } from "../../../../../hooks/useRemoteBookData";
 import { useBookmarks } from "../../../../../hooks/useBookmarks";
 import { useReaderPreferences } from "../../../../../hooks/useReaderPreferences";
@@ -49,8 +43,6 @@ export default function ReaderScreen() {
     page: string;
   }>();
 
-  const book = getBookById(bookId);
-  const volume = getVolumeForBook(book, languageId, volumeId);
   const currentPage = Number(page ?? 1) || 1;
   const {
     catalogBook,
@@ -61,22 +53,39 @@ export default function ReaderScreen() {
     remoteState,
     selectedLanguage,
     selectedVolume,
-  } = useRemoteBookData(book.id, languageId, volumeId);
-  const { saveProgress } = useReadingProgress(book.id);
-  const { addBookmark, getBookmarkForPage, removeBookmark } = useBookmarks(book.id);
+  } = useRemoteBookData(bookId, languageId, volumeId);
+  const readingBookId = Array.isArray(bookId) ? bookId[0] : bookId ?? "";
+  const { saveProgress } = useReadingProgress(readingBookId);
+  const { addBookmark, getBookmarkForPage, removeBookmark } = useBookmarks(readingBookId);
   const { theme, cycleTheme } = useReaderPreferences();
   const colors = themeColors[theme];
-  const currentSection = getCurrentSectionForPage(book, languageId, volumeId, currentPage);
-  const pageContent = getGeneratedPageContent(book, languageId, volumeId, currentPage);
-  const totalPages = manifest?.totalPages ?? volume.totalPages;
+  const sectionSpan = Math.max(1, Math.ceil((manifest?.totalPages ?? 1) / 6));
+  const currentSectionIndex = Math.max(1, Math.ceil(currentPage / sectionSpan));
+  const currentSection = {
+    title: `Section ${currentSectionIndex}`,
+  };
+  const pageContent = {
+    kicker: `${selectedLanguage?.title ?? languageId} reading edition`,
+    title: metadata?.title ?? catalogBook?.title ?? "Published reading view",
+    summary: "This page is being served from the published remote catalog for this edition.",
+    paragraphs: [
+      "The primary reading surface for this book is the published page asset.",
+      "If a page image is unavailable, this remote reading view stays usable with generated support text.",
+    ],
+    reflection: "This reader now depends on the published catalog and manifest, not on seeded local book content.",
+    meta: {
+      languageTitle: selectedLanguage?.title ?? languageId,
+      volumeTitle: selectedVolume?.title ?? volumeId,
+      sectionProgress: `Page ${currentPage}`,
+    },
+  };
+  const totalPages = manifest?.totalPages ?? 1;
   const resolvedLanguageId = selectedLanguage?.id ?? languageId;
   const resolvedVolumeId = selectedVolume?.id ?? volumeId;
   const progressPercent = Math.round((currentPage / totalPages) * 100);
-  const sectionIndex = currentSection
-    ? volume.sections.findIndex((section) => section.id === currentSection.id) + 1
-    : undefined;
+  const sectionIndex = currentSectionIndex;
   const existingBookmark = getBookmarkForPage(
-    book.id,
+    readingBookId,
     resolvedLanguageId,
     resolvedVolumeId,
     currentPage,
@@ -92,13 +101,13 @@ export default function ReaderScreen() {
 
   useEffect(() => {
     void saveProgress({
-      bookId: book.id,
+      bookId: readingBookId,
       languageId: resolvedLanguageId,
       volumeId: resolvedVolumeId,
       page: currentPage,
       updatedAt: new Date().toISOString(),
     });
-  }, [book.id, currentPage, resolvedLanguageId, resolvedVolumeId, saveProgress]);
+  }, [currentPage, readingBookId, resolvedLanguageId, resolvedVolumeId, saveProgress]);
 
   useEffect(() => {
     if (!shouldUseRemotePage) {
@@ -116,7 +125,7 @@ export default function ReaderScreen() {
     }
 
     await addBookmark({
-      bookId: book.id,
+      bookId: readingBookId,
       languageId: resolvedLanguageId,
       volumeId: resolvedVolumeId,
       page: currentPage,
@@ -127,7 +136,7 @@ export default function ReaderScreen() {
     <>
       <Stack.Screen
         options={{
-          title: book.title,
+          title: metadata?.title ?? catalogBook?.title ?? "Reader",
           headerTintColor: colors.text,
           headerStyle: { backgroundColor: colors.background },
           headerShadowVisible: false,
@@ -171,26 +180,26 @@ export default function ReaderScreen() {
         <ScrollView contentContainerStyle={{ padding: 20, gap: 18, paddingBottom: 40 }}>
           {!catalogBook ? (
             <ErrorCard
-              title="Reader is using local fallback"
-              message="This book is not available in the published catalog, so the reader is using local seeded content only."
+              title="Book not in published catalog"
+              message="This reader requires a published remote catalog entry for the selected book."
             />
           ) : null}
           {catalogBook && (remoteState === "language-missing" || remoteState === "volume-missing") ? (
             <ErrorCard
               title="Published edition unavailable"
-              message="The requested language or volume is not present in the published metadata, so the reader is using local fallback content."
+              message="The requested language or volume is not present in the published metadata."
             />
           ) : null}
           {catalogBook && (remoteState === "manifest-error" || remoteState === "manifest-missing") ? (
             <ErrorCard
               title="Published reader assets unavailable"
-              message="The published manifest could not be resolved for this edition, so the reader is using generated local fallback content."
+              message="The published manifest could not be resolved for this edition."
             />
           ) : null}
           {shouldUseRemotePage && remoteImageState === "error" ? (
             <ErrorCard
               title="Published page failed to load"
-              message="The remote page image could not be loaded, so the reader has fallen back to the generated local reading surface."
+              message="The remote page image could not be loaded, so the reader is showing generated support content instead."
             />
           ) : null}
           <View
@@ -236,7 +245,7 @@ export default function ReaderScreen() {
                 ) : null}
                 {manifestError ? (
                   <Text style={{ color: colors.textMuted, fontSize: 13 }}>
-                    Published manifest unavailable. Using local reader fallback.
+                    Published manifest unavailable for this edition.
                   </Text>
                 ) : null}
                 {shouldUseRemotePage ? (
@@ -300,8 +309,8 @@ export default function ReaderScreen() {
                 />
                 <Text style={{ color: colors.textMuted, fontSize: 14, lineHeight: 22 }}>
                   {remoteImageState === "loaded"
-                    ? "Published page image loaded from the remote manifest. Local generated text remains available only as fallback when remote assets are missing."
-                    : "Remote page image is still loading. The reader will fall back automatically if the asset fails."}
+                    ? "Published page image loaded from the remote manifest."
+                    : "Remote page image is still loading. Support text will remain visible if the asset fails."}
                 </Text>
               </View>
             ) : (
@@ -352,7 +361,7 @@ export default function ReaderScreen() {
               Reading context
             </Text>
             <Text style={{ color: colors.textMuted, fontSize: 15, lineHeight: 22 }}>
-              {metadata?.title ?? book.title} | {selectedLanguage?.title ?? pageContent.meta.languageTitle} | {selectedVolume?.title ?? pageContent.meta.volumeTitle}
+              {metadata?.title ?? catalogBook?.title ?? "Published book"} | {selectedLanguage?.title ?? pageContent.meta.languageTitle} | {selectedVolume?.title ?? pageContent.meta.volumeTitle}
             </Text>
             <Text style={{ color: colors.textMuted, fontSize: 15, lineHeight: 22 }}>
               {currentSection
@@ -389,7 +398,7 @@ export default function ReaderScreen() {
           <View style={{ flexDirection: "row", gap: 12 }}>
             {currentPage > 1 ? (
               <Link
-                href={`/reader/${book.id}/${resolvedLanguageId}/${resolvedVolumeId}/${currentPage - 1}` as const}
+                href={`/reader/${readingBookId}/${resolvedLanguageId}/${resolvedVolumeId}/${currentPage - 1}` as const}
                 asChild
               >
                 <Pressable
@@ -423,7 +432,7 @@ export default function ReaderScreen() {
             )}
             {currentPage < totalPages ? (
               <Link
-                href={`/reader/${book.id}/${resolvedLanguageId}/${resolvedVolumeId}/${currentPage + 1}` as const}
+                href={`/reader/${readingBookId}/${resolvedLanguageId}/${resolvedVolumeId}/${currentPage + 1}` as const}
                 asChild
               >
                 <Pressable

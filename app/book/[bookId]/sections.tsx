@@ -1,10 +1,10 @@
 import { Link, Stack, useLocalSearchParams } from "expo-router";
-import { Pressable, ScrollView, Text, View } from "react-native";
+import { Pressable, ScrollView, Text } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { ErrorCard, LoadingCard } from "../../../components/ui";
-import { getBookById, getLanguageForBook, getVolumeForBook } from "../../../data/books";
 import { useRemoteBookData } from "../../../hooks/useRemoteBookData";
+import { useReadingProgress } from "../../../hooks/useReadingProgress";
 
 const colors = {
   background: "#F7F1E3",
@@ -14,21 +14,37 @@ const colors = {
   accent: "#C9A961",
 };
 
+function buildSections(totalPages: number) {
+  const total = Math.max(totalPages, 1);
+  const sectionCount = Math.min(6, Math.max(3, Math.ceil(total / 40)));
+  const sectionSpan = Math.max(1, Math.ceil(total / sectionCount));
+
+  return Array.from({ length: sectionCount }, (_, index) => {
+    const startPage = index * sectionSpan + 1;
+    const endPage = index === sectionCount - 1 ? total : Math.min(total, (index + 1) * sectionSpan);
+
+    return {
+      id: `section-${index + 1}`,
+      title: `Section ${index + 1}`,
+      startPage,
+      endPage,
+      estimatedMinutes: Math.max(10, (endPage - startPage + 1) * 2),
+    };
+  });
+}
+
 export default function BookSectionsScreen() {
   const { bookId } = useLocalSearchParams<{ bookId: string }>();
-  const book = getBookById(bookId);
-  const language = getLanguageForBook(book, book.continueReading.languageId);
-  const volume = getVolumeForBook(book, language.id, book.continueReading.volumeId);
-  const { metadata, metadataError, isMetadataLoading, selectedLanguage, selectedVolume } =
-    useRemoteBookData(
-    book.id,
-    language.id,
-    volume.id,
-  );
-  const displayTitle = metadata?.title ?? book.title;
-  const displayLanguageTitle = selectedLanguage?.title ?? language.title;
-  const resolvedLanguageId = selectedLanguage?.id ?? language.id;
-  const resolvedVolumeId = selectedVolume?.id ?? volume.id;
+  const readingBookId = Array.isArray(bookId) ? bookId[0] : bookId ?? "";
+  const { progress } = useReadingProgress(readingBookId);
+  const { metadata, metadataError, isMetadataLoading, manifest, selectedLanguage, selectedVolume } =
+    useRemoteBookData(readingBookId, progress?.languageId, progress?.volumeId);
+  const totalPages = manifest?.totalPages ?? 1;
+  const sections = buildSections(totalPages);
+  const displayTitle = metadata?.title ?? "Published book";
+  const displayLanguageTitle = selectedLanguage?.title ?? progress?.languageId ?? "Edition";
+  const resolvedLanguageId = selectedLanguage?.id ?? progress?.languageId ?? "english";
+  const resolvedVolumeId = selectedVolume?.id ?? progress?.volumeId ?? "volume1";
 
   return (
     <>
@@ -53,15 +69,15 @@ export default function BookSectionsScreen() {
           ) : null}
           {metadataError ? (
             <ErrorCard
-              title="Using local section data"
-              message="Published metadata could not be loaded for this book."
+              title="Published metadata unavailable"
+              message="This book's published metadata could not be loaded."
             />
           ) : null}
           <Text style={{ color: colors.textMuted, fontSize: 15 }}>{displayLanguageTitle}</Text>
-          {volume.sections.map((section) => (
+          {sections.map((section) => (
             <Link
               key={section.id}
-              href={`/reader/${book.id}/${resolvedLanguageId}/${resolvedVolumeId}/${section.startPage}` as const}
+              href={`/reader/${readingBookId}/${resolvedLanguageId}/${resolvedVolumeId}/${section.startPage}` as const}
               asChild
             >
               <Pressable

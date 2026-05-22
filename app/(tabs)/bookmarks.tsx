@@ -2,12 +2,13 @@ import { Link } from "expo-router";
 import { Pressable, ScrollView, Text, View } from "react-native";
 
 import { EmptyCard, ErrorCard, LoadingCard, PageHeader, Screen, SectionCard } from "../../components/ui";
-import { formatLastReadLabel, getBookById, getCurrentSectionForPage } from "../../data/books";
 import { useBookmarks } from "../../hooks/useBookmarks";
+import { useRemoteCatalog } from "../../hooks/useRemoteCatalog";
 import { colors } from "../../constants/theme";
 
 export default function BookmarksScreen() {
   const { error, filteredBookmarks, isLoaded, removeBookmark } = useBookmarks();
+  const { catalog } = useRemoteCatalog();
 
   return (
     <Screen>
@@ -28,13 +29,7 @@ export default function BookmarksScreen() {
           />
         ) : (
           filteredBookmarks.map((bookmark) => {
-            const book = getBookById(bookmark.bookId);
-            const section = getCurrentSectionForPage(
-              book,
-              bookmark.languageId,
-              bookmark.volumeId,
-              bookmark.page,
-            );
+            const book = catalog?.books.find((entry) => entry.id === bookmark.bookId);
 
             return (
               <Link
@@ -51,12 +46,12 @@ export default function BookmarksScreen() {
                     padding: 20,
                     gap: 10,
                   }}
-                >
-                  <Text style={{ color: colors.text, fontSize: 20, fontWeight: "800" }}>
-                    {book.title}
+                  >
+                    <Text style={{ color: colors.text, fontSize: 20, fontWeight: "800" }}>
+                    {book?.title ?? bookmark.bookId}
                   </Text>
                   <Text style={{ color: colors.textMuted, fontSize: 16, lineHeight: 23 }}>
-                    {section?.title ?? book.subtitle}
+                    {book?.subtitle ?? `${bookmark.languageId} | ${bookmark.volumeId}`}
                   </Text>
                   <Text
                     style={{
@@ -67,7 +62,7 @@ export default function BookmarksScreen() {
                       letterSpacing: 0.4,
                     }}
                   >
-                    Page {bookmark.page} | {formatLastReadLabel(bookmark.createdAt)}
+                    Page {bookmark.page} | Saved
                   </Text>
                   <Pressable
                     onPress={(event) => {

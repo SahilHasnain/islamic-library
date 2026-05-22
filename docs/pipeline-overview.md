@@ -23,7 +23,7 @@ The pipeline has 4 main parts:
 1. `Admin Console`
 2. `Appwrite`
 3. `Worker Service`
-4. `Assets Repo + jsDelivr`
+4. `Assets Repo + Delivery URLs`
 
 The flow is:
 
@@ -111,7 +111,7 @@ Important files:
 - [src/publish.mjs](C:/Users/MD%20SAHIL%20HASNAIN/desktop/projects/islamic-library/worker-service/src/publish.mjs)
 - [src/appwrite.mjs](C:/Users/MD%20SAHIL%20HASNAIN/desktop/projects/islamic-library/worker-service/src/appwrite.mjs)
 
-### 4. Assets Repo + jsDelivr
+### 4. Assets Repo + Delivery URLs
 
 Assets repo location:
 
@@ -120,12 +120,23 @@ Assets repo location:
 Purpose:
 
 - store only public published content
-- act as the source for the app's remote catalog
+- store the public catalog file
 - serve page images, metadata, and manifests through jsDelivr
 
 Think of this as the `delivery plane`.
 
 The app should never read raw Appwrite job data for published content.
+
+Important delivery split:
+
+- `catalog.json` should be fetched from `raw.githubusercontent.com`
+- `metadata.json`, `manifest.json`, covers, and page images should be fetched from `jsDelivr`
+
+Why:
+
+- `catalog.json` changes immediately when a new book is published
+- jsDelivr can keep `@main` aliases cached for up to 7 days
+- reading assets are stable static files, so CDN caching helps there
 
 Important:
 
@@ -236,7 +247,7 @@ That means assets can exist in the repo before users see the book, but the app w
 
 The Expo app reads:
 
-- remote `catalog.json`
+- remote `catalog.json` from raw GitHub
 - per-book `metadata.json`
 - per-volume `manifest.json`
 - page image URLs

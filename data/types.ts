@@ -143,7 +143,7 @@ export type PublicVolumeManifest = {
   totalPages: number;
   baseUrl: string;
   filePattern: string;
-  extension: "webp";
+  extension: string;
   coverImage?: string;
   pages?: PublicManifestPage[];
 };

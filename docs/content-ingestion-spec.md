@@ -29,8 +29,9 @@ Recommended pipeline:
 4. Worker converts PDF to page images
 5. Worker generates manifest and metadata output
 6. Worker pushes assets and metadata to GitHub
-7. Assets are served through jsDelivr
-8. App reads only published catalog entries
+7. Catalog is served from raw GitHub
+8. Metadata, manifests, covers, and page assets are served through jsDelivr
+9. App reads only published catalog entries
 
 ## Core Principle
 
@@ -84,13 +85,17 @@ Use the GitHub repo for:
 
 This repo becomes the static published output.
 
-### 4. jsDelivr
+### 4. Delivery URLs
+
+Use `raw.githubusercontent.com` for:
+
+- `catalog.json`
 
 Use jsDelivr as the delivery layer for:
 
 - page images
 - manifests
-- catalog JSON
+- book metadata JSON
 - covers if needed
 
 ## Source Of Truth
@@ -104,7 +109,8 @@ Before publish:
 After publish:
 
 - GitHub repo contents are source of truth for public assets
-- frontend consumes public catalog/manifests from GitHub via jsDelivr
+- frontend consumes `catalog.json` from raw GitHub
+- frontend consumes metadata/manifests/page assets via jsDelivr
 
 ## Workflow
 
@@ -262,6 +268,10 @@ Example:
 ```
 
 The frontend should rely on this catalog, not hardcoded book lists.
+
+Recommended catalog origin:
+
+- `https://raw.githubusercontent.com/<github-user>/<repo>/main/catalog.json`
 
 ## Book Metadata Design
 
@@ -484,7 +494,9 @@ The recommended architecture is:
 
 - `Appwrite` for upload, auth, and job state
 - `VPS worker` for conversion and publishing
-- `GitHub repo + jsDelivr` for public delivery
+- `GitHub repo` as the public source of truth
+- `raw GitHub` for catalog delivery
+- `jsDelivr` for metadata/manifests/page assets
 - `Remote catalog + remote manifests` for frontend discovery
 
 This is the correct V1 content workflow.

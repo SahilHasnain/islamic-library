@@ -1,29 +1,14 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
-import { BOOKS } from "../data/books";
-import type { LibraryBook, ReadingProgress } from "../data/types";
+import type { ReadingProgress } from "../data/types";
 
 const STORAGE_KEY = "islamic-library:reading-progress";
 
 type ReadingProgressMap = Record<string, ReadingProgress>;
 
-function createSeedProgress(book: LibraryBook): ReadingProgress {
-  return {
-    bookId: book.id,
-    languageId: book.continueReading.languageId,
-    volumeId: book.continueReading.volumeId,
-    page: book.continueReading.page,
-    updatedAt: new Date().toISOString(),
-  };
-}
-
-function createSeedMap(): ReadingProgressMap {
-  return Object.fromEntries(BOOKS.map((book) => [book.id, createSeedProgress(book)]));
-}
-
 export function useReadingProgress(bookId?: string) {
-  const [progressMap, setProgressMap] = useState<ReadingProgressMap>(createSeedMap);
+  const [progressMap, setProgressMap] = useState<ReadingProgressMap>({});
   const [isLoaded, setIsLoaded] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -38,22 +23,19 @@ export function useReadingProgress(bookId?: string) {
         }
 
         if (!stored) {
-          setProgressMap(createSeedMap());
+          setProgressMap({});
           setError(null);
           setIsLoaded(true);
           return;
         }
 
         const parsed = JSON.parse(stored) as ReadingProgressMap;
-        setProgressMap({
-          ...createSeedMap(),
-          ...parsed,
-        });
+        setProgressMap(parsed);
         setError(null);
         setIsLoaded(true);
       } catch {
         if (isMounted) {
-          setProgressMap(createSeedMap());
+          setProgressMap({});
           setError("reading-progress-load-failed");
           setIsLoaded(true);
         }
@@ -91,11 +73,11 @@ export function useReadingProgress(bookId?: string) {
   }, []);
 
   const resetProgress = useCallback(async () => {
-    const seedMap = createSeedMap();
-    setProgressMap(seedMap);
+    const emptyMap = {};
+    setProgressMap(emptyMap);
 
     try {
-      await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(seedMap));
+      await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(emptyMap));
     } catch {
       // Keep in-memory state even if persistence fails.
     }

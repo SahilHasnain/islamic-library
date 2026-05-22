@@ -3,15 +3,8 @@ import { Pressable, ScrollView, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { ErrorCard, LoadingCard } from "../../../components/ui";
-import {
-  formatLastReadLabel,
-  getBookById,
-  getCurrentSectionForPage,
-  getEffectiveProgress,
-  getLanguageForBook,
-  getPlanProgress,
-  getVolumeForBook,
-} from "../../../data/books";
+import { formatLastReadLabel } from "../../../data/books";
+import type { ReadingPlan } from "../../../data/types";
 import { useRemoteBookData } from "../../../hooks/useRemoteBookData";
 import { useReadingPlans } from "../../../hooks/useReadingPlans";
 import { useReadingProgress } from "../../../hooks/useReadingProgress";
@@ -24,14 +17,58 @@ const colors = {
   textMuted: "#5F6C65",
 };
 
+function buildRemotePlans(totalPages: number): ReadingPlan[] {
+  const total = Math.max(totalPages, 1);
+  const presets = [7, 14, 30];
+
+  return presets.map((days) => {
+    const pageSpan = Math.max(1, Math.ceil(total / days));
+    return {
+      id: `remote-${days}-day`,
+      title: `${days}-day reading path`,
+      description: `Read through this edition over ${days} steady sessions.`,
+      totalDays: days,
+      items: Array.from({ length: days }, (_, index) => {
+        const startPage = Math.min(total, index * pageSpan + 1);
+        const endPage =
+          index === days - 1 ? total : Math.min(total, (index + 1) * pageSpan);
+
+        return {
+          day: index + 1,
+          label: `Day ${index + 1}`,
+          startPage,
+          endPage,
+          estimatedMinutes: Math.max(8, (endPage - startPage + 1) * 2),
+        };
+      }),
+    };
+  });
+}
+
+function buildSections(totalPages: number) {
+  const total = Math.max(totalPages, 1);
+  const sectionCount = Math.min(6, Math.max(3, Math.ceil(total / 40)));
+  const sectionSpan = Math.max(1, Math.ceil(total / sectionCount));
+
+  return Array.from({ length: sectionCount }, (_, index) => {
+    const startPage = index * sectionSpan + 1;
+    const endPage = index === sectionCount - 1 ? total : Math.min(total, (index + 1) * sectionSpan);
+
+    return {
+      id: `section-${index + 1}`,
+      title: `Section ${index + 1}`,
+      startPage,
+      endPage,
+      estimatedMinutes: Math.max(10, (endPage - startPage + 1) * 2),
+    };
+  });
+}
+
 export default function BookHomeScreen() {
   const { bookId } = useLocalSearchParams<{ bookId: string }>();
-  const book = getBookById(bookId);
-  const { progress } = useReadingProgress(book.id);
-  const { activePlan } = useReadingPlans(book.id);
-  const effectiveProgress = getEffectiveProgress(book, progress);
-  const language = getLanguageForBook(book, effectiveProgress.languageId);
-  const volume = getVolumeForBook(book, language.id, effectiveProgress.volumeId);
+  const readingBookId = Array.isArray(bookId) ? bookId[0] : bookId ?? "";
+  const { progress } = useReadingProgress(readingBookId);
+  const { activePlan } = useReadingPlans(readingBookId);
   const {
     catalogBook,
     metadata,
@@ -42,25 +79,44 @@ export default function BookHomeScreen() {
     isManifestLoading,
     remoteState,
     selectedLanguage,
-    source,
-  } = useRemoteBookData(book.id, language.id, volume.id);
-  const currentSection = getCurrentSectionForPage(
-    book,
-    language.id,
-    volume.id,
-    effectiveProgress.page,
-  );
-  const featuredPlan = volume.plans[0];
-  const planProgress = getPlanProgress(book, effectiveProgress, activePlan);
-  const displayTitle = metadata?.title ?? book.title;
-  const displaySubtitle = metadata?.subtitle ?? book.subtitle;
-  const displayDescription = metadata?.description ?? book.description;
-  const displayAuthor = metadata?.author ?? book.author;
-  const displayCategory = metadata?.category ?? book.category;
-  const resolvedLanguageId = selectedLanguage?.id ?? language.id;
-  const resolvedVolumeId = manifest?.volumeId ?? volume.id;
-  const displayLanguageTitle = selectedLanguage?.title ?? language.title;
-  const totalPages = manifest?.totalPages ?? volume.totalPages;
+    selectedVolume,
+  } = useRemoteBookData(readingBookId, progress?.languageId, progress?.volumeId);
+
+  const resolvedLanguageId =
+    selectedLanguage?.id ?? progress?.languageId ?? metadata?.languages?.[0]?.id ?? "english";
+  const resolvedVolumeId =
+    selectedVolume?.id ??
+    progress?.volumeId ??
+    selectedLanguage?.volumes?.[0]?.id ??
+    metadata?.languages?.[0]?.volumes?.[0]?.id ??
+    "volume1";
+  const totalPages = manifest?.totalPages ?? 1;
+  const resumePage = Math.min(progress?.page ?? 1, totalPages);
+  const displayTitle = metadata?.title ?? catalogBook?.title ?? "Published book";
+  const displaySubtitle = metadata?.subtitle ?? catalogBook?.subtitle ?? "Remote edition";
+  const displayDescription =
+    metadata?.description ?? "This book is being read from the published remote catalog.";
+  const displayAuthor = metadata?.author ?? catalogBook?.author;
+  const displayCategory = metadata?.category ?? catalogBook?.category ?? "Library";
+  const displayLanguageTitle =
+    selectedLanguage?.title ?? metadata?.languages?.[0]?.title ?? resolvedLanguageId;
+  const displayVolumeTitle = selectedVolume?.title ?? resolvedVolumeId;
+  const sections = buildSections(totalPages);
+  const plans = buildRemotePlans(totalPages);
+  const activeRemotePlan =
+    activePlan &&
+    activePlan.languageId === resolvedLanguageId &&
+    activePlan.volumeId === resolvedVolumeId
+      ? plans.find((plan) => plan.id === activePlan.planId)
+      : undefined;
+  const currentPlanItem =
+    activeRemotePlan?.items.find(
+      (item) => resumePage >= item.startPage && resumePage <= item.endPage,
+    ) ?? activeRemotePlan?.items[0];
+  const currentDay = currentPlanItem?.day ?? 1;
+  const progressPercent = activeRemotePlan
+    ? Math.min(100, Math.round((currentDay / activeRemotePlan.totalDays) * 100))
+    : 0;
 
   return (
     <>
@@ -83,27 +139,23 @@ export default function BookHomeScreen() {
           {metadataError || manifestError ? (
             <ErrorCard
               title="Remote book data unavailable"
-              message="Published metadata or manifest could not be loaded, so local seeded book data is being used."
+              message="Published metadata or manifest could not be loaded for this book."
             />
           ) : null}
           {!catalogBook ? (
             <ErrorCard
               title="Book not in published catalog"
-              message="This route exists locally, but the book is not present in the current published catalog."
+              message="This book is not present in the current published catalog."
             />
           ) : null}
-          {catalogBook && remoteState === "language-missing" ? (
+          {catalogBook &&
+          ["language-missing", "volume-missing", "manifest-missing"].includes(remoteState) ? (
             <ErrorCard
-              title="Published language unavailable"
-              message="This local language selection does not exist in the published book metadata."
+              title="Published edition incomplete"
+              message="The selected published edition is missing language, volume, or manifest data."
             />
           ) : null}
-          {catalogBook && remoteState === "volume-missing" ? (
-            <ErrorCard
-              title="Published volume unavailable"
-              message="This local volume selection does not exist in the published book metadata."
-            />
-          ) : null}
+
           <View
             style={{
               backgroundColor: colors.text,
@@ -127,14 +179,15 @@ export default function BookHomeScreen() {
               {displayTitle}
             </Text>
             <Text style={{ color: "#D9E2DC", fontSize: 16, lineHeight: 24 }}>
-              {currentSection?.title ?? displaySubtitle}
+              {displaySubtitle}
             </Text>
             <Text style={{ color: "#C9D5CF", fontSize: 14, lineHeight: 22 }}>
-              {displayLanguageTitle} | Page {effectiveProgress.page} of {totalPages} | {formatLastReadLabel(effectiveProgress.updatedAt)}
+              {displayLanguageTitle} | Page {resumePage} of {totalPages} |{" "}
+              {formatLastReadLabel(progress?.updatedAt)}
             </Text>
             <Link
               href={
-                `/reader/${book.id}/${resolvedLanguageId}/${resolvedVolumeId}/${effectiveProgress.page}` as const
+                `/reader/${readingBookId}/${resolvedLanguageId}/${resolvedVolumeId}/${resumePage}` as const
               }
               asChild
             >
@@ -170,12 +223,12 @@ export default function BookHomeScreen() {
                 letterSpacing: 0.4,
               }}
             >
-              {displayCategory} | {displayAuthor ?? "Editorial selection"} | {source === "remote" ? "Remote metadata" : "Local fallback"}
+              {displayCategory} | {displayAuthor ?? "Editorial selection"} | Remote metadata
             </Text>
           </View>
 
           <View style={{ flexDirection: "row", gap: 12 }}>
-            <Link href={`/book/${book.id}/sections` as const} asChild>
+            <Link href={`/book/${readingBookId}/sections` as const} asChild>
               <Pressable
                 style={{
                   flex: 1,
@@ -189,11 +242,11 @@ export default function BookHomeScreen() {
                   Sections
                 </Text>
                 <Text style={{ color: colors.textMuted, fontSize: 14, lineHeight: 21 }}>
-                  Browse the book in manageable portions.
+                  Browse this edition in manageable page ranges.
                 </Text>
               </Pressable>
             </Link>
-            <Link href={`/book/${book.id}/plans` as const} asChild>
+            <Link href={`/book/${readingBookId}/plans` as const} asChild>
               <Pressable
                 style={{
                   flex: 1,
@@ -207,7 +260,7 @@ export default function BookHomeScreen() {
                   Plans
                 </Text>
                 <Text style={{ color: colors.textMuted, fontSize: 14, lineHeight: 21 }}>
-                  Start with a plan that fits your pace.
+                  Follow a remote reading plan that matches your pace.
                 </Text>
               </Pressable>
             </Link>
@@ -215,9 +268,12 @@ export default function BookHomeScreen() {
 
           <View style={{ backgroundColor: colors.surface, borderRadius: 24, padding: 20, gap: 12 }}>
             <Text style={{ color: colors.text, fontSize: 22, fontWeight: "800" }}>
-              Sections
+              Published edition
             </Text>
-            {volume.sections.slice(0, 3).map((section) => (
+            <Text style={{ color: colors.text, fontSize: 17, fontWeight: "700" }}>
+              {displayLanguageTitle} | {displayVolumeTitle}
+            </Text>
+            {sections.slice(0, 3).map((section) => (
               <View key={section.id} style={{ gap: 4 }}>
                 <Text style={{ color: colors.text, fontSize: 17, fontWeight: "700" }}>
                   {section.title}
@@ -233,13 +289,13 @@ export default function BookHomeScreen() {
             <Text style={{ color: colors.text, fontSize: 22, fontWeight: "800" }}>
               Suggested plan
             </Text>
-            {planProgress ? (
+            {activeRemotePlan ? (
               <>
                 <Text style={{ color: colors.text, fontSize: 18, fontWeight: "700" }}>
-                  {planProgress.plan.title}
+                  {activeRemotePlan.title}
                 </Text>
                 <Text style={{ color: colors.textMuted, fontSize: 16, lineHeight: 24 }}>
-                  Day {planProgress.currentDay} of {planProgress.plan.totalDays}
+                  Day {currentDay} of {activeRemotePlan.totalDays}
                 </Text>
                 <View
                   style={{
@@ -251,7 +307,7 @@ export default function BookHomeScreen() {
                 >
                   <View
                     style={{
-                      width: `${planProgress.progressPercent}%`,
+                      width: `${progressPercent}%`,
                       height: "100%",
                       backgroundColor: colors.accent,
                     }}
@@ -266,16 +322,16 @@ export default function BookHomeScreen() {
                     letterSpacing: 0.4,
                   }}
                 >
-                  {planProgress.currentItem?.label} | Pages {planProgress.currentItem?.startPage}-{planProgress.currentItem?.endPage}
+                  {currentPlanItem?.label} | Pages {currentPlanItem?.startPage}-{currentPlanItem?.endPage}
                 </Text>
               </>
             ) : (
               <>
                 <Text style={{ color: colors.text, fontSize: 18, fontWeight: "700" }}>
-                  {featuredPlan.title}
+                  {plans[0].title}
                 </Text>
                 <Text style={{ color: colors.textMuted, fontSize: 16, lineHeight: 24 }}>
-                  {featuredPlan.description}
+                  {plans[0].description}
                 </Text>
                 <Text
                   style={{
@@ -286,7 +342,7 @@ export default function BookHomeScreen() {
                     letterSpacing: 0.4,
                   }}
                 >
-                  {featuredPlan.totalDays} days | {featuredPlan.items[0].estimatedMinutes} min on day 1
+                  {plans[0].totalDays} days | Pages {plans[0].items[0].startPage}-{plans[0].items[0].endPage} on day 1
                 </Text>
               </>
             )}
