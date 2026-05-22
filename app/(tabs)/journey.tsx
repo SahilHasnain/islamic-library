@@ -43,7 +43,7 @@ export default function JourneyScreen() {
             {totalPagesRead}
           </Text>
           <Text style={{ color: colors.textMuted, fontSize: 16, lineHeight: 23 }}>
-            Pages reached across the current remote library.
+            Pages reached across your current library.
           </Text>
         </View>
 

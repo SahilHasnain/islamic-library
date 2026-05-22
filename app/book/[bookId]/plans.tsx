@@ -17,7 +17,7 @@ function buildRemotePlans(totalPages: number): PublicBookPlan[] {
     return {
       id: `remote-${days}-day`,
       title: `${days}-day reading path`,
-      description: `Read through this edition over ${days} steady sessions.`,
+      description: `Read through this book over ${days} steady sessions.`,
       totalDays: days,
       items: Array.from({ length: days }, (_, index) => {
         const startPage = Math.min(total, index * pageSpan + 1);
@@ -83,7 +83,7 @@ export default function BookPlansScreen() {
           {isMetadataLoading ? (
             <LoadingCard
               title="Loading book metadata"
-              message="Fetching the published edition details for this book."
+              message="Preparing the reading plans for this book."
             />
           ) : null}
           {!plansLoaded || !progressLoaded ? (
@@ -115,7 +115,7 @@ export default function BookPlansScreen() {
                   return (
                     <EmptyCard
                       title="Active plan unavailable"
-                      message="The selected plan could not be matched to this published edition."
+                      message="This plan is not available for the current reading edition."
                     />
                   );
                 }

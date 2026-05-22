@@ -34,11 +34,11 @@ function getDownloadStatusLabel({
   isPartiallyDownloaded: boolean;
 }) {
   if (!canDownload) {
-    return "Unavailable offline";
+    return "Read online";
   }
 
   if (isDownloading) {
-    return "Downloading";
+    return "Saving for offline reading";
   }
 
   if (isFullyDownloaded) {
@@ -46,10 +46,10 @@ function getDownloadStatusLabel({
   }
 
   if (isPartiallyDownloaded) {
-    return "Partially offline";
+    return "Partly saved offline";
   }
 
-  return "Available online";
+  return "Available to save";
 }
 
 function buildFallbackPlans(totalPages: number): PublicBookPlan[] {
@@ -61,7 +61,7 @@ function buildFallbackPlans(totalPages: number): PublicBookPlan[] {
     return {
       id: `remote-${days}-day`,
       title: `${days}-day reading path`,
-      description: `Read through this edition over ${days} steady sessions.`,
+      description: `Read through this book over ${days} steady sessions.`,
       totalDays: days,
       items: Array.from({ length: days }, (_, index) => {
         const startPage = Math.min(total, index * pageSpan + 1);
@@ -96,7 +96,7 @@ function buildFallbackSections(totalPages: number): PublicBookSection[] {
       startPage,
       endPage,
       estimatedMinutes: Math.max(10, (endPage - startPage + 1) * 2),
-      description: "Structured remote reading segment.",
+      description: "A calm portion for steady reading.",
     };
   });
 }
@@ -139,10 +139,10 @@ export default function BookHomeScreen() {
     "volume1";
   const totalPages = manifest?.totalPages ?? 1;
   const resumePage = Math.min(progress?.page ?? 1, totalPages);
-  const displayTitle = metadata?.title ?? catalogBook?.title ?? "Published book";
-  const displaySubtitle = metadata?.subtitle ?? catalogBook?.subtitle ?? "Remote edition";
+  const displayTitle = metadata?.title ?? catalogBook?.title ?? "Book";
+  const displaySubtitle = metadata?.subtitle ?? catalogBook?.subtitle ?? "Reading edition";
   const displayDescription =
-    metadata?.description ?? "This book is being read from the published remote catalog.";
+    metadata?.description ?? "Open the book and continue with steady reading.";
   const displayAuthor = metadata?.author ?? catalogBook?.author;
   const displayCategory = metadata?.category ?? catalogBook?.category ?? "Library";
   const displayLanguageTitle =
@@ -202,26 +202,26 @@ export default function BookHomeScreen() {
           {isMetadataLoading || isManifestLoading ? (
             <LoadingCard
               title="Loading book data"
-              message="Fetching the published metadata and manifest for this book."
+              message="Preparing this book for reading."
             />
           ) : null}
           {metadataError || manifestError ? (
             <ErrorCard
-              title="Remote book data unavailable"
-              message="Published metadata or manifest could not be loaded for this book."
+              title="Book details unavailable"
+              message="This book could not be loaded right now."
             />
           ) : null}
           {!catalogBook ? (
             <ErrorCard
-              title="Book not in published catalog"
-              message="This book is not present in the current published catalog."
+              title="Book unavailable"
+              message="This book is not available right now."
             />
           ) : null}
           {catalogBook &&
           ["language-missing", "volume-missing", "manifest-missing"].includes(remoteState) ? (
             <ErrorCard
-              title="Published edition incomplete"
-              message="The selected published edition is missing language, volume, or manifest data."
+              title="Edition unavailable"
+              message="This reading edition is incomplete right now."
             />
           ) : null}
 
@@ -280,7 +280,7 @@ export default function BookHomeScreen() {
                   Reading state
                 </Text>
                 <Text style={{ color: "#FFF9EA", fontSize: 14, fontWeight: "600" }}>
-                  Published remotely
+                  Ready to read
                 </Text>
               </View>
               <View
@@ -316,7 +316,7 @@ export default function BookHomeScreen() {
                       ? `Downloading ${downloadProgressPercent}%`
                       : isFullyDownloaded
                         ? "Remove download"
-                        : "Download for offline"}
+                        : "Save for offline"}
                   </Text>
                 </Pressable>
               ) : null}
@@ -603,7 +603,7 @@ export default function BookHomeScreen() {
                 letterSpacing: 0.4,
               }}
             >
-              {displayCategory} | {displayAuthor ?? "Editorial selection"} | Remote metadata
+              {displayCategory} | {displayAuthor ?? "Editorial selection"}
             </Text>
           </View>
 

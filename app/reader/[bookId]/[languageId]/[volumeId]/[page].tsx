@@ -138,8 +138,8 @@ function ReaderPageSurface({
         }}
       >
         {remoteState === "ready"
-          ? "The published page image is unavailable for this page."
-          : "Published reader assets are still being resolved for this edition."}
+          ? "This page is not ready yet."
+          : "Preparing this page for reading."}
       </Text>
     </View>
   );
@@ -212,18 +212,18 @@ export default function ReaderScreen() {
     : activePageAsset?.kind === "local"
       ? "Ready offline"
       : activePageAsset?.kind === "remote"
-        ? "Streaming from published source"
+        ? "Reading with connection"
         : remoteState === "ready"
           ? "Not available offline yet"
-          : "Resolving published reader assets";
+          : "Preparing your page";
   const activePageSupportMessage =
     activePageAsset?.kind === "local"
       ? "This page is cached on this device and can open offline."
       : activePageAsset?.kind === "remote"
-        ? "This page is available from the published source and will cache as you continue reading."
+        ? "This page is opening with an internet connection and will save as you continue."
         : remoteState === "ready"
           ? "This page has not been cached locally yet. Connect once or download the volume for offline reading."
-          : "The published edition is still being resolved for this reading session.";
+          : "Please wait while this page is prepared.";
   const editionLine = `${selectedLanguage?.title ?? languageId} • ${selectedVolume?.title ?? volumeId} • ${currentSection.title}`;
 
   useEffect(() => {
@@ -364,7 +364,7 @@ export default function ReaderScreen() {
               textAlign: "center",
             }}
           >
-            This immersive reader targets Android and iOS first. Web support can stay simpler.
+            This reader is designed first for Android and iOS.
           </Text>
         </View>
       ) : (
@@ -496,7 +496,7 @@ export default function ReaderScreen() {
             </Text>
             {remoteImageState === "error" ? (
               <Text style={{ color: colors.textMuted, fontSize: 13 }}>
-                This page asset failed to load. Reopen the page after the asset is available.
+                This page could not be opened right now. Try again in a moment.
               </Text>
             ) : (
               <Text style={{ color: colors.textMuted, fontSize: 13 }}>
@@ -505,7 +505,7 @@ export default function ReaderScreen() {
             )}
             {!catalogBook ? (
               <Text style={{ color: colors.textMuted, fontSize: 13 }}>
-                This book is not present in the published catalog yet.
+                This book is not available right now.
               </Text>
             ) : null}
           </View>

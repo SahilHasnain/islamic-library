@@ -36,11 +36,11 @@ function getDownloadStatusLabel({
   isPartiallyDownloaded: boolean;
 }) {
   if (!canDownload) {
-    return "Unavailable offline";
+    return "Read online";
   }
 
   if (isDownloading) {
-    return "Downloading";
+    return "Saving for offline reading";
   }
 
   if (isFullyDownloaded) {
@@ -48,10 +48,10 @@ function getDownloadStatusLabel({
   }
 
   if (isPartiallyDownloaded) {
-    return "Partially offline";
+    return "Partly saved offline";
   }
 
-  return "Available online";
+  return "Available to save";
 }
 
 function FeaturedBookHero({
@@ -107,7 +107,7 @@ function FeaturedBookHero({
           >
             {title}
           </Text>
-          <BodyText color={colors.textOnDarkMuted}>{subtitle ?? "Published book"}</BodyText>
+          <BodyText color={colors.textOnDarkMuted}>{subtitle ?? "Reading edition"}</BodyText>
           <Text
             style={{
               color: colors.textOnDarkSubtle,
@@ -208,7 +208,7 @@ function FeaturedBookHero({
                   ? `Downloading ${progressPercent}%`
                   : isFullyDownloaded
                     ? "Remove download"
-                    : "Download offline"}
+                    : "Save offline"}
               </Text>
             </Pressable>
           </View>
@@ -273,7 +273,7 @@ function LibraryBookCard({
                   lineHeight: 22,
                 }}
               >
-                {subtitle ?? "Published from the remote catalog"}
+                {subtitle ?? "Ready for reading"}
               </Text>
               <MetaText>
                 {category ?? "Library"} | {getContinueLine(page)}
@@ -307,7 +307,7 @@ function LibraryBookCard({
                 ? `Downloading ${progressPercent}%`
                 : isFullyDownloaded
                   ? "Remove download"
-                  : "Download offline"}
+                  : "Save offline"}
             </Text>
           </Pressable>
         </View>
@@ -367,26 +367,26 @@ export default function LibraryScreen() {
         ) : null}
         {isCatalogLoading ? (
           <LoadingCard
-            title="Loading remote catalog"
-            message="Fetching the published library catalog for this app."
+            title="Loading library"
+            message="Bringing your books into view."
           />
         ) : null}
         {catalogError ? (
           <ErrorCard
-            title="Remote catalog unavailable"
-            message="The app could not load the published catalog."
+            title="Library unavailable"
+            message="The library could not be loaded right now."
           />
         ) : null}
         {!isCatalogConfigured ? (
           <ErrorCard
-            title="Catalog URL not configured"
-            message="Set EXPO_PUBLIC_LIBRARY_CATALOG_URL to load the published remote catalog."
+            title="Library unavailable"
+            message="The library is not available in this build."
           />
         ) : null}
         {isCatalogConfigured && !isCatalogLoading && !catalogError && !hasRemoteCatalog ? (
           <ErrorCard
-            title="Published catalog is empty"
-            message="The remote catalog is configured, but it does not contain any published books yet."
+            title="No books yet"
+            message="The library does not contain any books yet."
           />
         ) : null}
 
@@ -464,7 +464,7 @@ export default function LibraryScreen() {
             {safeCategoryLabels.map((category) => (
               <Chip key={category} label={category} />
             ))}
-            {safeCategoryLabels.length === 0 ? <MetaText>No categories published yet.</MetaText> : null}
+            {safeCategoryLabels.length === 0 ? <MetaText>No categories yet.</MetaText> : null}
           </View>
         </SectionCard>
 
@@ -485,7 +485,7 @@ export default function LibraryScreen() {
               />
             ))
           ) : (
-            <MetaText>No published remote books found.</MetaText>
+            <MetaText>No books found.</MetaText>
           )}
         </SectionCard>
 

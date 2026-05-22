@@ -72,13 +72,13 @@ export default function BookSectionsScreen() {
           {isMetadataLoading ? (
             <LoadingCard
               title="Loading book metadata"
-              message="Fetching the published edition details for this book."
+              message="Preparing the reading sections for this book."
             />
           ) : null}
           {metadataError ? (
             <ErrorCard
               title="Published metadata unavailable"
-              message="This book's published metadata could not be loaded."
+              message="The sections for this book could not be loaded."
             />
           ) : null}
           <Text style={{ color: colors.textMuted, fontSize: 15 }}>
