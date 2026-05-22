@@ -1,11 +1,11 @@
 {
   "expo": {
-    "name": "naat-collection",
-    "slug": "naat-collection",
+    "name": "islamic-library",
+    "slug": "islamic-library",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
-    "scheme": "naatcollection",
+    "scheme": "islamiclibrary",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "ios": {
