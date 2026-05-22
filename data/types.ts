@@ -106,6 +106,10 @@ export type PublicBookMetadataVolume = {
   id: string;
   title: string;
   manifestUrl: string;
+  introNote?: string;
+  todayTarget?: string;
+  sections?: PublicBookSection[];
+  plans?: PublicBookPlan[];
 };
 
 export type PublicBookMetadataLanguage = {
@@ -123,7 +127,36 @@ export type PublicBookMetadata = {
   description?: string;
   category?: string;
   coverImage?: string;
+  featuredQuote?: string;
+  todayPrompt?: string;
+  devotionalContext?: string;
+  readingTone?: "calm-guided" | "study" | "reflective" | "liturgical";
   languages: PublicBookMetadataLanguage[];
+};
+
+export type PublicBookSection = {
+  id: string;
+  title: string;
+  startPage: number;
+  endPage: number;
+  estimatedMinutes: number;
+  description?: string;
+};
+
+export type PublicBookPlanItem = {
+  day: number;
+  label: string;
+  startPage: number;
+  endPage: number;
+  estimatedMinutes: number;
+};
+
+export type PublicBookPlan = {
+  id: string;
+  title: string;
+  description: string;
+  totalDays: number;
+  items: PublicBookPlanItem[];
 };
 
 export type PublicManifestPage = {
@@ -146,4 +179,15 @@ export type PublicVolumeManifest = {
   extension: string;
   coverImage?: string;
   pages?: PublicManifestPage[];
+};
+
+export type ResolvedManifestPageAsset = {
+  kind: "local" | "remote" | "missing";
+  source?: { uri: string };
+  uri?: string;
+  cacheUri?: string;
+  bookId: string;
+  languageId: string;
+  volumeId: string;
+  page: number;
 };

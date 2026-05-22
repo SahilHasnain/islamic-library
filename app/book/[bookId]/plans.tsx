@@ -3,12 +3,12 @@ import { Pressable, ScrollView, Text, View } from "react-native";
 
 import { EmptyCard, ErrorCard, LoadingCard, ProgressBar, Screen } from "../../../components/ui";
 import { colors, radii } from "../../../constants/theme";
-import type { ReadingPlan } from "../../../data/types";
+import type { PublicBookPlan } from "../../../data/types";
 import { useRemoteBookData } from "../../../hooks/useRemoteBookData";
 import { useReadingPlans } from "../../../hooks/useReadingPlans";
 import { useReadingProgress } from "../../../hooks/useReadingProgress";
 
-function buildRemotePlans(totalPages: number): ReadingPlan[] {
+function buildRemotePlans(totalPages: number): PublicBookPlan[] {
   const total = Math.max(totalPages, 1);
   const presets = [7, 14, 30];
 
@@ -43,10 +43,17 @@ export default function BookPlansScreen() {
     useReadingPlans(readingBookId);
   const { error: progressError, isLoaded: progressLoaded, progress } =
     useReadingProgress(readingBookId);
-  const { metadata, metadataError, isMetadataLoading, manifest, selectedLanguage, selectedVolume } =
-    useRemoteBookData(readingBookId, progress?.languageId, progress?.volumeId);
+  const {
+    metadata,
+    metadataError,
+    isMetadataLoading,
+    manifest,
+    selectedLanguage,
+    selectedVolume,
+  } = useRemoteBookData(readingBookId, progress?.languageId, progress?.volumeId);
   const totalPages = manifest?.totalPages ?? 1;
-  const plans = buildRemotePlans(totalPages);
+  const plans =
+    selectedVolume?.plans?.length ? selectedVolume.plans : buildRemotePlans(totalPages);
   const displayTitle = metadata?.title ?? "Published book";
   const displayLanguageTitle = selectedLanguage?.title ?? progress?.languageId ?? "Edition";
   const resolvedLanguageId = selectedLanguage?.id ?? progress?.languageId ?? "english";
@@ -92,6 +99,9 @@ export default function BookPlansScreen() {
             />
           ) : null}
           <Text style={{ color: colors.textMuted, fontSize: 15 }}>{displayLanguageTitle}</Text>
+          <Text style={{ color: colors.textMuted, fontSize: 16, lineHeight: 24 }}>
+            Choose a reading rhythm that helps you continue with steadiness rather than speed.
+          </Text>
 
           {activeRemotePlan && progress ? (
             <View style={{ backgroundColor: colors.surface, borderRadius: radii.md, padding: 18, gap: 8 }}>
@@ -118,7 +128,10 @@ export default function BookPlansScreen() {
                 return (
                   <>
                     <Text style={{ color: colors.text, fontSize: 18, fontWeight: "800" }}>
-                      Active plan: {activeRemotePlan.title}
+                      Active plan
+                    </Text>
+                    <Text style={{ color: colors.text, fontSize: 17, fontWeight: "700" }}>
+                      {activeRemotePlan.title}
                     </Text>
                     <Text style={{ color: colors.textMuted, fontSize: 15, lineHeight: 22 }}>
                       Day {currentPlanItem.day} of {activeRemotePlan.totalDays}

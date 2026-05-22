@@ -3,6 +3,7 @@ import { Pressable, ScrollView, Text } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { ErrorCard, LoadingCard } from "../../../components/ui";
+import type { PublicBookSection } from "../../../data/types";
 import { useRemoteBookData } from "../../../hooks/useRemoteBookData";
 import { useReadingProgress } from "../../../hooks/useReadingProgress";
 
@@ -14,7 +15,7 @@ const colors = {
   accent: "#C9A961",
 };
 
-function buildSections(totalPages: number) {
+function buildSections(totalPages: number): PublicBookSection[] {
   const total = Math.max(totalPages, 1);
   const sectionCount = Math.min(6, Math.max(3, Math.ceil(total / 40)));
   const sectionSpan = Math.max(1, Math.ceil(total / sectionCount));
@@ -37,10 +38,17 @@ export default function BookSectionsScreen() {
   const { bookId } = useLocalSearchParams<{ bookId: string }>();
   const readingBookId = Array.isArray(bookId) ? bookId[0] : bookId ?? "";
   const { progress } = useReadingProgress(readingBookId);
-  const { metadata, metadataError, isMetadataLoading, manifest, selectedLanguage, selectedVolume } =
-    useRemoteBookData(readingBookId, progress?.languageId, progress?.volumeId);
+  const {
+    metadata,
+    metadataError,
+    isMetadataLoading,
+    manifest,
+    selectedLanguage,
+    selectedVolume,
+  } = useRemoteBookData(readingBookId, progress?.languageId, progress?.volumeId);
   const totalPages = manifest?.totalPages ?? 1;
-  const sections = buildSections(totalPages);
+  const sections =
+    selectedVolume?.sections?.length ? selectedVolume.sections : buildSections(totalPages);
   const displayTitle = metadata?.title ?? "Published book";
   const displayLanguageTitle = selectedLanguage?.title ?? progress?.languageId ?? "Edition";
   const resolvedLanguageId = selectedLanguage?.id ?? progress?.languageId ?? "english";
@@ -73,7 +81,13 @@ export default function BookSectionsScreen() {
               message="This book's published metadata could not be loaded."
             />
           ) : null}
-          <Text style={{ color: colors.textMuted, fontSize: 15 }}>{displayLanguageTitle}</Text>
+          <Text style={{ color: colors.textMuted, fontSize: 15 }}>
+            {displayLanguageTitle}
+          </Text>
+          <Text style={{ color: colors.textMuted, fontSize: 16, lineHeight: 24 }}>
+            Move through the book in calm, manageable portions. Choose the section that matches
+            your current pace.
+          </Text>
           {sections.map((section) => (
             <Link
               key={section.id}
@@ -94,6 +108,11 @@ export default function BookSectionsScreen() {
                 <Text style={{ color: colors.textMuted, fontSize: 15 }}>
                   Pages {section.startPage}-{section.endPage}
                 </Text>
+                {section.description ? (
+                  <Text style={{ color: colors.textMuted, fontSize: 14, lineHeight: 21 }}>
+                    {section.description}
+                  </Text>
+                ) : null}
                 <Text
                   style={{
                     color: colors.accent,

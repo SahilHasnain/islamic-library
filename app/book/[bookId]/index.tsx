@@ -4,22 +4,57 @@ import { SafeAreaView } from "react-native-safe-area-context";
 
 import { ErrorCard, LoadingCard } from "../../../components/ui";
 import { formatLastReadLabel } from "../../../data/books";
-import type { ReadingPlan } from "../../../data/types";
+import type { PublicBookPlan, PublicBookSection } from "../../../data/types";
 import { useRemoteBookData } from "../../../hooks/useRemoteBookData";
 import { useReadingPlans } from "../../../hooks/useReadingPlans";
 import { useReadingProgress } from "../../../hooks/useReadingProgress";
+import { useVolumeDownload } from "../../../hooks/useVolumeDownload";
 
 const colors = {
   background: "#F7F1E3",
   surface: "#FFF9EA",
+  surfaceMuted: "#F3E7C9",
   accent: "#C9A961",
+  accentSoft: "#EFE2B6",
   text: "#173D31",
   textMuted: "#5F6C65",
+  heroSubtle: "#C9D5CF",
+  heroMuted: "#D9E2DC",
 };
 
-function buildRemotePlans(totalPages: number): ReadingPlan[] {
+function getDownloadStatusLabel({
+  canDownload,
+  isDownloading,
+  isFullyDownloaded,
+  isPartiallyDownloaded,
+}: {
+  canDownload: boolean;
+  isDownloading: boolean;
+  isFullyDownloaded: boolean;
+  isPartiallyDownloaded: boolean;
+}) {
+  if (!canDownload) {
+    return "Unavailable offline";
+  }
+
+  if (isDownloading) {
+    return "Downloading";
+  }
+
+  if (isFullyDownloaded) {
+    return "Ready offline";
+  }
+
+  if (isPartiallyDownloaded) {
+    return "Partially offline";
+  }
+
+  return "Available online";
+}
+
+function buildFallbackPlans(totalPages: number): PublicBookPlan[] {
   const total = Math.max(totalPages, 1);
-  const presets = [7, 14, 30];
+  const presets = [7, 21, 30];
 
   return presets.map((days) => {
     const pageSpan = Math.max(1, Math.ceil(total / days));
@@ -45,14 +80,15 @@ function buildRemotePlans(totalPages: number): ReadingPlan[] {
   });
 }
 
-function buildSections(totalPages: number) {
+function buildFallbackSections(totalPages: number): PublicBookSection[] {
   const total = Math.max(totalPages, 1);
   const sectionCount = Math.min(6, Math.max(3, Math.ceil(total / 40)));
   const sectionSpan = Math.max(1, Math.ceil(total / sectionCount));
 
   return Array.from({ length: sectionCount }, (_, index) => {
     const startPage = index * sectionSpan + 1;
-    const endPage = index === sectionCount - 1 ? total : Math.min(total, (index + 1) * sectionSpan);
+    const endPage =
+      index === sectionCount - 1 ? total : Math.min(total, (index + 1) * sectionSpan);
 
     return {
       id: `section-${index + 1}`,
@@ -60,6 +96,7 @@ function buildSections(totalPages: number) {
       startPage,
       endPage,
       estimatedMinutes: Math.max(10, (endPage - startPage + 1) * 2),
+      description: "Structured remote reading segment.",
     };
   });
 }
@@ -81,6 +118,16 @@ export default function BookHomeScreen() {
     selectedLanguage,
     selectedVolume,
   } = useRemoteBookData(readingBookId, progress?.languageId, progress?.volumeId);
+  const {
+    cachedPages,
+    canDownload,
+    downloadAll,
+    isDownloading,
+    isFullyDownloaded,
+    isPartiallyDownloaded,
+    progressPercent: downloadProgressPercent,
+    removeDownload,
+  } = useVolumeDownload(manifest);
 
   const resolvedLanguageId =
     selectedLanguage?.id ?? progress?.languageId ?? metadata?.languages?.[0]?.id ?? "english";
@@ -101,8 +148,10 @@ export default function BookHomeScreen() {
   const displayLanguageTitle =
     selectedLanguage?.title ?? metadata?.languages?.[0]?.title ?? resolvedLanguageId;
   const displayVolumeTitle = selectedVolume?.title ?? resolvedVolumeId;
-  const sections = buildSections(totalPages);
-  const plans = buildRemotePlans(totalPages);
+  const sections =
+    selectedVolume?.sections?.length ? selectedVolume.sections : buildFallbackSections(totalPages);
+  const plans =
+    selectedVolume?.plans?.length ? selectedVolume.plans : buildFallbackPlans(totalPages);
   const activeRemotePlan =
     activePlan &&
     activePlan.languageId === resolvedLanguageId &&
@@ -117,6 +166,26 @@ export default function BookHomeScreen() {
   const progressPercent = activeRemotePlan
     ? Math.min(100, Math.round((currentDay / activeRemotePlan.totalDays) * 100))
     : 0;
+  const currentSection =
+    sections.find((section) => resumePage >= section.startPage && resumePage <= section.endPage) ??
+    sections[0];
+  const devotionalContext =
+    selectedVolume?.introNote ??
+    metadata?.devotionalContext ??
+    "Keep the reading calm, steady, and devotional.";
+  const todayTarget =
+    selectedVolume?.todayTarget ??
+    metadata?.todayPrompt ??
+    `Read 2 pages from your current place. The goal is consistency, not speed.`;
+  const featuredQuote =
+    metadata?.featuredQuote ??
+    "Begin with calm. Continue with steadiness. Let the reading remain the focus.";
+  const downloadStatusLabel = getDownloadStatusLabel({
+    canDownload,
+    isDownloading,
+    isFullyDownloaded,
+    isPartiallyDownloaded,
+  });
 
   return (
     <>
@@ -161,7 +230,7 @@ export default function BookHomeScreen() {
               backgroundColor: colors.text,
               borderRadius: 28,
               padding: 24,
-              gap: 10,
+              gap: 18,
             }}
           >
             <Text
@@ -175,15 +244,258 @@ export default function BookHomeScreen() {
             >
               Continue Reading
             </Text>
-            <Text style={{ color: "#FFF9EA", fontSize: 30, fontWeight: "800" }}>
-              {displayTitle}
+            <View style={{ gap: 10 }}>
+              <Text style={{ color: "#FFF9EA", fontSize: 30, fontWeight: "800" }}>
+                {displayTitle}
+              </Text>
+              <Text style={{ color: colors.accentSoft, fontSize: 18, fontWeight: "700" }}>
+                {currentSection?.title ?? displaySubtitle}
+              </Text>
+              <Text style={{ color: colors.heroMuted, fontSize: 15, lineHeight: 22 }}>
+                {displayLanguageTitle} | {displayVolumeTitle}
+              </Text>
+              <Text style={{ color: colors.heroSubtle, fontSize: 15, lineHeight: 22 }}>
+                Page {resumePage} of {totalPages} | {formatLastReadLabel(progress?.updatedAt)}
+              </Text>
+            </View>
+
+            <View
+              style={{
+                flexDirection: "row",
+                alignItems: "center",
+                justifyContent: "space-between",
+                gap: 16,
+              }}
+            >
+              <View style={{ flex: 1, gap: 4 }}>
+                <Text
+                  style={{
+                    color: colors.heroMuted,
+                    fontSize: 12,
+                    fontWeight: "700",
+                    textTransform: "uppercase",
+                    letterSpacing: 0.4,
+                  }}
+                >
+                  Reading state
+                </Text>
+                <Text style={{ color: "#FFF9EA", fontSize: 14, fontWeight: "600" }}>
+                  Published remotely
+                </Text>
+              </View>
+              <View
+                style={{
+                  borderRadius: 999,
+                  backgroundColor: "rgba(255, 249, 234, 0.16)",
+                  paddingHorizontal: 14,
+                  paddingVertical: 10,
+                }}
+              >
+                <Text style={{ color: "#FFF9EA", fontSize: 13, fontWeight: "700" }}>
+                  {downloadStatusLabel}
+                  {isDownloading ? ` • ${downloadProgressPercent}%` : ""}
+                </Text>
+              </View>
+            </View>
+
+            <View style={{ flexDirection: "row", gap: 10 }}>
+              {canDownload ? (
+                <Pressable
+                  onPress={() => {
+                    void (isFullyDownloaded ? removeDownload() : downloadAll());
+                  }}
+                  style={{
+                    borderRadius: 999,
+                    backgroundColor: "rgba(255, 249, 234, 0.16)",
+                    paddingHorizontal: 16,
+                    paddingVertical: 12,
+                  }}
+                >
+                  <Text style={{ color: "#FFF9EA", fontSize: 13, fontWeight: "800" }}>
+                    {isDownloading
+                      ? `Downloading ${downloadProgressPercent}%`
+                      : isFullyDownloaded
+                        ? "Remove download"
+                        : "Download for offline"}
+                  </Text>
+                </Pressable>
+              ) : null}
+              {(isPartiallyDownloaded || isFullyDownloaded) && !isDownloading ? (
+                <View
+                  style={{
+                    borderRadius: 999,
+                    backgroundColor: "rgba(255, 249, 234, 0.08)",
+                    paddingHorizontal: 14,
+                    paddingVertical: 12,
+                  }}
+                >
+                  <Text style={{ color: colors.heroSubtle, fontSize: 13, fontWeight: "700" }}>
+                    {cachedPages} of {totalPages} pages cached
+                  </Text>
+                </View>
+              ) : null}
+            </View>
+
+            <Link
+              href={
+                `/reader/${readingBookId}/${resolvedLanguageId}/${resolvedVolumeId}/${resumePage}` as const
+              }
+              asChild
+            >
+              <Pressable
+                style={{
+                  alignSelf: "flex-start",
+                  borderRadius: 999,
+                  backgroundColor: "#F0E1A7",
+                  paddingHorizontal: 20,
+                  paddingVertical: 12,
+                }}
+              >
+                <Text style={{ color: colors.text, fontSize: 15, fontWeight: "800" }}>
+                  Resume Reading
+                </Text>
+              </Pressable>
+            </Link>
+          </View>
+
+          {activeRemotePlan ? (
+            <View
+              style={{
+                backgroundColor: colors.surface,
+                borderRadius: 24,
+                padding: 20,
+                gap: 14,
+              }}
+            >
+              <View
+                style={{
+                  flexDirection: "row",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  gap: 16,
+                }}
+              >
+                <View style={{ flex: 1, gap: 4 }}>
+                  <Text
+                    style={{
+                      color: colors.accent,
+                      fontSize: 13,
+                      fontWeight: "700",
+                      textTransform: "uppercase",
+                      letterSpacing: 0.4,
+                    }}
+                  >
+                    Active plan
+                  </Text>
+                  <Text style={{ color: colors.text, fontSize: 22, fontWeight: "800" }}>
+                    {activeRemotePlan.title}
+                  </Text>
+                </View>
+                <Link href={`/book/${readingBookId}/plans` as const} asChild>
+                  <Pressable
+                    style={{
+                      borderRadius: 14,
+                      backgroundColor: colors.accentSoft,
+                      paddingHorizontal: 16,
+                      paddingVertical: 10,
+                    }}
+                  >
+                    <Text style={{ color: colors.text, fontSize: 13, fontWeight: "800" }}>
+                      View
+                    </Text>
+                  </Pressable>
+                </Link>
+              </View>
+
+              <Text style={{ color: colors.textMuted, fontSize: 16, lineHeight: 24 }}>
+                Day {currentDay} of {activeRemotePlan.totalDays}
+              </Text>
+              <View
+                style={{
+                  height: 8,
+                  borderRadius: 999,
+                  backgroundColor: "#E8DDC0",
+                  overflow: "hidden",
+                }}
+              >
+                <View
+                  style={{
+                    width: `${progressPercent}%`,
+                    height: "100%",
+                    backgroundColor: colors.accent,
+                  }}
+                />
+              </View>
+              <Text
+                style={{
+                  color: colors.accent,
+                  fontSize: 13,
+                  fontWeight: "700",
+                  textTransform: "uppercase",
+                  letterSpacing: 0.4,
+                }}
+              >
+                {currentPlanItem?.label} | Pages {currentPlanItem?.startPage}-{currentPlanItem?.endPage}
+              </Text>
+            </View>
+          ) : (
+            <Link href={`/book/${readingBookId}/plans` as const} asChild>
+              <Pressable
+                style={{
+                  backgroundColor: colors.surfaceMuted,
+                  borderRadius: 24,
+                  padding: 22,
+                  gap: 14,
+                }}
+              >
+                <View style={{ gap: 8 }}>
+                  <Text
+                    style={{
+                      alignSelf: "flex-start",
+                      color: colors.text,
+                      fontSize: 12,
+                      fontWeight: "800",
+                      textTransform: "uppercase",
+                      letterSpacing: 0.4,
+                    }}
+                  >
+                    Reading plan
+                  </Text>
+                  <Text style={{ color: colors.text, fontSize: 28, fontWeight: "800" }}>
+                    Choose a Reading Plan
+                  </Text>
+                  <Text style={{ color: colors.textMuted, fontSize: 16, lineHeight: 24 }}>
+                    Build consistency with a gentle structure that fits your pace.
+                  </Text>
+                </View>
+                <Text
+                  style={{
+                    color: colors.accent,
+                    fontSize: 13,
+                    fontWeight: "700",
+                    textTransform: "uppercase",
+                    letterSpacing: 0.4,
+                  }}
+                >
+                  {plans[0]?.title ?? "Guided daily options"} | View plans
+                </Text>
+              </Pressable>
+            </Link>
+          )}
+
+          <View
+            style={{
+              backgroundColor: colors.surfaceMuted,
+              borderRadius: 24,
+              padding: 20,
+              gap: 14,
+            }}
+          >
+            <Text style={{ color: colors.text, fontSize: 22, fontWeight: "800" }}>
+              Today&apos;s gentle target
             </Text>
-            <Text style={{ color: "#D9E2DC", fontSize: 16, lineHeight: 24 }}>
-              {displaySubtitle}
-            </Text>
-            <Text style={{ color: "#C9D5CF", fontSize: 14, lineHeight: 22 }}>
-              {displayLanguageTitle} | Page {resumePage} of {totalPages} |{" "}
-              {formatLastReadLabel(progress?.updatedAt)}
+            <Text style={{ color: colors.textMuted, fontSize: 16, lineHeight: 24 }}>
+              {todayTarget}
             </Text>
             <Link
               href={
@@ -195,13 +507,81 @@ export default function BookHomeScreen() {
                 style={{
                   alignSelf: "flex-start",
                   borderRadius: 999,
-                  backgroundColor: "#EFD997",
+                  borderWidth: 1.5,
+                  borderColor: colors.accent,
                   paddingHorizontal: 18,
-                  paddingVertical: 12,
+                  paddingVertical: 11,
                 }}
               >
                 <Text style={{ color: colors.text, fontSize: 15, fontWeight: "800" }}>
-                  Resume Reading
+                  Read for 5 minutes
+                </Text>
+              </Pressable>
+            </Link>
+          </View>
+
+          <View style={{ backgroundColor: colors.surface, borderRadius: 24, padding: 20, gap: 12 }}>
+            <Text style={{ color: colors.text, fontSize: 22, fontWeight: "800" }}>
+              Reading structure
+            </Text>
+            {sections.slice(0, 3).map((section) => (
+              <View
+                key={section.id}
+                style={{
+                  flexDirection: "row",
+                  justifyContent: "space-between",
+                  gap: 16,
+                }}
+              >
+                <View style={{ flex: 1 }}>
+                  <Text style={{ color: colors.text, fontSize: 17, fontWeight: "700" }}>
+                    {section.title}
+                  </Text>
+                  <Text style={{ color: colors.textMuted, fontSize: 15, marginTop: 2 }}>
+                    Pages {section.startPage}-{section.endPage}
+                  </Text>
+                </View>
+                <Text style={{ color: colors.accent, fontSize: 14, fontWeight: "700" }}>
+                  {section.estimatedMinutes} min
+                </Text>
+              </View>
+            ))}
+          </View>
+
+          <View style={{ flexDirection: "row", gap: 12 }}>
+            <Link href={`/book/${readingBookId}/sections` as const} asChild>
+              <Pressable
+                style={{
+                  flex: 1,
+                  backgroundColor: colors.surface,
+                  borderRadius: 20,
+                  padding: 18,
+                  gap: 6,
+                }}
+              >
+                <Text style={{ color: colors.text, fontSize: 18, fontWeight: "800" }}>
+                  Sections
+                </Text>
+                <Text style={{ color: colors.textMuted, fontSize: 14, lineHeight: 21 }}>
+                  Browse the book in manageable portions.
+                </Text>
+              </Pressable>
+            </Link>
+            <Link href={`/book/${readingBookId}/plans` as const} asChild>
+              <Pressable
+                style={{
+                  flex: 1,
+                  backgroundColor: colors.surface,
+                  borderRadius: 20,
+                  padding: 18,
+                  gap: 6,
+                }}
+              >
+                <Text style={{ color: colors.text, fontSize: 18, fontWeight: "800" }}>
+                  Plans
+                </Text>
+                <Text style={{ color: colors.textMuted, fontSize: 14, lineHeight: 21 }}>
+                  Follow a pace that supports regular reading.
                 </Text>
               </Pressable>
             </Link>
@@ -227,125 +607,36 @@ export default function BookHomeScreen() {
             </Text>
           </View>
 
-          <View style={{ flexDirection: "row", gap: 12 }}>
-            <Link href={`/book/${readingBookId}/sections` as const} asChild>
-              <Pressable
-                style={{
-                  flex: 1,
-                  backgroundColor: colors.surface,
-                  borderRadius: 20,
-                  padding: 18,
-                  gap: 6,
-                }}
-              >
-                <Text style={{ color: colors.text, fontSize: 18, fontWeight: "800" }}>
-                  Sections
-                </Text>
-                <Text style={{ color: colors.textMuted, fontSize: 14, lineHeight: 21 }}>
-                  Browse this edition in manageable page ranges.
-                </Text>
-              </Pressable>
-            </Link>
-            <Link href={`/book/${readingBookId}/plans` as const} asChild>
-              <Pressable
-                style={{
-                  flex: 1,
-                  backgroundColor: colors.surface,
-                  borderRadius: 20,
-                  padding: 18,
-                  gap: 6,
-                }}
-              >
-                <Text style={{ color: colors.text, fontSize: 18, fontWeight: "800" }}>
-                  Plans
-                </Text>
-                <Text style={{ color: colors.textMuted, fontSize: 14, lineHeight: 21 }}>
-                  Follow a remote reading plan that matches your pace.
-                </Text>
-              </Pressable>
-            </Link>
-          </View>
-
-          <View style={{ backgroundColor: colors.surface, borderRadius: 24, padding: 20, gap: 12 }}>
-            <Text style={{ color: colors.text, fontSize: 22, fontWeight: "800" }}>
-              Published edition
+          <View
+            style={{
+              backgroundColor: colors.surface,
+              borderRadius: 24,
+              padding: 22,
+            }}
+          >
+            <Text
+              style={{
+                color: colors.textMuted,
+                fontSize: 18,
+                lineHeight: 28,
+                fontWeight: "600",
+                textAlign: "center",
+              }}
+            >
+              {metadata?.devotionalContext ?? devotionalContext}
             </Text>
-            <Text style={{ color: colors.text, fontSize: 17, fontWeight: "700" }}>
-              {displayLanguageTitle} | {displayVolumeTitle}
+            <Text
+              style={{
+                color: colors.text,
+                fontSize: 16,
+                lineHeight: 26,
+                fontWeight: "700",
+                textAlign: "center",
+                marginTop: 14,
+              }}
+            >
+              {featuredQuote}
             </Text>
-            {sections.slice(0, 3).map((section) => (
-              <View key={section.id} style={{ gap: 4 }}>
-                <Text style={{ color: colors.text, fontSize: 17, fontWeight: "700" }}>
-                  {section.title}
-                </Text>
-                <Text style={{ color: colors.textMuted, fontSize: 15 }}>
-                  Pages {section.startPage}-{section.endPage} | {section.estimatedMinutes} min
-                </Text>
-              </View>
-            ))}
-          </View>
-
-          <View style={{ backgroundColor: colors.surface, borderRadius: 24, padding: 20, gap: 12 }}>
-            <Text style={{ color: colors.text, fontSize: 22, fontWeight: "800" }}>
-              Suggested plan
-            </Text>
-            {activeRemotePlan ? (
-              <>
-                <Text style={{ color: colors.text, fontSize: 18, fontWeight: "700" }}>
-                  {activeRemotePlan.title}
-                </Text>
-                <Text style={{ color: colors.textMuted, fontSize: 16, lineHeight: 24 }}>
-                  Day {currentDay} of {activeRemotePlan.totalDays}
-                </Text>
-                <View
-                  style={{
-                    height: 8,
-                    borderRadius: 999,
-                    backgroundColor: "#E8DDC0",
-                    overflow: "hidden",
-                  }}
-                >
-                  <View
-                    style={{
-                      width: `${progressPercent}%`,
-                      height: "100%",
-                      backgroundColor: colors.accent,
-                    }}
-                  />
-                </View>
-                <Text
-                  style={{
-                    color: colors.accent,
-                    fontSize: 13,
-                    fontWeight: "700",
-                    textTransform: "uppercase",
-                    letterSpacing: 0.4,
-                  }}
-                >
-                  {currentPlanItem?.label} | Pages {currentPlanItem?.startPage}-{currentPlanItem?.endPage}
-                </Text>
-              </>
-            ) : (
-              <>
-                <Text style={{ color: colors.text, fontSize: 18, fontWeight: "700" }}>
-                  {plans[0].title}
-                </Text>
-                <Text style={{ color: colors.textMuted, fontSize: 16, lineHeight: 24 }}>
-                  {plans[0].description}
-                </Text>
-                <Text
-                  style={{
-                    color: colors.accent,
-                    fontSize: 13,
-                    fontWeight: "700",
-                    textTransform: "uppercase",
-                    letterSpacing: 0.4,
-                  }}
-                >
-                  {plans[0].totalDays} days | Pages {plans[0].items[0].startPage}-{plans[0].items[0].endPage} on day 1
-                </Text>
-              </>
-            )}
           </View>
         </ScrollView>
       </SafeAreaView>

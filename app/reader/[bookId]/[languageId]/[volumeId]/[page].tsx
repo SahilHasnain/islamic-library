@@ -1,54 +1,163 @@
-import { Link, Stack, useLocalSearchParams } from "expo-router";
-import { useEffect, useState } from "react";
-import { Pressable, ScrollView, Text, View } from "react-native";
-import { Image } from "expo-image";
+import { Ionicons } from "@expo/vector-icons";
+import { useLocalSearchParams, useRouter } from "expo-router";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  FlatList,
+  Platform,
+  Pressable,
+  Text,
+  useWindowDimensions,
+  View,
+  type ViewToken,
+} from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
-import { ErrorCard, LoadingCard } from "../../../../../components/ui";
+import { ZoomableReaderImage } from "../../../../../components/zoomable-reader-image";
 import { useRemoteBookData } from "../../../../../hooks/useRemoteBookData";
 import { useBookmarks } from "../../../../../hooks/useBookmarks";
 import { useReaderPreferences } from "../../../../../hooks/useReaderPreferences";
 import { useReadingProgress } from "../../../../../hooks/useReadingProgress";
+import { useResolvedManifestPageAsset } from "../../../../../hooks/useResolvedManifestPageAsset";
+import { prefetchManifestPages } from "../../../../../lib/reader-prefetch";
 
 const themeColors = {
   light: {
     background: "#F6F0E2",
-    surface: "#FFF9EA",
-    text: "#173D31",
-    textMuted: "#5F6C65",
+    overlay: "rgba(23, 61, 49, 0.9)",
+    overlayLight: "rgba(255, 249, 234, 0.16)",
+    overlayMuted: "rgba(255, 249, 234, 0.12)",
+    text: "#FFF9EA",
+    textMuted: "#C6D4CB",
+    textStrong: "#173D31",
     accent: "#C9A961",
-    reader: "#FCF7EB",
-    readerBorder: "#E5D8B6",
-    button: "#173D31",
-    buttonText: "#FFF9EA",
+    panel: "#FFF9EA",
+    panelText: "#173D31",
   },
   sepia: {
     background: "#EDE0C8",
-    surface: "#F6ECD7",
-    text: "#3F3425",
-    textMuted: "#6D5D46",
+    overlay: "rgba(59, 47, 31, 0.92)",
+    overlayLight: "rgba(248, 239, 217, 0.14)",
+    overlayMuted: "rgba(248, 239, 217, 0.1)",
+    text: "#FFF7E7",
+    textMuted: "#DCCBAF",
+    textStrong: "#3F3425",
     accent: "#9F7A2F",
-    reader: "#F8EFD9",
-    readerBorder: "#D8C39A",
-    button: "#5B4B33",
-    buttonText: "#FFF7E7",
+    panel: "#F8EFD9",
+    panelText: "#3F3425",
   },
 };
 
+function ReaderPageSurface({
+  manifest,
+  pageNum,
+  screenWidth,
+  screenHeight,
+  backgroundColor,
+  textColor,
+  mutedTextColor,
+  remoteState,
+  isActivePage,
+  onZoomChange,
+  onPageLoadStateChange,
+}: {
+  manifest: ReturnType<typeof useRemoteBookData>["manifest"];
+  pageNum: number;
+  screenWidth: number;
+  screenHeight: number;
+  backgroundColor: string;
+  textColor: string;
+  mutedTextColor: string;
+  remoteState: string;
+  isActivePage: boolean;
+  onZoomChange: (isZoomed: boolean) => void;
+  onPageLoadStateChange: (state: "idle" | "loading" | "loaded" | "error") => void;
+}) {
+  const { asset, isLoading } = useResolvedManifestPageAsset(manifest, pageNum);
+  const manifestPage = manifest?.pages?.find((entry) => entry.page === pageNum);
+  const imageAspectRatio =
+    manifestPage?.width && manifestPage?.height
+      ? manifestPage.width / manifestPage.height
+      : 0.707;
+
+  useEffect(() => {
+    if (!isActivePage) {
+      return;
+    }
+
+    if (asset?.kind === "missing") {
+      onPageLoadStateChange("error");
+      return;
+    }
+
+    onPageLoadStateChange(isLoading ? "loading" : "loaded");
+  }, [asset?.kind, isActivePage, isLoading, onPageLoadStateChange]);
+
+  if (asset?.source && asset.kind !== "missing") {
+    return (
+      <ZoomableReaderImage
+        source={asset.source}
+        width={screenWidth}
+        height={Math.min(screenHeight, screenWidth / imageAspectRatio)}
+        onZoomChange={onZoomChange}
+        onError={() => {
+          if (isActivePage) {
+            onPageLoadStateChange("error");
+          }
+        }}
+      />
+    );
+  }
+
+  return (
+    <View
+      style={{
+        width: screenWidth,
+        height: screenHeight,
+        alignItems: "center",
+        justifyContent: "center",
+        paddingHorizontal: 32,
+        gap: 14,
+      }}
+    >
+      <Text
+        style={{
+          color: textColor,
+          fontSize: 28,
+          fontWeight: "800",
+          textAlign: "center",
+        }}
+      >
+        Page {pageNum}
+      </Text>
+      <Text
+        style={{
+          color: mutedTextColor,
+          fontSize: 16,
+          lineHeight: 24,
+          textAlign: "center",
+        }}
+      >
+        {remoteState === "ready"
+          ? "The published page image is unavailable for this page."
+          : "Published reader assets are still being resolved for this edition."}
+      </Text>
+    </View>
+  );
+}
+
 export default function ReaderScreen() {
+  const router = useRouter();
   const { bookId, languageId, volumeId, page } = useLocalSearchParams<{
     bookId: string;
     languageId: string;
     volumeId: string;
     page: string;
   }>();
+  const { width: screenWidth, height: screenHeight } = useWindowDimensions();
 
-  const currentPage = Number(page ?? 1) || 1;
   const {
     catalogBook,
     manifest,
-    manifestError,
-    isManifestLoading,
     metadata,
     remoteState,
     selectedLanguage,
@@ -59,31 +168,35 @@ export default function ReaderScreen() {
   const { addBookmark, getBookmarkForPage, removeBookmark } = useBookmarks(readingBookId);
   const { theme, cycleTheme } = useReaderPreferences();
   const colors = themeColors[theme];
-  const sectionSpan = Math.max(1, Math.ceil((manifest?.totalPages ?? 1) / 6));
-  const currentSectionIndex = Math.max(1, Math.ceil(currentPage / sectionSpan));
-  const currentSection = {
-    title: `Section ${currentSectionIndex}`,
-  };
-  const pageContent = {
-    kicker: `${selectedLanguage?.title ?? languageId} reading edition`,
-    title: metadata?.title ?? catalogBook?.title ?? "Published reading view",
-    summary: "This page is being served from the published remote catalog for this edition.",
-    paragraphs: [
-      "The primary reading surface for this book is the published page asset.",
-      "If a page image is unavailable, this remote reading view stays usable with generated support text.",
-    ],
-    reflection: "This reader now depends on the published catalog and manifest, not on seeded local book content.",
-    meta: {
-      languageTitle: selectedLanguage?.title ?? languageId,
-      volumeTitle: selectedVolume?.title ?? volumeId,
-      sectionProgress: `Page ${currentPage}`,
-    },
-  };
   const totalPages = manifest?.totalPages ?? 1;
   const resolvedLanguageId = selectedLanguage?.id ?? languageId;
   const resolvedVolumeId = selectedVolume?.id ?? volumeId;
+  const clampPage = useCallback(
+    (value: number) => Math.min(Math.max(value, 1), totalPages),
+    [totalPages],
+  );
+  const routePage = clampPage(Number(page ?? 1) || 1);
+  const [currentPage, setCurrentPage] = useState(routePage);
+  const [isZoomed, setIsZoomed] = useState(false);
+  const [remoteImageState, setRemoteImageState] = useState<
+    "idle" | "loading" | "loaded" | "error"
+  >("idle");
+  const flatListRef = useRef<FlatList<number>>(null);
+  const { asset: activePageAsset, isLoading: isActivePageAssetLoading } =
+    useResolvedManifestPageAsset(manifest, currentPage);
+
+  const pages = useMemo(
+    () => Array.from({ length: totalPages }, (_, index) => index + 1),
+    [totalPages],
+  );
+  const remoteSections = selectedVolume?.sections ?? [];
+  const sectionSpan = Math.max(1, Math.ceil(totalPages / 6));
+  const currentSectionIndex = Math.max(1, Math.ceil(currentPage / sectionSpan));
+  const currentSection =
+    remoteSections.find(
+      (section) => currentPage >= section.startPage && currentPage <= section.endPage,
+    ) ?? { title: `Section ${currentSectionIndex}` };
   const progressPercent = Math.round((currentPage / totalPages) * 100);
-  const sectionIndex = currentSectionIndex;
   const existingBookmark = getBookmarkForPage(
     readingBookId,
     resolvedLanguageId,
@@ -92,12 +205,26 @@ export default function ReaderScreen() {
   );
   const currentManifestPage = manifest?.pages?.find((entry) => entry.page === currentPage);
   const remotePageUrl = currentManifestPage?.url;
-  const shouldUseRemotePage =
-    remoteState === "ready" && Boolean(remotePageUrl);
-  const [remoteImageState, setRemoteImageState] = useState<
-    "idle" | "loading" | "loaded" | "error"
-  >("idle");
-  const shouldDisplayRemoteImage = shouldUseRemotePage && remoteImageState !== "error";
+  const shouldUseRemotePage = remoteState === "ready" && Boolean(remotePageUrl);
+  const bookTitle = metadata?.title ?? catalogBook?.title ?? "Reader";
+  const activePageDeliveryLabel = isActivePageAssetLoading
+    ? "Preparing page for reading"
+    : activePageAsset?.kind === "local"
+      ? "Ready offline"
+      : activePageAsset?.kind === "remote"
+        ? "Streaming from published source"
+        : remoteState === "ready"
+          ? "Not available offline yet"
+          : "Resolving published reader assets";
+  const activePageSupportMessage =
+    activePageAsset?.kind === "local"
+      ? "This page is cached on this device and can open offline."
+      : activePageAsset?.kind === "remote"
+        ? "This page is available from the published source and will cache as you continue reading."
+        : remoteState === "ready"
+          ? "This page has not been cached locally yet. Connect once or download the volume for offline reading."
+          : "The published edition is still being resolved for this reading session.";
+  const editionLine = `${selectedLanguage?.title ?? languageId} • ${selectedVolume?.title ?? volumeId} • ${currentSection.title}`;
 
   useEffect(() => {
     void saveProgress({
@@ -118,6 +245,32 @@ export default function ReaderScreen() {
     setRemoteImageState("loading");
   }, [currentPage, remotePageUrl, shouldUseRemotePage]);
 
+  useEffect(() => {
+    if (!manifest) {
+      return;
+    }
+
+    const pagesToPrefetch = Array.from(
+      new Set([currentPage, currentPage + 1, currentPage + 2, currentPage - 1]),
+    );
+
+    void prefetchManifestPages(manifest, pagesToPrefetch);
+  }, [currentPage, manifest]);
+
+  useEffect(() => {
+    setCurrentPage((previousPage) => {
+      if (previousPage === routePage) {
+        return previousPage;
+      }
+
+      flatListRef.current?.scrollToIndex({
+        index: routePage - 1,
+        animated: false,
+      });
+      return routePage;
+    });
+  }, [routePage]);
+
   async function toggleBookmark() {
     if (existingBookmark) {
       await removeBookmark(existingBookmark.id);
@@ -132,341 +285,305 @@ export default function ReaderScreen() {
     });
   }
 
+  const moveToPage = useCallback(
+    (nextPage: number) => {
+      const safePage = clampPage(nextPage);
+      router.replace(
+        `/reader/${readingBookId}/${resolvedLanguageId}/${resolvedVolumeId}/${safePage}` as const,
+      );
+    },
+    [clampPage, readingBookId, resolvedLanguageId, resolvedVolumeId, router],
+  );
+
+  const handleViewableItemsChanged = useRef(
+    ({ viewableItems }: { viewableItems: ViewToken[] }) => {
+      if (viewableItems.length === 0 || typeof viewableItems[0].item !== "number") {
+        return;
+      }
+
+      const visiblePage = viewableItems[0].item;
+      setCurrentPage((previousPage) => (previousPage === visiblePage ? previousPage : visiblePage));
+    },
+  ).current;
+
+  const viewabilityConfig = useRef({
+    itemVisiblePercentThreshold: 50,
+  }).current;
+
+  const renderPage = useCallback(
+    ({ item: pageNum }: { item: number }) => {
+      return (
+        <View
+          style={{
+            width: screenWidth,
+            height: screenHeight,
+            backgroundColor: colors.background,
+            alignItems: "center",
+            justifyContent: "center",
+          }}
+        >
+          <ReaderPageSurface
+            manifest={manifest}
+            pageNum={pageNum}
+            screenWidth={screenWidth}
+            screenHeight={screenHeight}
+            backgroundColor={colors.background}
+            textColor={colors.textStrong}
+            mutedTextColor={theme === "light" ? "#5F6C65" : "#6D5D46"}
+            remoteState={remoteState}
+            isActivePage={pageNum === currentPage}
+            onZoomChange={setIsZoomed}
+            onPageLoadStateChange={setRemoteImageState}
+          />
+        </View>
+      );
+    },
+    [colors.background, colors.textStrong, currentPage, manifest, remoteState, screenHeight, screenWidth, theme],
+  );
+
   return (
-    <>
-      <Stack.Screen
-        options={{
-          title: metadata?.title ?? catalogBook?.title ?? "Reader",
-          headerTintColor: colors.text,
-          headerStyle: { backgroundColor: colors.background },
-          headerShadowVisible: false,
-          headerRight: () => (
-            <View style={{ flexDirection: "row", gap: 10 }}>
-              <Pressable
-                onPress={() => {
-                  void cycleTheme();
-                }}
-                style={{
-                  borderRadius: 999,
-                  backgroundColor: colors.surface,
-                  paddingHorizontal: 12,
-                  paddingVertical: 8,
-                }}
-              >
-                <Text style={{ color: colors.text, fontSize: 12, fontWeight: "800" }}>
-                  {theme === "light" ? "Sepia" : "Light"}
-                </Text>
-              </Pressable>
-              <Pressable
-                onPress={() => {
-                  void toggleBookmark();
-                }}
-                style={{
-                  borderRadius: 999,
-                  backgroundColor: colors.surface,
-                  paddingHorizontal: 12,
-                  paddingVertical: 8,
-                }}
-              >
-                <Text style={{ color: colors.text, fontSize: 12, fontWeight: "800" }}>
-                  {existingBookmark ? "Saved" : "Save"}
-                </Text>
-              </Pressable>
-            </View>
-          ),
-        }}
-      />
-      <SafeAreaView style={{ flex: 1, backgroundColor: colors.background }}>
-        <ScrollView contentContainerStyle={{ padding: 20, gap: 18, paddingBottom: 40 }}>
-          {!catalogBook ? (
-            <ErrorCard
-              title="Book not in published catalog"
-              message="This reader requires a published remote catalog entry for the selected book."
-            />
-          ) : null}
-          {catalogBook && (remoteState === "language-missing" || remoteState === "volume-missing") ? (
-            <ErrorCard
-              title="Published edition unavailable"
-              message="The requested language or volume is not present in the published metadata."
-            />
-          ) : null}
-          {catalogBook && (remoteState === "manifest-error" || remoteState === "manifest-missing") ? (
-            <ErrorCard
-              title="Published reader assets unavailable"
-              message="The published manifest could not be resolved for this edition."
-            />
-          ) : null}
-          {shouldUseRemotePage && remoteImageState === "error" ? (
-            <ErrorCard
-              title="Published page failed to load"
-              message="The remote page image could not be loaded, so the reader is showing generated support content instead."
-            />
-          ) : null}
-          <View
+    <View style={{ flex: 1, backgroundColor: colors.background }}>
+      {Platform.OS === "web" ? (
+        <View
+          style={{
+            flex: 1,
+            alignItems: "center",
+            justifyContent: "center",
+            paddingHorizontal: 24,
+            gap: 12,
+          }}
+        >
+          <Text style={{ color: colors.textStrong, fontSize: 28, fontWeight: "800" }}>
+            Image-based reader is ready
+          </Text>
+          <Text
             style={{
-              backgroundColor: colors.reader,
-              borderRadius: 28,
-              padding: 24,
-              gap: 22,
-              borderWidth: 1,
-              borderColor: colors.readerBorder,
+              color: theme === "light" ? "#5F6C65" : "#6D5D46",
+              fontSize: 16,
+              lineHeight: 24,
+              textAlign: "center",
             }}
           >
-            <View
-              style={{
-                flexDirection: "row",
-                justifyContent: "space-between",
-                alignItems: "flex-start",
-                gap: 12,
-              }}
-            >
-              <View style={{ flex: 1, gap: 6 }}>
-                <Text
-                  style={{
-                    color: colors.accent,
-                    fontSize: 13,
-                    fontWeight: "700",
-                    textTransform: "uppercase",
-                    letterSpacing: 0.4,
-                  }}
-                >
-                  {pageContent.kicker}
-                </Text>
-                <Text style={{ color: colors.text, fontSize: 28, fontWeight: "800" }}>
-                  {pageContent.title}
-                </Text>
-                <Text style={{ color: colors.textMuted, fontSize: 15, lineHeight: 22 }}>
-                  {pageContent.meta.sectionProgress}
-                </Text>
-                {isManifestLoading ? (
-                  <Text style={{ color: colors.textMuted, fontSize: 13 }}>
-                    Loading published manifest...
-                  </Text>
-                ) : null}
-                {manifestError ? (
-                  <Text style={{ color: colors.textMuted, fontSize: 13 }}>
-                    Published manifest unavailable for this edition.
-                  </Text>
-                ) : null}
-                {shouldUseRemotePage ? (
-                  <Text style={{ color: colors.textMuted, fontSize: 13 }}>
-                    Rendering published page asset for this reader view.
-                  </Text>
-                ) : null}
-                {shouldUseRemotePage && remoteImageState === "loading" ? (
-                  <Text style={{ color: colors.textMuted, fontSize: 13 }}>
-                    Loading remote page image...
-                  </Text>
-                ) : null}
-              </View>
-              <View
-                style={{
-                  borderRadius: 16,
-                  backgroundColor: "#EFE2B6",
-                  paddingHorizontal: 12,
-                  paddingVertical: 10,
-                }}
-              >
-                <Text style={{ color: colors.text, fontSize: 14, fontWeight: "800" }}>
-                  {progressPercent}%
-                </Text>
-              </View>
-            </View>
+            This immersive reader targets Android and iOS first. Web support can stay simpler.
+          </Text>
+        </View>
+      ) : (
+        <FlatList
+          ref={flatListRef}
+          data={pages}
+          renderItem={renderPage}
+          keyExtractor={(item) => `${readingBookId}-${resolvedLanguageId}-${resolvedVolumeId}-${item}`}
+          horizontal
+          pagingEnabled
+          scrollEnabled={!isZoomed}
+          showsHorizontalScrollIndicator={false}
+          initialScrollIndex={routePage - 1}
+          getItemLayout={(_, index) => ({
+            length: screenWidth,
+            offset: screenWidth * index,
+            index,
+          })}
+          onViewableItemsChanged={handleViewableItemsChanged}
+          viewabilityConfig={viewabilityConfig}
+          windowSize={3}
+          maxToRenderPerBatch={3}
+          initialNumToRender={3}
+          removeClippedSubviews
+          onScrollToIndexFailed={(info) => {
+            setTimeout(() => {
+              flatListRef.current?.scrollToIndex({
+                index: info.index,
+                animated: false,
+              });
+            }, 100);
+          }}
+        />
+      )}
 
-            {shouldDisplayRemoteImage ? (
-              <View
-                style={{
-                  gap: 16,
-                }}
-              >
-                {remoteImageState === "loading" ? (
-                  <LoadingCard
-                    title="Loading page"
-                    message="Fetching the published page image for this reading session."
-                  />
-                ) : null}
-                <Image
-                  source={{ uri: remotePageUrl }}
-                  contentFit="contain"
-                  transition={150}
-                  onLoad={() => {
-                    setRemoteImageState("loaded");
-                  }}
-                  onError={() => {
-                    setRemoteImageState("error");
-                  }}
-                  style={{
-                    width: "100%",
-                    aspectRatio: currentManifestPage?.width && currentManifestPage?.height
-                      ? currentManifestPage.width / currentManifestPage.height
-                      : 0.707,
-                    borderRadius: 20,
-                    backgroundColor: colors.surface,
-                    borderWidth: 1,
-                    borderColor: colors.readerBorder,
-                    opacity: remoteImageState === "loaded" ? 1 : 0.35,
-                  }}
-                />
-                <Text style={{ color: colors.textMuted, fontSize: 14, lineHeight: 22 }}>
-                  {remoteImageState === "loaded"
-                    ? "Published page image loaded from the remote manifest."
-                    : "Remote page image is still loading. Support text will remain visible if the asset fails."}
-                </Text>
-              </View>
+      <View
+        style={{
+          position: "absolute",
+          top: 0,
+          left: 0,
+          right: 0,
+          backgroundColor: colors.overlay,
+          paddingTop: 50,
+          paddingBottom: 12,
+          paddingHorizontal: 16,
+          flexDirection: "row",
+          alignItems: "center",
+          gap: 12,
+        }}
+      >
+        <Pressable
+          onPress={() => router.back()}
+          style={({ pressed }) => ({
+            width: 40,
+            height: 40,
+            borderRadius: 20,
+            backgroundColor: colors.overlayLight,
+            alignItems: "center",
+            justifyContent: "center",
+            opacity: pressed ? 0.7 : 1,
+          })}
+        >
+          <Ionicons name="chevron-back" size={24} color={colors.text} />
+        </Pressable>
+        <View style={{ flex: 1 }}>
+          <Text style={{ color: colors.text, fontSize: 18, fontWeight: "800" }}>
+            {bookTitle}
+          </Text>
+          <Text style={{ color: colors.textMuted, fontSize: 15, fontWeight: "600" }}>
+            {editionLine}
+          </Text>
+        </View>
+        <Pressable
+          onPress={() => {
+            void cycleTheme();
+          }}
+          style={({ pressed }) => ({
+            width: 40,
+            height: 40,
+            borderRadius: 20,
+            backgroundColor: colors.overlayLight,
+            alignItems: "center",
+            justifyContent: "center",
+            opacity: pressed ? 0.7 : 1,
+          })}
+        >
+          <Ionicons
+            name={theme === "light" ? "sunny-outline" : "book-outline"}
+            size={22}
+            color={colors.text}
+          />
+        </Pressable>
+        <Pressable
+          onPress={() => {
+            void toggleBookmark();
+          }}
+          style={({ pressed }) => ({
+            width: 40,
+            height: 40,
+            borderRadius: 20,
+            backgroundColor: colors.overlayLight,
+            alignItems: "center",
+            justifyContent: "center",
+            opacity: pressed ? 0.7 : 1,
+          })}
+        >
+          <Ionicons
+            name={existingBookmark ? "bookmark" : "bookmark-outline"}
+            size={22}
+            color={colors.text}
+          />
+        </Pressable>
+      </View>
+
+      <SafeAreaView
+        edges={["bottom"]}
+        style={{
+          position: "absolute",
+          bottom: 0,
+          left: 0,
+          right: 0,
+          backgroundColor: colors.overlay,
+        }}
+      >
+        <View style={{ paddingTop: 16, paddingBottom: 16, paddingHorizontal: 16, gap: 16 }}>
+          <View style={{ gap: 8 }}>
+            <Text style={{ color: colors.textMuted, fontSize: 13, fontWeight: "700" }}>
+              {remoteImageState === "error" ? "Page image unavailable" : activePageDeliveryLabel}
+            </Text>
+            {remoteImageState === "error" ? (
+              <Text style={{ color: colors.textMuted, fontSize: 13 }}>
+                This page asset failed to load. Reopen the page after the asset is available.
+              </Text>
             ) : (
-              <>
-                <View
-                  style={{
-                    gap: 16,
-                  }}
-                >
-                  <Text style={{ color: colors.textMuted, fontSize: 16, lineHeight: 26 }}>
-                    {pageContent.summary}
-                  </Text>
-                  {pageContent.paragraphs.map((paragraph) => (
-                    <Text
-                      key={paragraph}
-                      style={{
-                        color: colors.text,
-                        fontSize: 18,
-                        lineHeight: 31,
-                      }}
-                    >
-                      {paragraph}
-                    </Text>
-                  ))}
-                </View>
-
-                <View
-                  style={{
-                    borderRadius: 20,
-                    backgroundColor: "#F1E4BC",
-                    padding: 18,
-                    gap: 8,
-                  }}
-                >
-                  <Text style={{ color: colors.text, fontSize: 15, fontWeight: "800" }}>
-                    Reflection
-                  </Text>
-                  <Text style={{ color: colors.textMuted, fontSize: 15, lineHeight: 22 }}>
-                    {pageContent.reflection}
-                  </Text>
-                </View>
-              </>
+              <Text style={{ color: colors.textMuted, fontSize: 13 }}>
+                {activePageSupportMessage}
+              </Text>
             )}
-          </View>
-
-          <View style={{ backgroundColor: colors.surface, borderRadius: 22, padding: 18, gap: 10 }}>
-            <Text style={{ color: colors.text, fontSize: 18, fontWeight: "800" }}>
-              Reading context
-            </Text>
-            <Text style={{ color: colors.textMuted, fontSize: 15, lineHeight: 22 }}>
-              {metadata?.title ?? catalogBook?.title ?? "Published book"} | {selectedLanguage?.title ?? pageContent.meta.languageTitle} | {selectedVolume?.title ?? pageContent.meta.volumeTitle}
-            </Text>
-            <Text style={{ color: colors.textMuted, fontSize: 15, lineHeight: 22 }}>
-              {currentSection
-                ? `Section ${sectionIndex}: ${currentSection.title}`
-                : "Current section"}
-            </Text>
-            <View
-              style={{
-                height: 8,
-                borderRadius: 999,
-                backgroundColor: "#E8DDC0",
-                overflow: "hidden",
-              }}
-            >
-              <View
-                style={{
-                  width: `${progressPercent}%`,
-                  height: "100%",
-                  borderRadius: 999,
-                  backgroundColor: colors.accent,
-                }}
-              />
-            </View>
-            <Text style={{ color: colors.textMuted, fontSize: 15, lineHeight: 22 }}>
-              Page {currentPage} of {totalPages}
-            </Text>
-            {currentManifestPage ? (
-              <Text style={{ color: colors.textMuted, fontSize: 13, lineHeight: 20 }}>
-                Published page asset: {currentManifestPage.fileName}
+            {!catalogBook ? (
+              <Text style={{ color: colors.textMuted, fontSize: 13 }}>
+                This book is not present in the published catalog yet.
               </Text>
             ) : null}
           </View>
 
-          <View style={{ flexDirection: "row", gap: 12 }}>
-            {currentPage > 1 ? (
-              <Link
-                href={`/reader/${readingBookId}/${resolvedLanguageId}/${resolvedVolumeId}/${currentPage - 1}` as const}
-                asChild
-              >
-                <Pressable
-                  style={{
-                    flex: 1,
-                    borderRadius: 18,
-                    paddingVertical: 14,
-                    alignItems: "center",
-                    backgroundColor: colors.button,
-                  }}
-                >
-                  <Text style={{ color: colors.buttonText, fontSize: 15, fontWeight: "800" }}>
-                    Previous
-                  </Text>
-                </Pressable>
-              </Link>
-            ) : (
+          <View
+            style={{
+              flexDirection: "row",
+              alignItems: "center",
+              justifyContent: "space-between",
+              gap: 16,
+            }}
+          >
+            <Pressable
+              disabled={currentPage <= 1}
+              onPress={() => moveToPage(currentPage - 1)}
+              style={({ pressed }) => ({
+                width: 48,
+                height: 48,
+                borderRadius: 24,
+                backgroundColor: currentPage <= 1 ? colors.overlayMuted : colors.accent,
+                alignItems: "center",
+                justifyContent: "center",
+                opacity: pressed && currentPage > 1 ? 0.8 : 1,
+              })}
+            >
+              <Ionicons
+                name="chevron-back"
+                size={24}
+                color={currentPage <= 1 ? colors.textMuted : colors.textStrong}
+              />
+            </Pressable>
+
+            <View style={{ flex: 1, alignItems: "center", gap: 8 }}>
+              <Text style={{ color: colors.text, fontSize: 18, fontWeight: "800" }}>
+                Page {currentPage} of {totalPages}
+              </Text>
               <View
                 style={{
-                  flex: 1,
-                  borderRadius: 18,
-                  paddingVertical: 14,
-                  alignItems: "center",
-                  backgroundColor: "#E4DDCA",
+                  width: "100%",
+                  height: 6,
+                  backgroundColor: "rgba(255, 249, 234, 0.2)",
+                  borderRadius: 3,
+                  overflow: "hidden",
                 }}
               >
-                <Text style={{ color: "#8A8E86", fontSize: 15, fontWeight: "800" }}>
-                  Previous
-                </Text>
-              </View>
-            )}
-            {currentPage < totalPages ? (
-              <Link
-                href={`/reader/${readingBookId}/${resolvedLanguageId}/${resolvedVolumeId}/${currentPage + 1}` as const}
-                asChild
-              >
-                <Pressable
+                <View
                   style={{
-                    flex: 1,
-                    borderRadius: 18,
-                    paddingVertical: 14,
-                    alignItems: "center",
-                    backgroundColor: colors.button,
+                    height: "100%",
+                    width: `${progressPercent}%`,
+                    backgroundColor: colors.accent,
+                    borderRadius: 3,
                   }}
-                >
-                  <Text style={{ color: colors.buttonText, fontSize: 15, fontWeight: "800" }}>
-                    Next
-                  </Text>
-                </Pressable>
-              </Link>
-            ) : (
-              <View
-                style={{
-                  flex: 1,
-                  borderRadius: 18,
-                  paddingVertical: 14,
-                  alignItems: "center",
-                  backgroundColor: "#E4DDCA",
-                }}
-              >
-                <Text style={{ color: "#8A8E86", fontSize: 15, fontWeight: "800" }}>
-                  Next
-                </Text>
+                />
               </View>
-            )}
+            </View>
+
+            <Pressable
+              disabled={currentPage >= totalPages}
+              onPress={() => moveToPage(currentPage + 1)}
+              style={({ pressed }) => ({
+                width: 48,
+                height: 48,
+                borderRadius: 24,
+                backgroundColor: currentPage >= totalPages ? colors.overlayMuted : colors.accent,
+                alignItems: "center",
+                justifyContent: "center",
+                opacity: pressed && currentPage < totalPages ? 0.8 : 1,
+              })}
+            >
+              <Ionicons
+                name="chevron-forward"
+                size={24}
+                color={currentPage >= totalPages ? colors.textMuted : colors.textStrong}
+              />
+            </Pressable>
           </View>
-        </ScrollView>
+        </View>
       </SafeAreaView>
-    </>
+    </View>
   );
 }
