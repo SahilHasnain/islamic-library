@@ -28,5 +28,6 @@ export const APPWRITE_IDS = {
   databaseId: "library_ingestion",
   booksCollectionId: "books",
   jobsCollectionId: "ingestion_jobs",
+  publishEventsCollectionId: "publish_events",
   sourcePdfsBucketId: "source_pdfs",
 } as const;

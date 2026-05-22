@@ -1,8 +1,8 @@
 import { AdminConsole } from "@/components/admin-console";
-import { listRecentJobs } from "@/lib/ingestion";
+import { getMonitoringSnapshot } from "@/lib/ingestion";
 
 export default async function Home() {
-  const jobs = await listRecentJobs(12);
+  const snapshot = JSON.parse(JSON.stringify(await getMonitoringSnapshot(12)));
 
-  return <AdminConsole initialJobs={jobs} />;
+  return <AdminConsole initialSnapshot={snapshot} />;
 }

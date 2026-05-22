@@ -76,6 +76,42 @@ export type WorkerJobPayload = {
   publishMode: "public";
 };
 
+export type PublishEventRecord = {
+  $id: string;
+  jobId: string;
+  bookSlug: string;
+  status: string;
+  commitSha?: string;
+  catalogUrl?: string;
+  metadataUrl?: string;
+  manifestUrl?: string;
+  createdAt: string;
+};
+
+export type JobListItem = {
+  job: JobRecord;
+  book?: BookRecord;
+};
+
+export type MonitoringSummary = {
+  totalJobs: number;
+  queuedJobs: number;
+  activeJobs: number;
+  failedJobs: number;
+  publishedJobs: number;
+  totalBooks: number;
+  publishedBooks: number;
+  latestPublishedAt?: string;
+};
+
+export type MonitoringSnapshot = {
+  jobs: JobListItem[];
+  events: PublishEventRecord[];
+  summary: MonitoringSummary;
+};
+
+export type RecoveryAction = "requeue" | "reset-stuck";
+
 function requireWorkerEnv(name: "WORKER_API_URL" | "WORKER_API_TOKEN") {
   const value = process.env[name];
   if (!value) {
@@ -88,7 +124,7 @@ export async function listRecentJobs(limit = 10) {
   const jobsResponse = await appwriteDatabases.listDocuments(
     APPWRITE_IDS.databaseId,
     APPWRITE_IDS.jobsCollectionId,
-    [Query.orderDesc("createdAt"), Query.limit(limit)],
+    [Query.orderDesc("$createdAt"), Query.limit(limit)],
   );
 
   const booksResponse = await appwriteDatabases.listDocuments(
@@ -108,6 +144,53 @@ export async function listRecentJobs(limit = 10) {
       book: booksBySlug.get(typedJob.bookSlug),
     };
   });
+}
+
+export async function listRecentPublishEvents(limit = 8) {
+  const response = await appwriteDatabases.listDocuments(
+    APPWRITE_IDS.databaseId,
+    APPWRITE_IDS.publishEventsCollectionId,
+    [Query.orderDesc("$createdAt"), Query.limit(limit)],
+  );
+
+  return response.documents as unknown as PublishEventRecord[];
+}
+
+export async function getMonitoringSnapshot(limit = 12): Promise<MonitoringSnapshot> {
+  const [jobs, events, booksResponse, jobsResponse] = await Promise.all([
+    listRecentJobs(limit),
+    listRecentPublishEvents(8),
+    appwriteDatabases.listDocuments(APPWRITE_IDS.databaseId, APPWRITE_IDS.booksCollectionId, [
+      Query.limit(100),
+    ]),
+    appwriteDatabases.listDocuments(APPWRITE_IDS.databaseId, APPWRITE_IDS.jobsCollectionId, [
+      Query.limit(100),
+    ]),
+  ]);
+
+  const allJobs = jobsResponse.documents as unknown as JobRecord[];
+  const allBooks = booksResponse.documents as unknown as BookRecord[];
+  const latestPublishedAt = events.find((event) => event.status === "published")?.createdAt;
+
+  return {
+    jobs,
+    events,
+    summary: {
+      totalJobs: allJobs.length,
+      queuedJobs: allJobs.filter((job) => job.status === "queued" || job.status === "retrying")
+        .length,
+      activeJobs: allJobs.filter((job) =>
+        job.status === "processing" ||
+        job.status === "validating" ||
+        job.status === "publishing"
+      ).length,
+      failedJobs: allJobs.filter((job) => job.status === "failed").length,
+      publishedJobs: allJobs.filter((job) => job.status === "published").length,
+      totalBooks: allBooks.length,
+      publishedBooks: allBooks.filter((book) => book.status === "published").length,
+      latestPublishedAt,
+    },
+  };
 }
 
 export async function getDispatchPayload(jobId: string) {
@@ -149,6 +232,82 @@ export async function getDispatchPayload(jobId: string) {
   };
 
   return { job, book, payload };
+}
+
+async function getJobAndBook(jobId: string) {
+  const { job, book } = await getDispatchPayload(jobId);
+  return { job, book };
+}
+
+export async function recoverJob(jobId: string, action: RecoveryAction) {
+  const { job, book } = await getJobAndBook(jobId);
+  const now = new Date().toISOString();
+
+  if (action === "requeue") {
+    if (!["failed", "retrying", "queued"].includes(job.status)) {
+      throw new Error("Only failed, retrying, or queued jobs can be requeued.");
+    }
+
+    await appwriteDatabases.updateDocument(
+      APPWRITE_IDS.databaseId,
+      APPWRITE_IDS.jobsCollectionId,
+      job.$id,
+      {
+        status: "queued",
+        updatedAt: now,
+        startedAt: "",
+        finishedAt: "",
+        errorCode: "",
+        errorMessage: "",
+        workerId: "",
+        workerVersion: "",
+      },
+    );
+
+    await appwriteDatabases.updateDocument(
+      APPWRITE_IDS.databaseId,
+      APPWRITE_IDS.booksCollectionId,
+      book.$id,
+      {
+        status: "queued",
+        updatedAt: now,
+      },
+    );
+
+    return { ok: true, action, nextStatus: "queued" as const };
+  }
+
+  if (!["processing", "validating", "publishing"].includes(job.status)) {
+    throw new Error("Only in-flight jobs can be reset as stuck.");
+  }
+
+  await appwriteDatabases.updateDocument(
+    APPWRITE_IDS.databaseId,
+    APPWRITE_IDS.jobsCollectionId,
+    job.$id,
+    {
+      status: "queued",
+      updatedAt: now,
+      startedAt: "",
+      finishedAt: "",
+      errorCode: "OPERATOR_RESET",
+      errorMessage: "Job was reset to queued by an operator after getting stuck.",
+      workerId: "",
+      workerVersion: "",
+    },
+  );
+
+  await appwriteDatabases.updateDocument(
+    APPWRITE_IDS.databaseId,
+    APPWRITE_IDS.booksCollectionId,
+    book.$id,
+    {
+      status: "queued",
+      updatedAt: now,
+    },
+  );
+
+  return { ok: true, action, nextStatus: "queued" as const };
 }
 
 export async function dispatchJobToWorker(jobId: string) {

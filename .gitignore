@@ -25,6 +25,7 @@ expo-env.d.ts
 npm-debug.*
 yarn-debug.*
 yarn-error.*
+worker-service/*.log
 
 # macOS
 .DS_Store
@@ -41,3 +42,6 @@ app-example
 # generated native folders
 /ios
 /android
+
+# local worker artifacts
+worker-service/runs/
