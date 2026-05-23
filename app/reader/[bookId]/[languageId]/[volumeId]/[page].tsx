@@ -13,10 +13,10 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { ZoomableReaderImage } from "../../../../../components/zoomable-reader-image";
-import { useRemoteBookData } from "../../../../../hooks/useRemoteBookData";
 import { useBookmarks } from "../../../../../hooks/useBookmarks";
 import { useReaderPreferences } from "../../../../../hooks/useReaderPreferences";
 import { useReadingProgress } from "../../../../../hooks/useReadingProgress";
+import { useRemoteBookData } from "../../../../../hooks/useRemoteBookData";
 import { useResolvedManifestPageAsset } from "../../../../../hooks/useResolvedManifestPageAsset";
 import { prefetchManifestPages } from "../../../../../lib/reader-prefetch";
 
@@ -490,26 +490,6 @@ export default function ReaderScreen() {
         }}
       >
         <View style={{ paddingTop: 16, paddingBottom: 16, paddingHorizontal: 16, gap: 16 }}>
-          <View style={{ gap: 8 }}>
-            <Text style={{ color: colors.textMuted, fontSize: 13, fontWeight: "700" }}>
-              {remoteImageState === "error" ? "Page image unavailable" : activePageDeliveryLabel}
-            </Text>
-            {remoteImageState === "error" ? (
-              <Text style={{ color: colors.textMuted, fontSize: 13 }}>
-                This page could not be opened right now. Try again in a moment.
-              </Text>
-            ) : (
-              <Text style={{ color: colors.textMuted, fontSize: 13 }}>
-                {activePageSupportMessage}
-              </Text>
-            )}
-            {!catalogBook ? (
-              <Text style={{ color: colors.textMuted, fontSize: 13 }}>
-                This book is not available right now.
-              </Text>
-            ) : null}
-          </View>
-
           <View
             style={{
               flexDirection: "row",

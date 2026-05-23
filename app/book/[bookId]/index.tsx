@@ -304,7 +304,10 @@ export default function BookHomeScreen() {
           headerShadowVisible: false,
         }}
       />
-      <SafeAreaView style={{ flex: 1, backgroundColor: colors.background }}>
+      <SafeAreaView
+        edges={["left", "right", "bottom"]}
+        style={{ flex: 1, backgroundColor: colors.background }}
+      >
         {shouldShowInitialSkeleton ? (
           <ScrollView contentContainerStyle={{ padding: 20, gap: 20, paddingBottom: 40 }}>
             <View

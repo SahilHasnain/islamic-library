@@ -269,7 +269,6 @@ function LibraryBookCard({
                 style={{
                   width: 54,
                   height: 72,
-                  borderRadius: 16,
                   backgroundColor: colors.surfaceMuted,
                 }}
               />
