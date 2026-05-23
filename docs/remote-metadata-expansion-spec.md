@@ -30,6 +30,7 @@ It is not enough for:
 - real reading plans
 - today target copy
 - devotional framing
+- curated category grouping
 - calm, authored book-home UX
 
 Without this expansion, the frontend keeps generating:
@@ -113,11 +114,14 @@ Add:
 - `todayPrompt`
 - `devotionalContext`
 - `readingTone`
+- `categoryLabel`
+- `tags`
 
 Purpose:
 
 - support richer book-home composition
 - avoid generic placeholder copy
+- keep category grouping editorially consistent
 
 Example:
 
@@ -129,6 +133,8 @@ Example:
   "author": "Islamic Library",
   "description": "A devotional reading edition of Shifa Shareef in Roman Urdu.",
   "category": "Durood",
+  "categoryLabel": "Durood Shareef",
+  "tags": ["salawat", "daily-reading"],
   "coverImage": "https://cdn.jsdelivr.net/gh/.../cover.png",
   "featuredQuote": "Begin with calm. Continue with steadiness.",
   "todayPrompt": "Read 2 pages from your current place with presence and regularity.",
@@ -244,6 +250,8 @@ type PublicBookMetadata = {
   author?: string;
   description?: string;
   category?: string;
+  categoryLabel?: string;
+  tags?: string[];
   coverImage?: string;
   featuredQuote?: string;
   todayPrompt?: string;
@@ -382,6 +390,43 @@ Reason:
 - sections/plans/editorial framing are product data
 
 That separation should stay clear.
+
+## Category Design Guidance
+
+Categories should be dynamic, but not sloppy.
+
+Use:
+
+- `category`
+  as the stable internal grouping key
+- `categoryLabel`
+  as the user-facing category name
+- `tags`
+  as optional secondary discovery labels
+
+Recommended editorial rules:
+
+- `category` should be short and stable
+  like `durood`, `naat`, `dua`, `seerah`
+- `categoryLabel` should be the polished display value
+  like `Durood Shareef`
+- `tags` should be optional and used for future filtering, not primary grouping
+
+Example:
+
+```json
+{
+  "category": "durood",
+  "categoryLabel": "Durood Shareef",
+  "tags": ["salawat", "daily-reading", "devotional"]
+}
+```
+
+Rule:
+
+- the app should group by `categoryLabel` when available
+- fall back to `category`
+- and only then fall back to a generic uncategorized bucket
 
 ## Worker Responsibilities
 

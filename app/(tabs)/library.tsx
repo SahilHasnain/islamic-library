@@ -26,6 +26,26 @@ function getContinueLine(page?: number) {
   return page ? `Page ${page}` : "Not started yet";
 }
 
+function normalizeCategoryLabel(category?: string) {
+  const trimmed = category?.trim();
+  return trimmed && trimmed.length > 0 ? trimmed : "Uncategorized";
+}
+
+function getCategoryDisplayLabel({
+  category,
+  categoryLabel,
+}: {
+  category?: string;
+  categoryLabel?: string;
+}) {
+  const curatedLabel = categoryLabel?.trim();
+  if (curatedLabel) {
+    return curatedLabel;
+  }
+
+  return normalizeCategoryLabel(category);
+}
+
 function getDownloadButtonLabel({
   canDownload,
   isDownloading,
@@ -411,12 +431,31 @@ export default function LibraryScreen() {
   const additionalInProgressBooks = featuredBook
     ? inProgressBooks.filter((book) => book.id !== featuredBook.id)
     : [];
-  const categoryLabels =
-    remoteBooks.length > 0
-      ? Array.from(new Set(remoteBooks.map((book) => book.category).filter(Boolean)))
-      : [];
-  const safeCategoryLabels = categoryLabels.filter(
-    (category): category is string => Boolean(category),
+  const categoryGroups = remoteBooks.reduce(
+    (groups, book) => {
+      const categoryKey = (book.category?.trim().toLowerCase() || "uncategorized").trim();
+      const categoryLabel = getCategoryDisplayLabel({
+        category: book.category,
+        categoryLabel: book.categoryLabel,
+      });
+      const existingGroup = groups.find((group) => group.key === categoryKey);
+
+      if (existingGroup) {
+        existingGroup.books.push(book);
+        return groups;
+      }
+
+      groups.push({
+        key: categoryKey,
+        label: categoryLabel,
+        books: [book],
+      });
+      return groups;
+    },
+    [] as { key: string; label: string; books: typeof remoteBooks }[],
+  );
+  const orderedCategoryGroups = categoryGroups.sort((left, right) =>
+    right.books.length - left.books.length || left.label.localeCompare(right.label),
   );
 
   return (
@@ -532,10 +571,10 @@ export default function LibraryScreen() {
         <SectionCard>
           <CardTitle>Featured categories</CardTitle>
           <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10 }}>
-            {safeCategoryLabels.map((category) => (
-              <Chip key={category} label={category} />
+            {orderedCategoryGroups.map((group) => (
+              <Chip key={group.key} label={group.label} />
             ))}
-            {safeCategoryLabels.length === 0 ? <MetaText>No categories yet.</MetaText> : null}
+            {orderedCategoryGroups.length === 0 ? <MetaText>No categories yet.</MetaText> : null}
           </View>
         </SectionCard>
 
@@ -544,19 +583,27 @@ export default function LibraryScreen() {
           <BodyText>
             Move at your own pace. Each title should open into a calm, guided reading flow.
           </BodyText>
-          {remoteBooks.length > 0 ? (
-            remoteBooks.map((book) => (
-              <LibraryBookCard
-                key={book.id}
-                bookId={book.id}
-                title={book.title}
-                subtitle={book.subtitle}
-                category={book.category}
-                page={latestProgressByBook[book.id]?.page}
-                languageId={latestProgressByBook[book.id]?.languageId}
-                volumeId={latestProgressByBook[book.id]?.volumeId}
-                coverImage={book.coverImage}
-              />
+          {orderedCategoryGroups.length > 0 ? (
+            orderedCategoryGroups.map((group) => (
+              <View key={group.key} style={{ gap: spacing.gapMd }}>
+                <MetaText>{group.label}</MetaText>
+                {group.books.map((book) => (
+                  <LibraryBookCard
+                    key={book.id}
+                    bookId={book.id}
+                    title={book.title}
+                    subtitle={book.subtitle}
+                    category={getCategoryDisplayLabel({
+                      category: book.category,
+                      categoryLabel: book.categoryLabel,
+                    })}
+                    page={latestProgressByBook[book.id]?.page}
+                    languageId={latestProgressByBook[book.id]?.languageId}
+                    volumeId={latestProgressByBook[book.id]?.volumeId}
+                    coverImage={book.coverImage}
+                  />
+                ))}
+              </View>
             ))
           ) : (
             <MetaText>No books found.</MetaText>

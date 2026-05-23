@@ -91,6 +91,8 @@ export type PublicCatalogBook = {
   subtitle?: string;
   author?: string;
   category?: string;
+  categoryLabel?: string;
+  tags?: string[];
   coverImage?: string;
   status: "published";
   metadataUrl: string;
@@ -131,6 +133,8 @@ export type PublicBookMetadata = {
   author?: string;
   description?: string;
   category?: string;
+  categoryLabel?: string;
+  tags?: string[];
   coverImage?: string;
   featuredQuote?: string;
   todayPrompt?: string;
