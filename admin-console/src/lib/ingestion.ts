@@ -35,11 +35,59 @@ export type BookRecord = {
   manifestUrl?: string;
   languageId: string;
   volumeId: string;
+  defaultLanguageId?: string;
+  defaultVolumeId?: string;
   sourceFileId: string;
   status: BookStatus;
   createdBy: string;
   createdAt: string;
   updatedAt: string;
+};
+
+export type EditionVolumeInput = {
+  id: string;
+  title: string;
+  subtitle?: string;
+  order?: number;
+  introNote?: string;
+  todayTarget?: string;
+  sourceFileId?: string;
+  manifestUrl?: string;
+  sections?: {
+    id: string;
+    title: string;
+    subtitle?: string;
+    kind?: string;
+    startPage: number;
+    endPage: number;
+    estimatedMinutes: number;
+    description?: string;
+    entryPage?: number;
+    order?: number;
+  }[];
+  plans?: {
+    id: string;
+    title: string;
+    description: string;
+    totalDays: number;
+    items: {
+      day: number;
+      label: string;
+      startPage: number;
+      endPage: number;
+      estimatedMinutes: number;
+    }[];
+  }[];
+};
+
+export type EditionLanguageInput = {
+  languageId: string;
+  title: string;
+  nativeTitle?: string;
+  summary?: string;
+  order?: number;
+  defaultVolumeId?: string;
+  volumes: EditionVolumeInput[];
 };
 
 export type JobRecord = {
@@ -85,7 +133,9 @@ export type MetadataRepublishPayload = {
   author?: string;
   description?: string;
   category?: string;
+  defaultLanguageId?: string;
   requestedBy: string;
+  languages?: EditionLanguageInput[];
   sections?: {
     id: string;
     title: string;
@@ -415,6 +465,10 @@ export async function republishBookMetadata(payload: MetadataRepublishPayload) {
       author: payload.author || "",
       description: payload.description || "",
       category: payload.category || "",
+      defaultLanguageId: payload.defaultLanguageId || "",
+      defaultVolumeId:
+        payload.languages?.find((language) => language.languageId === payload.defaultLanguageId)
+          ?.defaultVolumeId || "",
       updatedAt: now,
     },
   );

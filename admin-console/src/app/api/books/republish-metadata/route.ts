@@ -38,6 +38,61 @@ function parseSections(value: unknown) {
   });
 }
 
+function parseLanguages(value: unknown) {
+  if (!Array.isArray(value)) {
+    return undefined;
+  }
+
+  return value.map((language, languageIndex) => {
+    const languageItem = language as Record<string, unknown>;
+    const languageId = String(languageItem.languageId || languageItem.id || "").trim();
+    const title = String(languageItem.title || "").trim();
+
+    if (!languageId || !title) {
+      throw new Error(`Language ${languageIndex + 1} is invalid.`);
+    }
+
+    const rawVolumes = Array.isArray(languageItem.volumes) ? languageItem.volumes : [];
+    if (rawVolumes.length === 0) {
+      throw new Error(`Language ${title} must include at least one volume.`);
+    }
+
+    return {
+      languageId,
+      title,
+      nativeTitle: String(languageItem.nativeTitle || "").trim() || undefined,
+      summary: String(languageItem.summary || "").trim() || undefined,
+      order:
+        languageItem.order === undefined || languageItem.order === null || languageItem.order === ""
+          ? undefined
+          : Number(languageItem.order),
+      defaultVolumeId: String(languageItem.defaultVolumeId || "").trim() || undefined,
+      volumes: rawVolumes.map((volume, volumeIndex) => {
+        const volumeItem = volume as Record<string, unknown>;
+        const volumeId = String(volumeItem.id || "").trim();
+        const volumeTitle = String(volumeItem.title || "").trim();
+
+        if (!volumeId || !volumeTitle) {
+          throw new Error(`Volume ${volumeIndex + 1} in ${title} is invalid.`);
+        }
+
+        return {
+          id: volumeId,
+          title: volumeTitle,
+          subtitle: String(volumeItem.subtitle || "").trim() || undefined,
+          order:
+            volumeItem.order === undefined || volumeItem.order === null || volumeItem.order === ""
+              ? undefined
+              : Number(volumeItem.order),
+          manifestUrl: String(volumeItem.manifestUrl || "").trim() || undefined,
+          introNote: String(volumeItem.introNote || "").trim() || undefined,
+          todayTarget: String(volumeItem.todayTarget || "").trim() || undefined,
+        };
+      }),
+    };
+  });
+}
+
 export async function POST(request: Request) {
   try {
     const payload = (await request.json()) as {
@@ -47,7 +102,9 @@ export async function POST(request: Request) {
       author?: string;
       description?: string;
       category?: string;
+      defaultLanguageId?: string;
       requestedBy?: string;
+      languages?: unknown;
       sections?: unknown;
     };
 
@@ -68,7 +125,9 @@ export async function POST(request: Request) {
       author: String(payload.author || "").trim() || undefined,
       description: String(payload.description || "").trim() || undefined,
       category: String(payload.category || "").trim() || undefined,
+      defaultLanguageId: String(payload.defaultLanguageId || "").trim() || undefined,
       requestedBy: String(payload.requestedBy || "admin-console").trim(),
+      languages: parseLanguages(payload.languages),
       sections: parseSections(payload.sections),
     });
 

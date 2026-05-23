@@ -34,8 +34,30 @@ type MetadataFormState = {
   author: string;
   description: string;
   category: string;
+  defaultLanguageId: string;
   requestedBy: string;
+  languages: EditionLanguageEditorItem[];
   sections: SectionEditorItem[];
+};
+
+type EditionVolumeEditorItem = {
+  id: string;
+  title: string;
+  subtitle: string;
+  order: string;
+  manifestUrl: string;
+  introNote: string;
+  todayTarget: string;
+};
+
+type EditionLanguageEditorItem = {
+  id: string;
+  title: string;
+  nativeTitle: string;
+  summary: string;
+  order: string;
+  defaultVolumeId: string;
+  volumes: EditionVolumeEditorItem[];
 };
 
 type SectionEditorItem = {
@@ -73,14 +95,50 @@ type PublishedMetadataPayload = {
   author?: string;
   description?: string;
   category?: string;
+  defaultLanguageId?: string;
   languages?: {
     id: string;
+    title?: string;
+    nativeTitle?: string;
+    summary?: string;
+    order?: number;
+    defaultVolumeId?: string;
     volumes?: {
       id: string;
+      title?: string;
+      subtitle?: string;
+      order?: number;
+      manifestUrl?: string;
+      introNote?: string;
+      todayTarget?: string;
       sections?: unknown[];
     }[];
   }[];
 };
+
+function createEmptyVolume(): EditionVolumeEditorItem {
+  return {
+    id: "",
+    title: "",
+    subtitle: "",
+    order: "",
+    manifestUrl: "",
+    introNote: "",
+    todayTarget: "",
+  };
+}
+
+function createEmptyLanguage(): EditionLanguageEditorItem {
+  return {
+    id: "",
+    title: "",
+    nativeTitle: "",
+    summary: "",
+    order: "",
+    defaultVolumeId: "",
+    volumes: [createEmptyVolume()],
+  };
+}
 
 function createEmptySection(): SectionEditorItem {
   return {
@@ -134,6 +192,109 @@ function normalizeSections(value: unknown[] | undefined): SectionEditorItem[] {
       description: String(item.description || ""),
     };
   });
+}
+
+function normalizeLanguages(
+  value: PublishedMetadataPayload["languages"],
+  fallbackLanguageId?: string,
+  fallbackVolumeId?: string,
+): EditionLanguageEditorItem[] {
+  if (!value || value.length === 0) {
+    if (!fallbackLanguageId) {
+      return [];
+    }
+
+    return [
+      {
+        id: fallbackLanguageId,
+        title: fallbackLanguageId,
+        nativeTitle: "",
+        summary: "",
+        order: "1",
+        defaultVolumeId: fallbackVolumeId || "volume1",
+        volumes: [
+          {
+            id: fallbackVolumeId || "volume1",
+            title: fallbackVolumeId || "Volume 1",
+            subtitle: "",
+            order: "1",
+            manifestUrl: "",
+            introNote: "",
+            todayTarget: "",
+          },
+        ],
+      },
+    ];
+  }
+
+  return value.map((language, languageIndex) => ({
+    id: String(language.id || ""),
+    title: String(language.title || language.id || ""),
+    nativeTitle: String(language.nativeTitle || ""),
+    summary: String(language.summary || ""),
+    order: language.order == null ? String(languageIndex + 1) : String(language.order),
+    defaultVolumeId: String(language.defaultVolumeId || ""),
+    volumes:
+      language.volumes?.length
+        ? language.volumes.map((volume, volumeIndex) => ({
+            id: String(volume.id || ""),
+            title: String(volume.title || volume.id || ""),
+            subtitle: String(volume.subtitle || ""),
+            order: volume.order == null ? String(volumeIndex + 1) : String(volume.order),
+            manifestUrl: String(volume.manifestUrl || ""),
+            introNote: String(volume.introNote || ""),
+            todayTarget: String(volume.todayTarget || ""),
+          }))
+        : [createEmptyVolume()],
+  }));
+}
+
+function buildLanguagePayload(languages: EditionLanguageEditorItem[]) {
+  return languages
+    .filter((language) => language.id.trim() || language.title.trim())
+    .map((language, languageIndex) => {
+      const id = language.id.trim();
+      const title = language.title.trim();
+
+      if (!id || !title) {
+        throw new Error(`Language ${languageIndex + 1} is incomplete.`);
+      }
+
+      const volumes = language.volumes
+        .filter((volume) => volume.id.trim() || volume.title.trim())
+        .map((volume, volumeIndex) => {
+          const volumeId = volume.id.trim();
+          const volumeTitle = volume.title.trim();
+
+          if (!volumeId || !volumeTitle) {
+            throw new Error(`Volume ${volumeIndex + 1} in ${title} is incomplete.`);
+          }
+
+          return {
+            id: volumeId,
+            title: volumeTitle,
+            subtitle: volume.subtitle.trim() || undefined,
+            order: volume.order.trim() ? Number(volume.order) : undefined,
+            manifestUrl: volume.manifestUrl.trim() || undefined,
+            introNote: volume.introNote.trim() || undefined,
+            todayTarget: volume.todayTarget.trim() || undefined,
+          };
+        });
+
+      if (volumes.length === 0) {
+        throw new Error(`Language ${title} needs at least one volume.`);
+      }
+
+      return {
+        languageId: id,
+        title,
+        nativeTitle: language.nativeTitle.trim() || undefined,
+        summary: language.summary.trim() || undefined,
+        order: language.order.trim() ? Number(language.order) : undefined,
+        defaultVolumeId: language.defaultVolumeId.trim() || undefined,
+        volumes,
+      };
+    });
 }
 
 function buildSectionPayload(sections: SectionEditorItem[]) {
@@ -243,7 +404,9 @@ export function AdminConsole({ initialSnapshot }: { initialSnapshot: MonitoringS
     author: "",
     description: "",
     category: "Other",
+    defaultLanguageId: "",
     requestedBy: "admin-console",
+    languages: [],
     sections: getDefaultSections(),
   });
 
@@ -369,6 +532,15 @@ export function AdminConsole({ initialSnapshot }: { initialSnapshot: MonitoringS
             author: payload.author || "",
             description: payload.description || "",
             category: payload.category || current.category,
+            defaultLanguageId:
+              payload.defaultLanguageId ||
+              matchingLanguage?.id ||
+              current.defaultLanguageId,
+            languages: normalizeLanguages(
+              payload.languages,
+              knownBook.languageId,
+              knownBook.volumeId,
+            ),
             sections: normalizeSections(matchingVolume?.sections),
           };
         });
@@ -533,6 +705,7 @@ export function AdminConsole({ initialSnapshot }: { initialSnapshot: MonitoringS
 
     try {
       const sections = buildSectionPayload(metadataForm.sections);
+      const languages = buildLanguagePayload(metadataForm.languages);
 
       const response = await fetch("/api/books/republish-metadata", {
         method: "POST",
@@ -541,6 +714,8 @@ export function AdminConsole({ initialSnapshot }: { initialSnapshot: MonitoringS
         },
         body: JSON.stringify({
           ...metadataForm,
+          defaultLanguageId: metadataForm.defaultLanguageId.trim() || undefined,
+          languages,
           sections,
         }),
       });
@@ -703,6 +878,10 @@ export function AdminConsole({ initialSnapshot }: { initialSnapshot: MonitoringS
                       author: knownBook?.author || current.author,
                       description: knownBook?.description || current.description,
                       category: knownBook?.category || current.category,
+                      defaultLanguageId: knownBook?.defaultLanguageId || knownBook?.languageId || current.defaultLanguageId,
+                      languages: knownBook
+                        ? normalizeLanguages(undefined, knownBook.languageId, knownBook.volumeId)
+                        : [],
                       sections: knownBook ? current.sections : getDefaultSections(),
                     }));
                   }}
@@ -792,12 +971,435 @@ export function AdminConsole({ initialSnapshot }: { initialSnapshot: MonitoringS
               />
             </label>
 
+            <div className="space-y-4 rounded-3xl border border-stone-800 bg-stone-950/40 p-4">
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <span className="text-sm text-stone-200">Languages and Volumes</span>
+                  <p className="mt-1 text-xs leading-5 text-stone-400">
+                    Define which languages exist under this book and which volumes belong to each language.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setMetadataForm((current) => ({
+                      ...current,
+                      languages: [...current.languages, createEmptyLanguage()],
+                    }));
+                  }}
+                  className="rounded-full border border-stone-700 px-4 py-2 text-xs font-medium text-stone-200 transition hover:border-amber-300 hover:text-amber-200"
+                >
+                  Add language
+                </button>
+              </div>
+
+              <label className="block space-y-2">
+                <span className="text-xs text-stone-300">Default language ID</span>
+                <input
+                  value={metadataForm.defaultLanguageId}
+                  onChange={(event) => {
+                    setMetadataForm((current) => ({
+                      ...current,
+                      defaultLanguageId: event.target.value,
+                    }));
+                  }}
+                  className="w-full rounded-2xl border border-stone-700 bg-stone-950 px-4 py-3 text-sm outline-none transition focus:border-amber-300"
+                  placeholder="roman-urdu"
+                />
+              </label>
+
+              {metadataForm.languages.length === 0 ? (
+                <div className="rounded-2xl border border-dashed border-stone-700 bg-stone-950/60 p-4 text-sm text-stone-400">
+                  No languages yet. Add the first language above.
+                </div>
+              ) : (
+                <div className="space-y-5">
+                  {metadataForm.languages.map((language, languageIndex) => (
+                    <div
+                      key={`${language.id || "language"}-${languageIndex}`}
+                      className="rounded-3xl border border-stone-800 bg-stone-950/60 p-4"
+                    >
+                      <div className="mb-4 flex items-start justify-between gap-4">
+                        <div>
+                          <p className="text-sm font-medium text-stone-100">Language {languageIndex + 1}</p>
+                          <p className="text-xs text-stone-400">
+                            One reading edition family with its own default volume and ordering.
+                          </p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setMetadataForm((current) => ({
+                              ...current,
+                              languages: current.languages.filter((_, currentIndex) => currentIndex !== languageIndex),
+                            }));
+                          }}
+                          className="rounded-full border border-rose-900/60 px-4 py-2 text-xs font-medium text-rose-200 transition hover:border-rose-400 hover:text-rose-100"
+                        >
+                          Remove
+                        </button>
+                      </div>
+
+                      <div className="grid gap-4 md:grid-cols-2">
+                        <label className="space-y-2">
+                          <span className="text-xs text-stone-300">Language ID</span>
+                          <input
+                            value={language.id}
+                            onChange={(event) => {
+                              const value = event.target.value;
+                              setMetadataForm((current) => ({
+                                ...current,
+                                languages: current.languages.map((item, currentIndex) =>
+                                  currentIndex === languageIndex ? { ...item, id: value } : item,
+                                ),
+                              }));
+                            }}
+                            className="w-full rounded-2xl border border-stone-700 bg-stone-950 px-4 py-3 text-sm outline-none transition focus:border-amber-300"
+                            placeholder="roman-urdu"
+                          />
+                        </label>
+                        <label className="space-y-2">
+                          <span className="text-xs text-stone-300">Title</span>
+                          <input
+                            value={language.title}
+                            onChange={(event) => {
+                              const value = event.target.value;
+                              setMetadataForm((current) => ({
+                                ...current,
+                                languages: current.languages.map((item, currentIndex) =>
+                                  currentIndex === languageIndex ? { ...item, title: value } : item,
+                                ),
+                              }));
+                            }}
+                            className="w-full rounded-2xl border border-stone-700 bg-stone-950 px-4 py-3 text-sm outline-none transition focus:border-amber-300"
+                            placeholder="Roman Urdu"
+                          />
+                        </label>
+                        <label className="space-y-2">
+                          <span className="text-xs text-stone-300">Native title</span>
+                          <input
+                            value={language.nativeTitle}
+                            onChange={(event) => {
+                              const value = event.target.value;
+                              setMetadataForm((current) => ({
+                                ...current,
+                                languages: current.languages.map((item, currentIndex) =>
+                                  currentIndex === languageIndex ? { ...item, nativeTitle: value } : item,
+                                ),
+                              }));
+                            }}
+                            className="w-full rounded-2xl border border-stone-700 bg-stone-950 px-4 py-3 text-sm outline-none transition focus:border-amber-300"
+                          />
+                        </label>
+                        <label className="space-y-2">
+                          <span className="text-xs text-stone-300">Order</span>
+                          <input
+                            inputMode="numeric"
+                            value={language.order}
+                            onChange={(event) => {
+                              const value = event.target.value;
+                              setMetadataForm((current) => ({
+                                ...current,
+                                languages: current.languages.map((item, currentIndex) =>
+                                  currentIndex === languageIndex ? { ...item, order: value } : item,
+                                ),
+                              }));
+                            }}
+                            className="w-full rounded-2xl border border-stone-700 bg-stone-950 px-4 py-3 text-sm outline-none transition focus:border-amber-300"
+                          />
+                        </label>
+                        <label className="space-y-2 md:col-span-2">
+                          <span className="text-xs text-stone-300">Summary</span>
+                          <input
+                            value={language.summary}
+                            onChange={(event) => {
+                              const value = event.target.value;
+                              setMetadataForm((current) => ({
+                                ...current,
+                                languages: current.languages.map((item, currentIndex) =>
+                                  currentIndex === languageIndex ? { ...item, summary: value } : item,
+                                ),
+                              }));
+                            }}
+                            className="w-full rounded-2xl border border-stone-700 bg-stone-950 px-4 py-3 text-sm outline-none transition focus:border-amber-300"
+                            placeholder="For readers who want a Roman Urdu devotional edition."
+                          />
+                        </label>
+                        <label className="space-y-2">
+                          <span className="text-xs text-stone-300">Default volume ID</span>
+                          <input
+                            value={language.defaultVolumeId}
+                            onChange={(event) => {
+                              const value = event.target.value;
+                              setMetadataForm((current) => ({
+                                ...current,
+                                languages: current.languages.map((item, currentIndex) =>
+                                  currentIndex === languageIndex ? { ...item, defaultVolumeId: value } : item,
+                                ),
+                              }));
+                            }}
+                            className="w-full rounded-2xl border border-stone-700 bg-stone-950 px-4 py-3 text-sm outline-none transition focus:border-amber-300"
+                            placeholder="volume1"
+                          />
+                        </label>
+                      </div>
+
+                      <div className="mt-5 space-y-4">
+                        <div className="flex items-center justify-between gap-4">
+                          <div>
+                            <span className="text-xs uppercase tracking-[0.18em] text-stone-400">Volumes</span>
+                            <p className="mt-1 text-xs text-stone-500">
+                              Each language can carry one or more publishable reading volumes.
+                            </p>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setMetadataForm((current) => ({
+                                ...current,
+                                languages: current.languages.map((item, currentIndex) =>
+                                  currentIndex === languageIndex
+                                    ? { ...item, volumes: [...item.volumes, createEmptyVolume()] }
+                                    : item,
+                                ),
+                              }));
+                            }}
+                            className="rounded-full border border-stone-700 px-4 py-2 text-xs font-medium text-stone-200 transition hover:border-amber-300 hover:text-amber-200"
+                          >
+                            Add volume
+                          </button>
+                        </div>
+
+                        {language.volumes.map((volume, volumeIndex) => (
+                          <div
+                            key={`${volume.id || "volume"}-${volumeIndex}`}
+                            className="rounded-2xl border border-stone-800 bg-stone-900/40 p-4"
+                          >
+                            <div className="mb-4 flex items-start justify-between gap-4">
+                              <div>
+                                <p className="text-sm font-medium text-stone-100">Volume {volumeIndex + 1}</p>
+                                <p className="text-xs text-stone-400">
+                                  This is the concrete readable unit for the selected language.
+                                </p>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setMetadataForm((current) => ({
+                                    ...current,
+                                    languages: current.languages.map((item, currentIndex) =>
+                                      currentIndex === languageIndex
+                                        ? {
+                                            ...item,
+                                            volumes: item.volumes.filter((_, currentVolumeIndex) => currentVolumeIndex !== volumeIndex),
+                                          }
+                                        : item,
+                                    ),
+                                  }));
+                                }}
+                                className="rounded-full border border-rose-900/60 px-4 py-2 text-xs font-medium text-rose-200 transition hover:border-rose-400 hover:text-rose-100"
+                              >
+                                Remove
+                              </button>
+                            </div>
+
+                            <div className="grid gap-4 md:grid-cols-2">
+                              <label className="space-y-2">
+                                <span className="text-xs text-stone-300">Volume ID</span>
+                                <input
+                                  value={volume.id}
+                                  onChange={(event) => {
+                                    const value = event.target.value;
+                                    setMetadataForm((current) => ({
+                                      ...current,
+                                      languages: current.languages.map((item, currentIndex) =>
+                                        currentIndex === languageIndex
+                                          ? {
+                                              ...item,
+                                              volumes: item.volumes.map((currentVolume, currentVolumeIndex) =>
+                                                currentVolumeIndex === volumeIndex
+                                                  ? { ...currentVolume, id: value }
+                                                  : currentVolume,
+                                              ),
+                                            }
+                                          : item,
+                                      ),
+                                    }));
+                                  }}
+                                  className="w-full rounded-2xl border border-stone-700 bg-stone-950 px-4 py-3 text-sm outline-none transition focus:border-amber-300"
+                                  placeholder="volume1"
+                                />
+                              </label>
+                              <label className="space-y-2">
+                                <span className="text-xs text-stone-300">Title</span>
+                                <input
+                                  value={volume.title}
+                                  onChange={(event) => {
+                                    const value = event.target.value;
+                                    setMetadataForm((current) => ({
+                                      ...current,
+                                      languages: current.languages.map((item, currentIndex) =>
+                                        currentIndex === languageIndex
+                                          ? {
+                                              ...item,
+                                              volumes: item.volumes.map((currentVolume, currentVolumeIndex) =>
+                                                currentVolumeIndex === volumeIndex
+                                                  ? { ...currentVolume, title: value }
+                                                  : currentVolume,
+                                              ),
+                                            }
+                                          : item,
+                                      ),
+                                    }));
+                                  }}
+                                  className="w-full rounded-2xl border border-stone-700 bg-stone-950 px-4 py-3 text-sm outline-none transition focus:border-amber-300"
+                                  placeholder="Volume 1"
+                                />
+                              </label>
+                              <label className="space-y-2">
+                                <span className="text-xs text-stone-300">Subtitle</span>
+                                <input
+                                  value={volume.subtitle}
+                                  onChange={(event) => {
+                                    const value = event.target.value;
+                                    setMetadataForm((current) => ({
+                                      ...current,
+                                      languages: current.languages.map((item, currentIndex) =>
+                                        currentIndex === languageIndex
+                                          ? {
+                                              ...item,
+                                              volumes: item.volumes.map((currentVolume, currentVolumeIndex) =>
+                                                currentVolumeIndex === volumeIndex
+                                                  ? { ...currentVolume, subtitle: value }
+                                                  : currentVolume,
+                                              ),
+                                            }
+                                          : item,
+                                      ),
+                                    }));
+                                  }}
+                                  className="w-full rounded-2xl border border-stone-700 bg-stone-950 px-4 py-3 text-sm outline-none transition focus:border-amber-300"
+                                  placeholder="Majalis 1-3"
+                                />
+                              </label>
+                              <label className="space-y-2">
+                                <span className="text-xs text-stone-300">Order</span>
+                                <input
+                                  inputMode="numeric"
+                                  value={volume.order}
+                                  onChange={(event) => {
+                                    const value = event.target.value;
+                                    setMetadataForm((current) => ({
+                                      ...current,
+                                      languages: current.languages.map((item, currentIndex) =>
+                                        currentIndex === languageIndex
+                                          ? {
+                                              ...item,
+                                              volumes: item.volumes.map((currentVolume, currentVolumeIndex) =>
+                                                currentVolumeIndex === volumeIndex
+                                                  ? { ...currentVolume, order: value }
+                                                  : currentVolume,
+                                              ),
+                                            }
+                                          : item,
+                                      ),
+                                    }));
+                                  }}
+                                  className="w-full rounded-2xl border border-stone-700 bg-stone-950 px-4 py-3 text-sm outline-none transition focus:border-amber-300"
+                                />
+                              </label>
+                              <label className="space-y-2 md:col-span-2">
+                                <span className="text-xs text-stone-300">Manifest URL</span>
+                                <input
+                                  value={volume.manifestUrl}
+                                  onChange={(event) => {
+                                    const value = event.target.value;
+                                    setMetadataForm((current) => ({
+                                      ...current,
+                                      languages: current.languages.map((item, currentIndex) =>
+                                        currentIndex === languageIndex
+                                          ? {
+                                              ...item,
+                                              volumes: item.volumes.map((currentVolume, currentVolumeIndex) =>
+                                                currentVolumeIndex === volumeIndex
+                                                  ? { ...currentVolume, manifestUrl: value }
+                                                  : currentVolume,
+                                              ),
+                                            }
+                                          : item,
+                                      ),
+                                    }));
+                                  }}
+                                  className="w-full rounded-2xl border border-stone-700 bg-stone-950 px-4 py-3 text-sm outline-none transition focus:border-amber-300"
+                                  placeholder="Optional for now"
+                                />
+                              </label>
+                              <label className="space-y-2">
+                                <span className="text-xs text-stone-300">Intro note</span>
+                                <input
+                                  value={volume.introNote}
+                                  onChange={(event) => {
+                                    const value = event.target.value;
+                                    setMetadataForm((current) => ({
+                                      ...current,
+                                      languages: current.languages.map((item, currentIndex) =>
+                                        currentIndex === languageIndex
+                                          ? {
+                                              ...item,
+                                              volumes: item.volumes.map((currentVolume, currentVolumeIndex) =>
+                                                currentVolumeIndex === volumeIndex
+                                                  ? { ...currentVolume, introNote: value }
+                                                  : currentVolume,
+                                              ),
+                                            }
+                                          : item,
+                                      ),
+                                    }));
+                                  }}
+                                  className="w-full rounded-2xl border border-stone-700 bg-stone-950 px-4 py-3 text-sm outline-none transition focus:border-amber-300"
+                                />
+                              </label>
+                              <label className="space-y-2">
+                                <span className="text-xs text-stone-300">Today target</span>
+                                <input
+                                  value={volume.todayTarget}
+                                  onChange={(event) => {
+                                    const value = event.target.value;
+                                    setMetadataForm((current) => ({
+                                      ...current,
+                                      languages: current.languages.map((item, currentIndex) =>
+                                        currentIndex === languageIndex
+                                          ? {
+                                              ...item,
+                                              volumes: item.volumes.map((currentVolume, currentVolumeIndex) =>
+                                                currentVolumeIndex === volumeIndex
+                                                  ? { ...currentVolume, todayTarget: value }
+                                                  : currentVolume,
+                                              ),
+                                            }
+                                          : item,
+                                      ),
+                                    }));
+                                  }}
+                                  className="w-full rounded-2xl border border-stone-700 bg-stone-950 px-4 py-3 text-sm outline-none transition focus:border-amber-300"
+                                />
+                              </label>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
             <div className="space-y-4">
               <div className="flex items-center justify-between gap-4">
                 <div>
                   <span className="text-sm text-stone-200">Sections</span>
                   <p className="mt-1 text-xs leading-5 text-stone-400">
-                    Author real reading sections with titles, page ranges, and entry points.
+                    Author real reading sections with titles, page ranges, and entry points. This editor still targets the currently published/default edition path.
                   </p>
                 </div>
                 <button

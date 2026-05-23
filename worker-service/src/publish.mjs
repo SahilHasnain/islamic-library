@@ -255,9 +255,11 @@ export async function republishBookMetadata({
   author,
   description,
   category,
+  defaultLanguageId,
   languageId,
   volumeId,
   version,
+  languages,
   sections,
 }) {
   const bookRoot = path.join(assetsRepoPath, "books", bookSlug);
@@ -270,6 +272,62 @@ export async function republishBookMetadata({
   const catalogPath = path.join(assetsRepoPath, "catalog.json");
   const currentCatalog = JSON.parse(await fs.readFile(catalogPath, "utf8"));
 
+  const nextLanguages =
+    Array.isArray(languages) && languages.length > 0
+      ? languages.map((language) => ({
+          id: language.languageId,
+          title: language.title,
+          nativeTitle: language.nativeTitle,
+          summary: language.summary,
+          order: language.order,
+          defaultVolumeId: language.defaultVolumeId,
+          volumes: (language.volumes || []).map((volume) => {
+            const existingLanguage = (existingMetadata.languages || []).find(
+              (currentLanguage) => currentLanguage.id === language.languageId,
+            );
+            const existingVolume = existingLanguage?.volumes?.find(
+              (currentVolume) => currentVolume.id === volume.id,
+            );
+            const resolvedManifestUrl =
+              volume.manifestUrl ||
+              existingVolume?.manifestUrl ||
+              (language.languageId === languageId && volume.id === volumeId
+                ? jsdelivrUrl(manifestRelativePath)
+                : undefined);
+
+            return {
+              id: volume.id,
+              title: volume.title,
+              subtitle: volume.subtitle,
+              manifestUrl: resolvedManifestUrl,
+              order: volume.order,
+              introNote: volume.introNote,
+              todayTarget: volume.todayTarget,
+              sections:
+                language.languageId === languageId && volume.id === volumeId && sections?.length
+                  ? sections
+                  : existingVolume?.sections,
+              plans: existingVolume?.plans,
+            };
+          }),
+        }))
+      : (existingMetadata.languages || []).map((language) =>
+          language.id === languageId
+            ? {
+                ...language,
+                volumes: (language.volumes || []).map((volume) =>
+                  volume.id === volumeId
+                    ? {
+                        ...volume,
+                        sections: sections && sections.length > 0 ? sections : volume.sections,
+                        manifestUrl: volume.manifestUrl || jsdelivrUrl(manifestRelativePath),
+                      }
+                    : volume,
+                ),
+              }
+            : language,
+        );
+
   const publishedMetadata = {
     ...existingMetadata,
     title,
@@ -278,22 +336,8 @@ export async function republishBookMetadata({
     description,
     category,
     coverImage: existingMetadata.coverImage || jsdelivrUrl(coverRelativePath),
-    languages: (existingMetadata.languages || []).map((language) =>
-      language.id === languageId
-        ? {
-            ...language,
-            volumes: (language.volumes || []).map((volume) =>
-              volume.id === volumeId
-                ? {
-                    ...volume,
-                    sections: sections && sections.length > 0 ? sections : volume.sections,
-                    manifestUrl: volume.manifestUrl || jsdelivrUrl(manifestRelativePath),
-                  }
-                : volume,
-            ),
-          }
-        : language,
-    ),
+    defaultLanguageId: defaultLanguageId || existingMetadata.defaultLanguageId,
+    languages: nextLanguages,
   };
 
   await fs.writeFile(metadataPath, JSON.stringify(publishedMetadata, null, 2), "utf8");

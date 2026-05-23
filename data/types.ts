@@ -105,7 +105,9 @@ export type PublicCatalog = {
 export type PublicBookMetadataVolume = {
   id: string;
   title: string;
+  subtitle?: string;
   manifestUrl: string;
+  order?: number;
   introNote?: string;
   todayTarget?: string;
   sections?: PublicBookSection[];
@@ -116,6 +118,9 @@ export type PublicBookMetadataLanguage = {
   id: string;
   title: string;
   nativeTitle?: string;
+  summary?: string;
+  order?: number;
+  defaultVolumeId?: string;
   volumes: PublicBookMetadataVolume[];
 };
 
@@ -131,6 +136,7 @@ export type PublicBookMetadata = {
   todayPrompt?: string;
   devotionalContext?: string;
   readingTone?: "calm-guided" | "study" | "reflective" | "liturgical";
+  defaultLanguageId?: string;
   languages: PublicBookMetadataLanguage[];
 };
 

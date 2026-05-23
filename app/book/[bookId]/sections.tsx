@@ -70,8 +70,14 @@ function getSectionKindLabel(section: PublicBookSection) {
 }
 
 export default function BookSectionsScreen() {
-  const { bookId } = useLocalSearchParams<{ bookId: string }>();
+  const { bookId, languageId: routeLanguageId, volumeId: routeVolumeId } = useLocalSearchParams<{
+    bookId: string;
+    languageId?: string;
+    volumeId?: string;
+  }>();
   const readingBookId = Array.isArray(bookId) ? bookId[0] : bookId ?? "";
+  const preferredLanguageId = Array.isArray(routeLanguageId) ? routeLanguageId[0] : routeLanguageId;
+  const preferredVolumeId = Array.isArray(routeVolumeId) ? routeVolumeId[0] : routeVolumeId;
   const { progress } = useReadingProgress(readingBookId);
   const {
     metadata,
@@ -80,16 +86,21 @@ export default function BookSectionsScreen() {
     manifest,
     selectedLanguage,
     selectedVolume,
-  } = useRemoteBookData(readingBookId, progress?.languageId, progress?.volumeId);
+  } = useRemoteBookData(
+    readingBookId,
+    preferredLanguageId ?? progress?.languageId,
+    preferredVolumeId ?? progress?.volumeId,
+  );
   const totalPages = manifest?.totalPages ?? 1;
   const hasAuthoredSections = Boolean(selectedVolume?.sections?.length);
   const sections = getOrderedSections(
     hasAuthoredSections ? selectedVolume?.sections ?? [] : buildSections(totalPages),
   );
   const displayTitle = metadata?.title ?? "Published book";
-  const displayLanguageTitle = selectedLanguage?.title ?? progress?.languageId ?? "Edition";
-  const resolvedLanguageId = selectedLanguage?.id ?? progress?.languageId ?? "english";
-  const resolvedVolumeId = selectedVolume?.id ?? progress?.volumeId ?? "volume1";
+  const displayLanguageTitle = selectedLanguage?.title ?? preferredLanguageId ?? progress?.languageId ?? "Edition";
+  const displayVolumeTitle = selectedVolume?.subtitle ?? selectedVolume?.title;
+  const resolvedLanguageId = selectedLanguage?.id ?? preferredLanguageId ?? progress?.languageId ?? "english";
+  const resolvedVolumeId = selectedVolume?.id ?? preferredVolumeId ?? progress?.volumeId ?? "volume1";
 
   return (
     <>
@@ -121,6 +132,11 @@ export default function BookSectionsScreen() {
           <Text style={{ color: colors.textMuted, fontSize: 15 }}>
             {displayLanguageTitle}
           </Text>
+          {displayVolumeTitle ? (
+            <Text style={{ color: colors.accent, fontSize: 13, fontWeight: "700" }}>
+              {displayVolumeTitle}
+            </Text>
+          ) : null}
           <Text style={{ color: colors.textMuted, fontSize: 16, lineHeight: 24 }}>
             Move through the book in calm, manageable portions. Choose the section that matches
             your current pace.

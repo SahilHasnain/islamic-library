@@ -69,6 +69,23 @@ It changes:
 - `metadata.json`
 - frontend types that consume `metadata.json`
 
+## Relationship To Multi-Edition Support
+
+This metadata expansion spec now assumes a separate multi-edition contract:
+
+- one book
+- many languages
+- many volumes inside each language
+
+See:
+
+- [multi-edition-model-spec.md](C:/Users/MD%20SAHIL%20HASNAIN/desktop/projects/islamic-library/docs/multi-edition-model-spec.md)
+
+Important rule:
+
+- `metadata.json` should not only describe reading structure
+- it should also define the default edition path the app should open when no stored progress exists
+
 ## Contract Split
 
 Keep the split as:
@@ -232,6 +249,7 @@ type PublicBookMetadata = {
   todayPrompt?: string;
   devotionalContext?: string;
   readingTone?: "calm-guided" | "study" | "reflective" | "liturgical";
+  defaultLanguageId?: string;
   languages: PublicBookMetadataLanguage[];
 };
 
@@ -239,13 +257,18 @@ type PublicBookMetadataLanguage = {
   id: string;
   title: string;
   nativeTitle?: string;
+  summary?: string;
+  order?: number;
+  defaultVolumeId?: string;
   volumes: PublicBookMetadataVolume[];
 };
 
 type PublicBookMetadataVolume = {
   id: string;
   title: string;
+  subtitle?: string;
   manifestUrl: string;
+  order?: number;
   introNote?: string;
   todayTarget?: string;
   sections?: PublicBookSection[];

@@ -1,4 +1,5 @@
 import { Link, Stack, useLocalSearchParams } from "expo-router";
+import { useEffect, useMemo, useState } from "react";
 import { Pressable, ScrollView, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
@@ -109,9 +110,19 @@ function getOrderedSections(sections: PublicBookSection[]) {
 }
 
 export default function BookHomeScreen() {
-  const { bookId } = useLocalSearchParams<{ bookId: string }>();
+  const { bookId, languageId: routeLanguageId, volumeId: routeVolumeId } = useLocalSearchParams<{
+    bookId: string;
+    languageId?: string;
+    volumeId?: string;
+  }>();
   const readingBookId = Array.isArray(bookId) ? bookId[0] : bookId ?? "";
   const { progress } = useReadingProgress(readingBookId);
+  const [selectedLanguageId, setSelectedLanguageId] = useState<string | undefined>(
+    Array.isArray(routeLanguageId) ? routeLanguageId[0] : routeLanguageId,
+  );
+  const [selectedVolumeId, setSelectedVolumeId] = useState<string | undefined>(
+    Array.isArray(routeVolumeId) ? routeVolumeId[0] : routeVolumeId,
+  );
   const { activePlan } = useReadingPlans(readingBookId);
   const {
     catalogBook,
@@ -124,7 +135,11 @@ export default function BookHomeScreen() {
     remoteState,
     selectedLanguage,
     selectedVolume,
-  } = useRemoteBookData(readingBookId, progress?.languageId, progress?.volumeId);
+  } = useRemoteBookData(
+    readingBookId,
+    selectedLanguageId ?? progress?.languageId,
+    selectedVolumeId ?? progress?.volumeId,
+  );
   const {
     canDownload,
     downloadAll,
@@ -142,8 +157,70 @@ export default function BookHomeScreen() {
     selectedLanguage?.volumes?.[0]?.id ??
     metadata?.languages?.[0]?.volumes?.[0]?.id ??
     "volume1";
+  const editionProgress =
+    progress?.languageId === resolvedLanguageId && progress?.volumeId === resolvedVolumeId
+      ? progress
+      : undefined;
+  const orderedLanguages = useMemo(() => {
+    return [...(metadata?.languages ?? [])].sort((left, right) => {
+      const leftOrder = left.order ?? Number.MAX_SAFE_INTEGER;
+      const rightOrder = right.order ?? Number.MAX_SAFE_INTEGER;
+      if (leftOrder !== rightOrder) {
+        return leftOrder - rightOrder;
+      }
+
+      return left.title.localeCompare(right.title);
+    });
+  }, [metadata?.languages]);
+  const orderedVolumes = useMemo(() => {
+    return [...(selectedLanguage?.volumes ?? [])].sort((left, right) => {
+      const leftOrder = left.order ?? Number.MAX_SAFE_INTEGER;
+      const rightOrder = right.order ?? Number.MAX_SAFE_INTEGER;
+      if (leftOrder !== rightOrder) {
+        return leftOrder - rightOrder;
+      }
+
+      return left.title.localeCompare(right.title);
+    });
+  }, [selectedLanguage?.volumes]);
+
+  useEffect(() => {
+    if (!selectedLanguageId && resolvedLanguageId) {
+      setSelectedLanguageId(resolvedLanguageId);
+    }
+  }, [resolvedLanguageId, selectedLanguageId]);
+
+  useEffect(() => {
+    if (!selectedVolumeId && resolvedVolumeId) {
+      setSelectedVolumeId(resolvedVolumeId);
+    }
+  }, [resolvedVolumeId, selectedVolumeId]);
+
+  useEffect(() => {
+    if (!selectedLanguage?.id) {
+      return;
+    }
+
+    const nextDefaultVolumeId =
+      selectedLanguage.defaultVolumeId ??
+      [...selectedLanguage.volumes]
+        .sort((left, right) => {
+          const leftOrder = left.order ?? Number.MAX_SAFE_INTEGER;
+          const rightOrder = right.order ?? Number.MAX_SAFE_INTEGER;
+          if (leftOrder !== rightOrder) {
+            return leftOrder - rightOrder;
+          }
+
+          return left.title.localeCompare(right.title);
+        })[0]?.id;
+
+    const volumeStillExists = selectedLanguage.volumes.some((volume) => volume.id === selectedVolumeId);
+    if (!volumeStillExists) {
+      setSelectedVolumeId(nextDefaultVolumeId);
+    }
+  }, [selectedLanguage, selectedVolumeId]);
   const totalPages = manifest?.totalPages ?? 1;
-  const resumePage = Math.min(progress?.page ?? 1, totalPages);
+  const resumePage = Math.min(editionProgress?.page ?? 1, totalPages);
   const displayTitle = metadata?.title ?? catalogBook?.title ?? "Book";
   const displaySubtitle = metadata?.subtitle ?? catalogBook?.subtitle ?? "Reading edition";
   const displayDescription =
@@ -228,6 +305,103 @@ export default function BookHomeScreen() {
               gap: 18,
             }}
           >
+            {(orderedLanguages.length > 1 || orderedVolumes.length > 1) && (
+              <View style={{ gap: 12 }}>
+                {orderedLanguages.length > 1 ? (
+                  <View style={{ gap: 8 }}>
+                    <Text
+                      style={{
+                        color: colors.heroSubtle,
+                        fontSize: 12,
+                        fontWeight: "700",
+                        textTransform: "uppercase",
+                        letterSpacing: 0.4,
+                      }}
+                    >
+                      Language
+                    </Text>
+                    <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
+                      {orderedLanguages.map((language) => {
+                        const isActive = language.id === resolvedLanguageId;
+                        return (
+                          <Pressable
+                            key={language.id}
+                            onPress={() => {
+                              setSelectedLanguageId(language.id);
+                              setSelectedVolumeId(language.defaultVolumeId ?? language.volumes[0]?.id);
+                            }}
+                            style={{
+                              borderRadius: 999,
+                              backgroundColor: isActive
+                                ? "#F0E1A7"
+                                : "rgba(255, 249, 234, 0.14)",
+                              paddingHorizontal: 14,
+                              paddingVertical: 9,
+                            }}
+                          >
+                            <Text
+                              style={{
+                                color: isActive ? colors.text : "#FFF9EA",
+                                fontSize: 13,
+                                fontWeight: "800",
+                              }}
+                            >
+                              {language.title}
+                            </Text>
+                          </Pressable>
+                        );
+                      })}
+                    </View>
+                  </View>
+                ) : null}
+                {orderedVolumes.length > 1 ? (
+                  <View style={{ gap: 8 }}>
+                    <Text
+                      style={{
+                        color: colors.heroSubtle,
+                        fontSize: 12,
+                        fontWeight: "700",
+                        textTransform: "uppercase",
+                        letterSpacing: 0.4,
+                      }}
+                    >
+                      Volume
+                    </Text>
+                    <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
+                      {orderedVolumes.map((volume) => {
+                        const isActive = volume.id === resolvedVolumeId;
+                        return (
+                          <Pressable
+                            key={volume.id}
+                            onPress={() => {
+                              setSelectedVolumeId(volume.id);
+                            }}
+                            style={{
+                              borderRadius: 999,
+                              backgroundColor: isActive
+                                ? "#F0E1A7"
+                                : "rgba(255, 249, 234, 0.14)",
+                              paddingHorizontal: 14,
+                              paddingVertical: 9,
+                            }}
+                          >
+                            <Text
+                              style={{
+                                color: isActive ? colors.text : "#FFF9EA",
+                                fontSize: 13,
+                                fontWeight: "800",
+                              }}
+                            >
+                              {volume.subtitle?.trim() ? volume.subtitle : volume.title}
+                            </Text>
+                          </Pressable>
+                        );
+                      })}
+                    </View>
+                  </View>
+                ) : null}
+              </View>
+            )}
             <Text
               style={{
                 color: "#FFF9EA",
@@ -325,7 +499,12 @@ export default function BookHomeScreen() {
                     {activeRemotePlan.title}
                   </Text>
                 </View>
-                <Link href={`/book/${readingBookId}/plans` as const} asChild>
+                <Link
+                  href={
+                    `/book/${readingBookId}/plans?languageId=${resolvedLanguageId}&volumeId=${resolvedVolumeId}` as const
+                  }
+                  asChild
+                >
                   <Pressable
                     style={{
                       borderRadius: 14,
@@ -373,7 +552,12 @@ export default function BookHomeScreen() {
               </Text>
             </View>
           ) : (
-            <Link href={`/book/${readingBookId}/plans` as const} asChild>
+            <Link
+              href={
+                `/book/${readingBookId}/plans?languageId=${resolvedLanguageId}&volumeId=${resolvedVolumeId}` as const
+              }
+              asChild
+            >
               <Pressable
                 style={{
                   backgroundColor: colors.surfaceMuted,
@@ -493,7 +677,12 @@ export default function BookHomeScreen() {
           </View>
 
           <View style={{ flexDirection: "row", gap: 12 }}>
-            <Link href={`/book/${readingBookId}/sections` as const} asChild>
+            <Link
+              href={
+                `/book/${readingBookId}/sections?languageId=${resolvedLanguageId}&volumeId=${resolvedVolumeId}` as const
+              }
+              asChild
+            >
               <Pressable
                 style={{
                   flex: 1,
@@ -511,7 +700,12 @@ export default function BookHomeScreen() {
                 </Text>
               </Pressable>
             </Link>
-            <Link href={`/book/${readingBookId}/plans` as const} asChild>
+            <Link
+              href={
+                `/book/${readingBookId}/plans?languageId=${resolvedLanguageId}&volumeId=${resolvedVolumeId}` as const
+              }
+              asChild
+            >
               <Pressable
                 style={{
                   flex: 1,

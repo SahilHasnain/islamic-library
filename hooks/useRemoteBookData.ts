@@ -18,6 +18,30 @@ async function fetchJson<T>(url: string) {
   return (await response.json()) as T;
 }
 
+function getOrderedLanguages(languages: PublicBookMetadataLanguage[]) {
+  return [...languages].sort((left, right) => {
+    const leftOrder = left.order ?? Number.MAX_SAFE_INTEGER;
+    const rightOrder = right.order ?? Number.MAX_SAFE_INTEGER;
+    if (leftOrder !== rightOrder) {
+      return leftOrder - rightOrder;
+    }
+
+    return left.title.localeCompare(right.title);
+  });
+}
+
+function getOrderedVolumes(volumes: PublicBookMetadataVolume[]) {
+  return [...volumes].sort((left, right) => {
+    const leftOrder = left.order ?? Number.MAX_SAFE_INTEGER;
+    const rightOrder = right.order ?? Number.MAX_SAFE_INTEGER;
+    if (leftOrder !== rightOrder) {
+      return leftOrder - rightOrder;
+    }
+
+    return left.title.localeCompare(right.title);
+  });
+}
+
 export function useRemoteBookData(
   bookId?: string,
   languageId?: string,
@@ -44,7 +68,13 @@ export function useRemoteBookData(
       return undefined;
     }
 
-    return metadata.languages.find((language) => language.id === languageId) ?? metadata.languages[0];
+    const orderedLanguages = getOrderedLanguages(metadata.languages);
+
+    return (
+      orderedLanguages.find((language) => language.id === languageId) ??
+      orderedLanguages.find((language) => language.id === metadata.defaultLanguageId) ??
+      orderedLanguages[0]
+    );
   }, [languageId, metadata]);
 
   const selectedVolume = useMemo<PublicBookMetadataVolume | undefined>(() => {
@@ -52,9 +82,12 @@ export function useRemoteBookData(
       return undefined;
     }
 
+    const orderedVolumes = getOrderedVolumes(selectedLanguage.volumes);
+
     return (
-      selectedLanguage.volumes.find((volume) => volume.id === volumeId) ??
-      selectedLanguage.volumes[0]
+      orderedVolumes.find((volume) => volume.id === volumeId) ??
+      orderedVolumes.find((volume) => volume.id === selectedLanguage.defaultVolumeId) ??
+      orderedVolumes[0]
     );
   }, [selectedLanguage, volumeId]);
 

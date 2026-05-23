@@ -37,8 +37,14 @@ function buildRemotePlans(totalPages: number): PublicBookPlan[] {
 }
 
 export default function BookPlansScreen() {
-  const { bookId } = useLocalSearchParams<{ bookId: string }>();
+  const { bookId, languageId: routeLanguageId, volumeId: routeVolumeId } = useLocalSearchParams<{
+    bookId: string;
+    languageId?: string;
+    volumeId?: string;
+  }>();
   const readingBookId = Array.isArray(bookId) ? bookId[0] : bookId ?? "";
+  const preferredLanguageId = Array.isArray(routeLanguageId) ? routeLanguageId[0] : routeLanguageId;
+  const preferredVolumeId = Array.isArray(routeVolumeId) ? routeVolumeId[0] : routeVolumeId;
   const { error: plansError, isLoaded: plansLoaded, activePlan, clearPlan, selectPlan } =
     useReadingPlans(readingBookId);
   const { error: progressError, isLoaded: progressLoaded, progress } =
@@ -50,14 +56,23 @@ export default function BookPlansScreen() {
     manifest,
     selectedLanguage,
     selectedVolume,
-  } = useRemoteBookData(readingBookId, progress?.languageId, progress?.volumeId);
+  } = useRemoteBookData(
+    readingBookId,
+    preferredLanguageId ?? progress?.languageId,
+    preferredVolumeId ?? progress?.volumeId,
+  );
   const totalPages = manifest?.totalPages ?? 1;
   const plans =
     selectedVolume?.plans?.length ? selectedVolume.plans : buildRemotePlans(totalPages);
   const displayTitle = metadata?.title ?? "Published book";
-  const displayLanguageTitle = selectedLanguage?.title ?? progress?.languageId ?? "Edition";
-  const resolvedLanguageId = selectedLanguage?.id ?? progress?.languageId ?? "english";
-  const resolvedVolumeId = selectedVolume?.id ?? progress?.volumeId ?? "volume1";
+  const displayLanguageTitle = selectedLanguage?.title ?? preferredLanguageId ?? progress?.languageId ?? "Edition";
+  const displayVolumeTitle = selectedVolume?.subtitle ?? selectedVolume?.title;
+  const resolvedLanguageId = selectedLanguage?.id ?? preferredLanguageId ?? progress?.languageId ?? "english";
+  const resolvedVolumeId = selectedVolume?.id ?? preferredVolumeId ?? progress?.volumeId ?? "volume1";
+  const editionProgress =
+    progress?.languageId === resolvedLanguageId && progress?.volumeId === resolvedVolumeId
+      ? progress
+      : undefined;
   const activeRemotePlan =
     activePlan &&
     activePlan.languageId === resolvedLanguageId &&
@@ -99,16 +114,23 @@ export default function BookPlansScreen() {
             />
           ) : null}
           <Text style={{ color: colors.textMuted, fontSize: 15 }}>{displayLanguageTitle}</Text>
+          {displayVolumeTitle ? (
+            <Text style={{ color: colors.accent, fontSize: 13, fontWeight: "700" }}>
+              {displayVolumeTitle}
+            </Text>
+          ) : null}
           <Text style={{ color: colors.textMuted, fontSize: 16, lineHeight: 24 }}>
             Choose a reading rhythm that helps you continue with steadiness rather than speed.
           </Text>
 
-          {activeRemotePlan && progress ? (
+          {activeRemotePlan && editionProgress ? (
             <View style={{ backgroundColor: colors.surface, borderRadius: radii.md, padding: 18, gap: 8 }}>
               {(() => {
                 const currentPlanItem =
                   activeRemotePlan.items.find(
-                    (item) => progress.page >= item.startPage && progress.page <= item.endPage,
+                    (item) =>
+                      editionProgress.page >= item.startPage &&
+                      editionProgress.page <= item.endPage,
                   ) ?? activeRemotePlan.items[0];
 
                 if (!currentPlanItem) {
