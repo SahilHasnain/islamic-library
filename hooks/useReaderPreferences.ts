@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import type { ReaderTheme } from "../data/types";
 
 const STORAGE_KEY = "islamic-library:reader-theme";
+const READER_THEMES: ReaderTheme[] = ["light", "sepia", "night"];
 
 export function useReaderPreferences() {
   const [theme, setTheme] = useState<ReaderTheme>("light");
@@ -20,7 +21,7 @@ export function useReaderPreferences() {
           return;
         }
 
-        if (stored === "light" || stored === "sepia") {
+        if (stored === "light" || stored === "sepia" || stored === "night") {
           setTheme(stored);
         }
         setError(null);
@@ -42,7 +43,8 @@ export function useReaderPreferences() {
   }, []);
 
   const cycleTheme = useCallback(async () => {
-    const nextTheme: ReaderTheme = theme === "light" ? "sepia" : "light";
+    const currentIndex = READER_THEMES.indexOf(theme);
+    const nextTheme = READER_THEMES[(currentIndex + 1) % READER_THEMES.length];
     setTheme(nextTheme);
 
     try {

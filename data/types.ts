@@ -75,7 +75,7 @@ export type Bookmark = {
   createdAt: string;
 };
 
-export type ReaderTheme = "light" | "sepia";
+export type ReaderTheme = "light" | "sepia" | "night";
 
 export type ActiveReadingPlan = {
   bookId: string;

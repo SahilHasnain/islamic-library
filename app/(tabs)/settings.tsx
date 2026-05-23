@@ -115,6 +115,30 @@ function ActionButton({
   );
 }
 
+function getThemeLabel(theme: "light" | "sepia" | "night") {
+  if (theme === "light") {
+    return "Light";
+  }
+
+  if (theme === "sepia") {
+    return "Sepia";
+  }
+
+  return "Night";
+}
+
+function getNextThemeLabel(theme: "light" | "sepia" | "night") {
+  if (theme === "light") {
+    return "Sepia";
+  }
+
+  if (theme === "sepia") {
+    return "Night";
+  }
+
+  return "Light";
+}
+
 export default function SettingsScreen() {
   const { catalog } = useRemoteCatalog();
   const {
@@ -198,11 +222,11 @@ export default function SettingsScreen() {
           <View style={{ gap: spacing.gapSm }}>
             <MetaText>Current theme</MetaText>
             <Text style={{ color: colors.text, fontSize: typography.subtitle, fontWeight: "800" }}>
-              {theme === "light" ? "Light" : "Sepia"}
+              {getThemeLabel(theme)}
             </Text>
           </View>
           <ActionButton
-            label={theme === "light" ? "Switch to Sepia" : "Switch to Light"}
+            label={`Switch to ${getNextThemeLabel(theme)}`}
             onPress={() => {
               void cycleTheme();
             }}

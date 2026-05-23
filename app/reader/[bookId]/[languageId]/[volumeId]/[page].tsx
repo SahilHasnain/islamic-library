@@ -45,6 +45,18 @@ const themeColors = {
     panel: "#F8EFD9",
     panelText: "#3F3425",
   },
+  night: {
+    background: "#0F1714",
+    overlay: "rgba(6, 10, 9, 0.94)",
+    overlayLight: "rgba(219, 228, 223, 0.12)",
+    overlayMuted: "rgba(219, 228, 223, 0.08)",
+    text: "#F2F6F3",
+    textMuted: "#A9B7B0",
+    textStrong: "#EAF1ED",
+    accent: "#88A879",
+    panel: "#16211D",
+    panelText: "#EAF1ED",
+  },
 };
 
 function ReaderPageSurface({
@@ -58,7 +70,6 @@ function ReaderPageSurface({
   remoteState,
   isActivePage,
   onZoomChange,
-  onPageLoadStateChange,
 }: {
   manifest: ReturnType<typeof useRemoteBookData>["manifest"];
   pageNum: number;
@@ -70,27 +81,13 @@ function ReaderPageSurface({
   remoteState: string;
   isActivePage: boolean;
   onZoomChange: (isZoomed: boolean) => void;
-  onPageLoadStateChange: (state: "idle" | "loading" | "loaded" | "error") => void;
 }) {
-  const { asset, isLoading } = useResolvedManifestPageAsset(manifest, pageNum);
+  const { asset } = useResolvedManifestPageAsset(manifest, pageNum);
   const manifestPage = manifest?.pages?.find((entry) => entry.page === pageNum);
   const imageAspectRatio =
     manifestPage?.width && manifestPage?.height
       ? manifestPage.width / manifestPage.height
       : 0.707;
-
-  useEffect(() => {
-    if (!isActivePage) {
-      return;
-    }
-
-    if (asset?.kind === "missing") {
-      onPageLoadStateChange("error");
-      return;
-    }
-
-    onPageLoadStateChange(isLoading ? "loading" : "loaded");
-  }, [asset?.kind, isActivePage, isLoading, onPageLoadStateChange]);
 
   if (asset?.source && asset.kind !== "missing") {
     return (
@@ -99,11 +96,7 @@ function ReaderPageSurface({
         width={screenWidth}
         height={Math.min(screenHeight, screenWidth / imageAspectRatio)}
         onZoomChange={onZoomChange}
-        onError={() => {
-          if (isActivePage) {
-            onPageLoadStateChange("error");
-          }
-        }}
+        onError={() => {}}
       />
     );
   }
@@ -178,13 +171,7 @@ export default function ReaderScreen() {
   const routePage = clampPage(Number(page ?? 1) || 1);
   const [currentPage, setCurrentPage] = useState(routePage);
   const [isZoomed, setIsZoomed] = useState(false);
-  const [remoteImageState, setRemoteImageState] = useState<
-    "idle" | "loading" | "loaded" | "error"
-  >("idle");
   const flatListRef = useRef<FlatList<number>>(null);
-  const { asset: activePageAsset, isLoading: isActivePageAssetLoading } =
-    useResolvedManifestPageAsset(manifest, currentPage);
-
   const pages = useMemo(
     () => Array.from({ length: totalPages }, (_, index) => index + 1),
     [totalPages],
@@ -203,27 +190,7 @@ export default function ReaderScreen() {
     resolvedVolumeId,
     currentPage,
   );
-  const currentManifestPage = manifest?.pages?.find((entry) => entry.page === currentPage);
-  const remotePageUrl = currentManifestPage?.url;
-  const shouldUseRemotePage = remoteState === "ready" && Boolean(remotePageUrl);
   const bookTitle = metadata?.title ?? catalogBook?.title ?? "Reader";
-  const activePageDeliveryLabel = isActivePageAssetLoading
-    ? "Preparing page for reading"
-    : activePageAsset?.kind === "local"
-      ? "Ready offline"
-      : activePageAsset?.kind === "remote"
-        ? "Reading with connection"
-        : remoteState === "ready"
-          ? "Not available offline yet"
-          : "Preparing your page";
-  const activePageSupportMessage =
-    activePageAsset?.kind === "local"
-      ? "This page is cached on this device and can open offline."
-      : activePageAsset?.kind === "remote"
-        ? "This page is opening with an internet connection and will save as you continue."
-        : remoteState === "ready"
-          ? "This page has not been cached locally yet. Connect once or download the volume for offline reading."
-          : "Please wait while this page is prepared.";
   const editionLine = `${selectedLanguage?.title ?? languageId} • ${selectedVolume?.title ?? volumeId} • ${currentSection.title}`;
 
   useEffect(() => {
@@ -235,15 +202,6 @@ export default function ReaderScreen() {
       updatedAt: new Date().toISOString(),
     });
   }, [currentPage, readingBookId, resolvedLanguageId, resolvedVolumeId, saveProgress]);
-
-  useEffect(() => {
-    if (!shouldUseRemotePage) {
-      setRemoteImageState("idle");
-      return;
-    }
-
-    setRemoteImageState("loading");
-  }, [currentPage, remotePageUrl, shouldUseRemotePage]);
 
   useEffect(() => {
     if (!manifest) {
@@ -329,11 +287,12 @@ export default function ReaderScreen() {
             screenHeight={screenHeight}
             backgroundColor={colors.background}
             textColor={colors.textStrong}
-            mutedTextColor={theme === "light" ? "#5F6C65" : "#6D5D46"}
+            mutedTextColor={
+              theme === "light" ? "#5F6C65" : theme === "sepia" ? "#6D5D46" : "#8FA19A"
+            }
             remoteState={remoteState}
             isActivePage={pageNum === currentPage}
             onZoomChange={setIsZoomed}
-            onPageLoadStateChange={setRemoteImageState}
           />
         </View>
       );
@@ -358,7 +317,7 @@ export default function ReaderScreen() {
           </Text>
           <Text
             style={{
-              color: theme === "light" ? "#5F6C65" : "#6D5D46",
+              color: theme === "light" ? "#5F6C65" : theme === "sepia" ? "#6D5D46" : "#8FA19A",
               fontSize: 16,
               lineHeight: 24,
               textAlign: "center",
@@ -452,7 +411,13 @@ export default function ReaderScreen() {
           })}
         >
           <Ionicons
-            name={theme === "light" ? "sunny-outline" : "book-outline"}
+            name={
+              theme === "light"
+                ? "sunny-outline"
+                : theme === "sepia"
+                  ? "book-outline"
+                  : "moon-outline"
+            }
             size={22}
             color={colors.text}
           />
@@ -540,6 +505,26 @@ export default function ReaderScreen() {
                   }}
                 />
               </View>
+              <Text
+                style={{
+                  color: colors.textMuted,
+                  fontSize: 13,
+                  fontWeight: "700",
+                  textAlign: "center",
+                }}
+              >
+                {activePageDeliveryLabel}
+              </Text>
+              <Text
+                style={{
+                  color: colors.textMuted,
+                  fontSize: 12,
+                  lineHeight: 18,
+                  textAlign: "center",
+                }}
+              >
+                {activePageSupportMessage}
+              </Text>
             </View>
 
             <Pressable
