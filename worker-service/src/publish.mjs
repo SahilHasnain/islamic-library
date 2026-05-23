@@ -96,6 +96,10 @@ function jsdelivrUrl(relativePath) {
   return `https://cdn.jsdelivr.net/gh/${assetsRepoOwner}/${assetsRepoName}@${assetsRepoBranch}/${relativePath.replace(/\\/g, "/")}`;
 }
 
+function rawGithubUrl(relativePath) {
+  return `https://raw.githubusercontent.com/${assetsRepoOwner}/${assetsRepoName}/${assetsRepoBranch}/${relativePath.replace(/\\/g, "/")}`;
+}
+
 export async function publishWorkspace({
   workspace,
   bookSlug,
@@ -171,7 +175,7 @@ export async function publishWorkspace({
 
   const catalogPath = path.join(assetsRepoPath, "catalog.json");
   const currentCatalog = JSON.parse(await fs.readFile(catalogPath, "utf8"));
-  const metadataUrl = jsdelivrUrl(metadataRelativePath);
+  const metadataUrl = rawGithubUrl(metadataRelativePath);
   const updatedEntry = {
     id: bookSlug,
     title: publishedMetadata.title,
@@ -234,4 +238,115 @@ export function buildPublishVersion() {
   const datePart = now.toISOString().slice(0, 10);
   const timePart = `${now.getHours()}${now.getMinutes()}${now.getSeconds()}`;
   return `${datePart}-${timePart}`;
+}
+
+export function getPublicAssetUrl(relativePath) {
+  return jsdelivrUrl(relativePath);
+}
+
+export function getPublicMetadataUrl(relativePath) {
+  return rawGithubUrl(relativePath);
+}
+
+export async function republishBookMetadata({
+  bookSlug,
+  title,
+  subtitle,
+  author,
+  description,
+  category,
+  languageId,
+  volumeId,
+  version,
+}) {
+  const bookRoot = path.join(assetsRepoPath, "books", bookSlug);
+  const metadataPath = path.join(bookRoot, "metadata.json");
+  const manifestRelativePath = path.join("books", bookSlug, languageId, volumeId, "manifest.json");
+  const coverFileName = "cover.webp";
+  const coverRelativePath = path.join("books", bookSlug, coverFileName);
+
+  const existingMetadata = JSON.parse(await fs.readFile(metadataPath, "utf8"));
+  const catalogPath = path.join(assetsRepoPath, "catalog.json");
+  const currentCatalog = JSON.parse(await fs.readFile(catalogPath, "utf8"));
+
+  const publishedMetadata = {
+    ...existingMetadata,
+    title,
+    subtitle,
+    author,
+    description,
+    category,
+    coverImage: existingMetadata.coverImage || jsdelivrUrl(coverRelativePath),
+    languages: (existingMetadata.languages || []).map((language) =>
+      language.id === languageId
+        ? {
+            ...language,
+            volumes: (language.volumes || []).map((volume) =>
+              volume.id === volumeId
+                ? {
+                    ...volume,
+                    manifestUrl: volume.manifestUrl || jsdelivrUrl(manifestRelativePath),
+                  }
+                : volume,
+            ),
+          }
+        : language,
+    ),
+  };
+
+  await fs.writeFile(metadataPath, JSON.stringify(publishedMetadata, null, 2), "utf8");
+
+  const metadataRelativePath = path.join("books", bookSlug, "metadata.json");
+  const metadataUrl = rawGithubUrl(metadataRelativePath);
+  const updatedEntry = {
+    id: bookSlug,
+    title,
+    subtitle,
+    author,
+    category,
+    coverImage: publishedMetadata.coverImage,
+    status: "published",
+    metadataUrl,
+  };
+
+  const remainingBooks = (currentCatalog.books || []).filter((book) => book.id !== bookSlug);
+  const nextCatalog = {
+    version,
+    generatedAt: new Date().toISOString(),
+    books: [...remainingBooks, updatedEntry].sort((a, b) => a.title.localeCompare(b.title)),
+  };
+
+  await fs.writeFile(catalogPath, JSON.stringify(nextCatalog, null, 2), "utf8");
+
+  await runGit(["add", "."]);
+  const commit = await runGit(["commit", "-m", `Republish metadata for ${bookSlug} ${version}`]).catch(
+    async (error) => {
+      if (String(error.message).includes("nothing to commit")) {
+        return { stdout: "", stderr: "" };
+      }
+      throw error;
+    },
+  );
+  const sha = (await runGit(["rev-parse", "HEAD"])).stdout.trim();
+  const pushRemote = await ensurePushRemote();
+  let pushSummary = "Push skipped in local-only mode.";
+
+  if (gitPushEnabled) {
+    const push = await runGit(["push", gitRemoteName, assetsRepoBranch]);
+    pushSummary = [push.stdout.trim(), push.stderr.trim()].filter(Boolean).join("\n");
+  }
+
+  return {
+    gitCommitSha: sha,
+    metadataPath: metadataRelativePath.replace(/\\/g, "/"),
+    metadataUrl,
+    catalogPath: "catalog.json",
+    manifestUrl: jsdelivrUrl(manifestRelativePath),
+    coverImageUrl: publishedMetadata.coverImage,
+    commitSummary: commit.stdout.trim() || commit.stderr.trim(),
+    pushSummary,
+    pushConfigured: pushRemote.pushConfigured,
+    remoteName: pushRemote.remoteName,
+    remoteUrl: pushRemote.remoteUrl,
+  };
 }

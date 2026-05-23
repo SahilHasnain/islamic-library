@@ -130,11 +130,12 @@ The app should never read raw Appwrite job data for published content.
 Important delivery split:
 
 - `catalog.json` should be fetched from `raw.githubusercontent.com`
-- `metadata.json`, `manifest.json`, covers, and page images should be fetched from `jsDelivr`
+- `metadata.json` should also be fetched from `raw.githubusercontent.com`
+- `manifest.json`, covers, and page images should be fetched from `jsDelivr`
 
 Why:
 
-- `catalog.json` changes immediately when a new book is published
+- `catalog.json` and `metadata.json` change immediately when a new book is published or edited
 - jsDelivr can keep `@main` aliases cached for up to 7 days
 - reading assets are stable static files, so CDN caching helps there
 

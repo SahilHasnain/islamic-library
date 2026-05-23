@@ -24,6 +24,23 @@ type SubmissionState = {
   message?: string;
   jobId?: string;
   slug?: string;
+  uploadProgress?: number;
+};
+
+type MetadataFormState = {
+  bookSlug: string;
+  title: string;
+  subtitle: string;
+  author: string;
+  description: string;
+  category: string;
+  requestedBy: string;
+};
+
+const publicAppwriteConfig = {
+  endpoint: process.env.NEXT_PUBLIC_APPWRITE_ENDPOINT,
+  projectId: process.env.NEXT_PUBLIC_APPWRITE_PROJECT_ID,
+  sourcePdfsBucketId: process.env.NEXT_PUBLIC_APPWRITE_SOURCE_PDFS_BUCKET_ID,
 };
 
 function formatDate(value?: string) {
@@ -95,6 +112,47 @@ export function AdminConsole({ initialSnapshot }: { initialSnapshot: MonitoringS
   const [recoveringJobId, setRecoveringJobId] = useState<string>();
   const [jobFilter, setJobFilter] = useState<(typeof jobFilters)[number]["value"]>("all");
   const [searchQuery, setSearchQuery] = useState("");
+  const [isRepublishingMetadata, setIsRepublishingMetadata] = useState(false);
+  const [metadataState, setMetadataState] = useState<SubmissionState>({});
+  const [metadataForm, setMetadataForm] = useState<MetadataFormState>({
+    bookSlug: "",
+    title: "",
+    subtitle: "",
+    author: "",
+    description: "",
+    category: "Other",
+    requestedBy: "admin-console",
+  });
+
+  async function uploadPdfDirect(file: File) {
+    const { endpoint, projectId, sourcePdfsBucketId } = publicAppwriteConfig;
+    if (!endpoint || !projectId || !sourcePdfsBucketId) {
+      throw new Error("Missing public Appwrite upload configuration.");
+    }
+
+    const fileId = crypto.randomUUID();
+    const formData = new FormData();
+    formData.append("fileId", fileId);
+    formData.append("file", file);
+
+    const response = await fetch(
+      `${endpoint.replace(/\/+$/, "")}/storage/buckets/${sourcePdfsBucketId}/files`,
+      {
+        method: "POST",
+        headers: {
+          "X-Appwrite-Project": projectId,
+        },
+        body: formData,
+      },
+    );
+
+    const payload = (await response.json().catch(() => ({}))) as { message?: string };
+    if (!response.ok) {
+      throw new Error(payload.message || "PDF upload failed.");
+    }
+
+    return fileId;
+  }
 
   const filteredJobs = useMemo(() => {
     const normalizedQuery = searchQuery.trim().toLowerCase();
@@ -134,6 +192,16 @@ export function AdminConsole({ initialSnapshot }: { initialSnapshot: MonitoringS
     });
   }, [jobFilter, jobs, searchQuery]);
 
+  const knownBooks = useMemo(() => {
+    const map = new Map<string, JobListItem["book"]>();
+    jobs.forEach(({ book }) => {
+      if (book?.slug) {
+        map.set(book.slug, book);
+      }
+    });
+    return Array.from(map.values()).filter(Boolean);
+  }, [jobs]);
+
   async function fetchJobs() {
     try {
       const response = await fetch("/api/jobs");
@@ -168,10 +236,40 @@ export function AdminConsole({ initialSnapshot }: { initialSnapshot: MonitoringS
     try {
       const form = event.currentTarget;
       const formData = new FormData(form);
+      const pdf = formData.get("pdf");
+
+      if (!(pdf instanceof File) || pdf.size === 0) {
+        setState({ error: "A source PDF is required." });
+        return;
+      }
+
+      if (pdf.type !== "application/pdf" && !pdf.name.toLowerCase().endsWith(".pdf")) {
+        setState({ error: "Only PDF uploads are supported." });
+        return;
+      }
+
+      setState({ message: "Uploading source PDF..." });
+      const sourceFileId = await uploadPdfDirect(pdf);
+
+      const requestBody = {
+        title: String(formData.get("title") || ""),
+        slug: String(formData.get("slug") || ""),
+        subtitle: String(formData.get("subtitle") || ""),
+        author: String(formData.get("author") || ""),
+        category: String(formData.get("category") || ""),
+        createdBy: String(formData.get("createdBy") || ""),
+        languageId: String(formData.get("languageId") || ""),
+        volumeId: String(formData.get("volumeId") || ""),
+        description: String(formData.get("description") || ""),
+        sourceFileId,
+      };
 
       const response = await fetch("/api/ingestion/create", {
         method: "POST",
-        body: formData,
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(requestBody),
       });
 
       const payload = (await response.json()) as SubmissionState;
@@ -188,8 +286,9 @@ export function AdminConsole({ initialSnapshot }: { initialSnapshot: MonitoringS
       });
       form.reset();
       await loadJobs();
-    } catch {
-      setState({ error: "Network error while creating the ingestion job." });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Network error while creating the ingestion job.";
+      setState({ error: message });
     } finally {
       setIsSubmitting(false);
     }
@@ -242,6 +341,40 @@ export function AdminConsole({ initialSnapshot }: { initialSnapshot: MonitoringS
       setJobsError("Recovery action failed.");
     } finally {
       setRecoveringJobId(undefined);
+    }
+  }
+
+  async function handleMetadataRepublish(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setIsRepublishingMetadata(true);
+    setMetadataState({});
+
+    try {
+      const response = await fetch("/api/books/republish-metadata", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(metadataForm),
+      });
+
+      const payload = (await response.json()) as SubmissionState & { error?: string };
+      if (!response.ok) {
+        setMetadataState({ error: payload.error || "Metadata republish failed." });
+        return;
+      }
+
+      setMetadataState({
+        message: payload.message || "Published metadata updated.",
+        slug: metadataForm.bookSlug,
+      });
+      await loadJobs();
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Metadata republish failed.";
+      setMetadataState({ error: message });
+    } finally {
+      setIsRepublishingMetadata(false);
     }
   }
 
@@ -316,7 +449,7 @@ export function AdminConsole({ initialSnapshot }: { initialSnapshot: MonitoringS
               </label>
 
               <button type="submit" disabled={isSubmitting} className="rounded-full bg-amber-300 px-6 py-3 text-sm font-medium text-stone-950 transition hover:bg-amber-200 disabled:cursor-not-allowed disabled:opacity-60">
-                {isSubmitting ? "Queueing ingestion..." : "Upload and queue job"}
+                {isSubmitting ? "Uploading and queueing..." : "Upload and queue job"}
               </button>
             </form>
           </section>
@@ -338,10 +471,10 @@ export function AdminConsole({ initialSnapshot }: { initialSnapshot: MonitoringS
                 <p className="mt-3 text-sm leading-6 text-rose-300">{state.error}</p>
               ) : state.message ? (
                 <div className="mt-3 space-y-2 text-sm leading-6 text-emerald-300">
-                  <p>{state.message}</p>
-                  <p>Job ID: {state.jobId}</p>
-                  <p>Book slug: {state.slug}</p>
-                </div>
+                <p>{state.message}</p>
+                <p>Job ID: {state.jobId}</p>
+                <p>Book slug: {state.slug}</p>
+              </div>
               ) : (
                 <p className="mt-3 text-sm leading-6 text-stone-400">
                   No upload yet. Successful submissions will show the queued job details here.
@@ -354,6 +487,148 @@ export function AdminConsole({ initialSnapshot }: { initialSnapshot: MonitoringS
             </div>
           </aside>
         </div>
+
+        <section className="mt-8 rounded-3xl border border-stone-800 bg-stone-900/80 p-6 shadow-2xl shadow-black/20">
+          <div className="mb-6">
+            <p className="text-xs uppercase tracking-[0.24em] text-stone-400">Published Metadata</p>
+            <h2 className="mt-2 text-2xl font-semibold text-stone-50">Update title or subtitle without re-rendering</h2>
+            <p className="mt-2 max-w-2xl text-sm leading-6 text-stone-300">
+              This updates the published book metadata and catalog entry only. It does not re-upload or reconvert the PDF.
+            </p>
+          </div>
+
+          <form className="space-y-6" onSubmit={handleMetadataRepublish}>
+            <div className="grid gap-5 md:grid-cols-2">
+              <label className="space-y-2">
+                <span className="text-sm text-stone-200">Book slug</span>
+                <input
+                  required
+                  list="known-book-slugs"
+                  value={metadataForm.bookSlug}
+                  onChange={(event) => {
+                    const slug = event.target.value;
+                    const knownBook = knownBooks.find((book) => book?.slug === slug);
+                    setMetadataForm((current) => ({
+                      ...current,
+                      bookSlug: slug,
+                      title: knownBook?.title || current.title,
+                      subtitle: knownBook?.subtitle || current.subtitle,
+                      author: knownBook?.author || current.author,
+                      description: knownBook?.description || current.description,
+                      category: knownBook?.category || current.category,
+                    }));
+                  }}
+                  className="w-full rounded-2xl border border-stone-700 bg-stone-950 px-4 py-3 text-sm outline-none transition focus:border-amber-300"
+                  placeholder="shifa-shareef-roman-urdu"
+                />
+                <datalist id="known-book-slugs">
+                  {knownBooks.map((book) => (
+                    <option key={book!.$id} value={book!.slug} />
+                  ))}
+                </datalist>
+              </label>
+              <label className="space-y-2">
+                <span className="text-sm text-stone-200">Title</span>
+                <input
+                  required
+                  value={metadataForm.title}
+                  onChange={(event) => {
+                    setMetadataForm((current) => ({ ...current, title: event.target.value }));
+                  }}
+                  className="w-full rounded-2xl border border-stone-700 bg-stone-950 px-4 py-3 text-sm outline-none transition focus:border-amber-300"
+                />
+              </label>
+              <label className="space-y-2">
+                <span className="text-sm text-stone-200">Subtitle</span>
+                <input
+                  value={metadataForm.subtitle}
+                  onChange={(event) => {
+                    setMetadataForm((current) => ({ ...current, subtitle: event.target.value }));
+                  }}
+                  className="w-full rounded-2xl border border-stone-700 bg-stone-950 px-4 py-3 text-sm outline-none transition focus:border-amber-300"
+                />
+              </label>
+              <label className="space-y-2">
+                <span className="text-sm text-stone-200">Author</span>
+                <input
+                  value={metadataForm.author}
+                  onChange={(event) => {
+                    setMetadataForm((current) => ({ ...current, author: event.target.value }));
+                  }}
+                  className="w-full rounded-2xl border border-stone-700 bg-stone-950 px-4 py-3 text-sm outline-none transition focus:border-amber-300"
+                />
+              </label>
+              <label className="space-y-2">
+                <span className="text-sm text-stone-200">Category</span>
+                <select
+                  value={metadataForm.category}
+                  onChange={(event) => {
+                    setMetadataForm((current) => ({ ...current, category: event.target.value }));
+                  }}
+                  className="w-full rounded-2xl border border-stone-700 bg-stone-950 px-4 py-3 text-sm outline-none transition focus:border-amber-300"
+                >
+                  {categories.map((category) => (
+                    <option key={category} value={category}>
+                      {category}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="space-y-2">
+                <span className="text-sm text-stone-200">Requested By</span>
+                <input
+                  value={metadataForm.requestedBy}
+                  onChange={(event) => {
+                    setMetadataForm((current) => ({
+                      ...current,
+                      requestedBy: event.target.value,
+                    }));
+                  }}
+                  className="w-full rounded-2xl border border-stone-700 bg-stone-950 px-4 py-3 text-sm outline-none transition focus:border-amber-300"
+                />
+              </label>
+            </div>
+
+            <label className="block space-y-2">
+              <span className="text-sm text-stone-200">Description</span>
+              <textarea
+                rows={4}
+                value={metadataForm.description}
+                onChange={(event) => {
+                  setMetadataForm((current) => ({
+                    ...current,
+                    description: event.target.value,
+                  }));
+                }}
+                className="w-full rounded-3xl border border-stone-700 bg-stone-950 px-4 py-3 text-sm leading-6 outline-none transition focus:border-amber-300"
+              />
+            </label>
+
+            <button
+              type="submit"
+              disabled={isRepublishingMetadata}
+              className="rounded-full bg-amber-300 px-6 py-3 text-sm font-medium text-stone-950 transition hover:bg-amber-200 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {isRepublishingMetadata ? "Updating published metadata..." : "Update published metadata"}
+            </button>
+          </form>
+
+          <div className="mt-5 rounded-2xl border border-stone-800 bg-stone-950/70 p-4">
+            <p className="text-xs uppercase tracking-[0.24em] text-stone-400">Metadata Publish</p>
+            {metadataState.error ? (
+              <p className="mt-3 text-sm leading-6 text-rose-300">{metadataState.error}</p>
+            ) : metadataState.message ? (
+              <div className="mt-3 space-y-2 text-sm leading-6 text-emerald-300">
+                <p>{metadataState.message}</p>
+                <p>Book slug: {metadataState.slug}</p>
+              </div>
+            ) : (
+              <p className="mt-3 text-sm leading-6 text-stone-400">
+                Published title, subtitle, description, author, and category can be updated here without touching page assets.
+              </p>
+            )}
+          </div>
+        </section>
 
         <section className="mt-8 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
           <div className="rounded-2xl border border-stone-800 bg-stone-900/70 p-4">

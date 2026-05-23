@@ -16,7 +16,12 @@ import {
   buildVolumeManifest,
   renderPdfWorkspace,
 } from "./render.mjs";
-import { buildPublishVersion, publishWorkspace } from "./publish.mjs";
+import {
+  buildPublishVersion,
+  getPublicAssetUrl,
+  publishWorkspace,
+  republishBookMetadata,
+} from "./publish.mjs";
 import { validateRenderedWorkspace } from "./validate.mjs";
 import { createJobWorkspace, writeWorkspaceSummary } from "./workspace.mjs";
 
@@ -320,6 +325,84 @@ async function handleIngest(request, response) {
   }
 }
 
+async function handleMetadataRepublish(request, response) {
+  if (!isAuthorized(request)) {
+    sendJson(response, 401, { error: "Unauthorized" });
+    return;
+  }
+
+  const payload = await readJsonBody(request);
+  const { bookSlug, title, subtitle, author, description, category, requestedBy } = payload || {};
+
+  if (!bookSlug || !title) {
+    sendJson(response, 400, { error: "Missing required metadata payload fields." });
+    return;
+  }
+
+  const bookDocument = await findBookBySlug(bookSlug);
+  if (!bookDocument) {
+    sendJson(response, 404, { error: "Book document not found in Appwrite." });
+    return;
+  }
+
+  const version = buildPublishVersion();
+
+  try {
+    const publishResult = await republishBookMetadata({
+      bookSlug,
+      title,
+      subtitle,
+      author,
+      description,
+      category,
+      languageId: bookDocument.languageId,
+      volumeId: bookDocument.volumeId,
+      version,
+    });
+
+    await updateBookDocument(bookDocument.$id, {
+      title,
+      subtitle: subtitle || "",
+      author: author || "",
+      description: description || "",
+      category: category || "",
+      metadataUrl: publishResult.metadataUrl,
+      manifestUrl: publishResult.manifestUrl,
+      publishedVersion: version,
+      updatedAt: new Date().toISOString(),
+    });
+
+    await createPublishEvent({
+      jobId: `metadata_${bookSlug}`,
+      bookSlug,
+      status: "metadata-published",
+      commitSha: publishResult.gitCommitSha,
+      catalogUrl: getPublicAssetUrl("catalog.json"),
+      metadataUrl: publishResult.metadataUrl,
+      manifestUrl: publishResult.manifestUrl,
+      createdAt: new Date().toISOString(),
+      triggeredBy: requestedBy || "admin-console",
+    }).catch(() => {});
+
+    sendJson(response, 200, {
+      ok: true,
+      status: "metadata-published",
+      bookSlug,
+      outputVersion: version,
+      gitCommitSha: publishResult.gitCommitSha,
+      metadataUrl: publishResult.metadataUrl,
+      manifestUrl: publishResult.manifestUrl,
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Unknown error";
+    sendJson(response, 500, {
+      error: message,
+      status: "failed",
+      bookSlug,
+    });
+  }
+}
+
 const server = http.createServer(async (request, response) => {
   try {
     if (request.method === "GET" && request.url === "/health") {
@@ -329,6 +412,11 @@ const server = http.createServer(async (request, response) => {
 
     if (request.method === "POST" && request.url === "/jobs/ingest") {
       await handleIngest(request, response);
+      return;
+    }
+
+    if (request.method === "POST" && request.url === "/books/republish-metadata") {
+      await handleMetadataRepublish(request, response);
       return;
     }
 

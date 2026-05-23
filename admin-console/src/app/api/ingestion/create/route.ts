@@ -3,9 +3,7 @@ import { NextResponse } from "next/server";
 import {
   APPWRITE_IDS,
   appwriteDatabases,
-  appwriteStorage,
   ID,
-  InputFile,
 } from "@/lib/appwrite";
 
 const ALLOWED_CATEGORIES = [
@@ -32,18 +30,29 @@ function isoNow() {
 
 export async function POST(request: Request) {
   try {
-    const formData = await request.formData();
+    const payload = (await request.json()) as {
+      title?: string;
+      subtitle?: string;
+      author?: string;
+      description?: string;
+      category?: string;
+      languageId?: string;
+      volumeId?: string;
+      createdBy?: string;
+      slug?: string;
+      sourceFileId?: string;
+    };
 
-    const title = String(formData.get("title") || "").trim();
-    const subtitle = String(formData.get("subtitle") || "").trim();
-    const author = String(formData.get("author") || "").trim();
-    const description = String(formData.get("description") || "").trim();
-    const category = String(formData.get("category") || "").trim();
-    const languageId = String(formData.get("languageId") || "").trim();
-    const volumeId = String(formData.get("volumeId") || "").trim();
-    const createdBy = String(formData.get("createdBy") || "admin-console").trim();
-    const explicitSlug = String(formData.get("slug") || "").trim();
-    const file = formData.get("pdf");
+    const title = String(payload.title || "").trim();
+    const subtitle = String(payload.subtitle || "").trim();
+    const author = String(payload.author || "").trim();
+    const description = String(payload.description || "").trim();
+    const category = String(payload.category || "").trim();
+    const languageId = String(payload.languageId || "").trim();
+    const volumeId = String(payload.volumeId || "").trim();
+    const createdBy = String(payload.createdBy || "admin-console").trim();
+    const explicitSlug = String(payload.slug || "").trim();
+    const sourceFileId = String(payload.sourceFileId || "").trim();
 
     if (!title || !languageId || !volumeId) {
       return NextResponse.json(
@@ -52,12 +61,8 @@ export async function POST(request: Request) {
       );
     }
 
-    if (!(file instanceof File) || file.size === 0) {
-      return NextResponse.json({ error: "A source PDF is required." }, { status: 400 });
-    }
-
-    if (file.type !== "application/pdf" && !file.name.toLowerCase().endsWith(".pdf")) {
-      return NextResponse.json({ error: "Only PDF uploads are supported." }, { status: 400 });
+    if (!sourceFileId) {
+      return NextResponse.json({ error: "A source PDF upload is required." }, { status: 400 });
     }
 
     if (category && !ALLOWED_CATEGORIES.includes(category as (typeof ALLOWED_CATEGORIES)[number])) {
@@ -71,14 +76,6 @@ export async function POST(request: Request) {
 
     const timestamp = isoNow();
     const jobId = `job_${Date.now()}`;
-    const sourceFileId = ID.unique();
-    const buffer = Buffer.from(await file.arrayBuffer());
-
-    await appwriteStorage.createFile(
-      APPWRITE_IDS.sourcePdfsBucketId,
-      sourceFileId,
-      InputFile.fromBuffer(buffer, file.name),
-    );
 
     await appwriteDatabases.createDocument(
       APPWRITE_IDS.databaseId,

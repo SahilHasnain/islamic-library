@@ -3,7 +3,6 @@ import { Pressable, ScrollView, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { ErrorCard, LoadingCard } from "../../../components/ui";
-import { formatLastReadLabel } from "../../../data/books";
 import type { PublicBookPlan, PublicBookSection } from "../../../data/types";
 import { useRemoteBookData } from "../../../hooks/useRemoteBookData";
 import { useReadingPlans } from "../../../hooks/useReadingPlans";
@@ -22,34 +21,30 @@ const colors = {
   heroMuted: "#D9E2DC",
 };
 
-function getDownloadStatusLabel({
+function getDownloadButtonLabel({
   canDownload,
   isDownloading,
   isFullyDownloaded,
-  isPartiallyDownloaded,
+  progressPercent,
 }: {
   canDownload: boolean;
   isDownloading: boolean;
   isFullyDownloaded: boolean;
-  isPartiallyDownloaded: boolean;
+  progressPercent: number;
 }) {
   if (!canDownload) {
-    return "Read online";
+    return "";
   }
 
   if (isDownloading) {
-    return "Saving for offline reading";
+    return progressPercent > 0 ? `Saving... ${progressPercent}%` : "Saving...";
   }
 
   if (isFullyDownloaded) {
-    return "Ready offline";
+    return "Remove Download";
   }
 
-  if (isPartiallyDownloaded) {
-    return "Partly saved offline";
-  }
-
-  return "Available to save";
+  return "Save Offline";
 }
 
 function buildFallbackPlans(totalPages: number): PublicBookPlan[] {
@@ -119,12 +114,10 @@ export default function BookHomeScreen() {
     selectedVolume,
   } = useRemoteBookData(readingBookId, progress?.languageId, progress?.volumeId);
   const {
-    cachedPages,
     canDownload,
     downloadAll,
     isDownloading,
     isFullyDownloaded,
-    isPartiallyDownloaded,
     progressPercent: downloadProgressPercent,
     removeDownload,
   } = useVolumeDownload(manifest);
@@ -145,9 +138,6 @@ export default function BookHomeScreen() {
     metadata?.description ?? "Open the book and continue with steady reading.";
   const displayAuthor = metadata?.author ?? catalogBook?.author;
   const displayCategory = metadata?.category ?? catalogBook?.category ?? "Library";
-  const displayLanguageTitle =
-    selectedLanguage?.title ?? metadata?.languages?.[0]?.title ?? resolvedLanguageId;
-  const displayVolumeTitle = selectedVolume?.title ?? resolvedVolumeId;
   const sections =
     selectedVolume?.sections?.length ? selectedVolume.sections : buildFallbackSections(totalPages);
   const plans =
@@ -166,9 +156,6 @@ export default function BookHomeScreen() {
   const progressPercent = activeRemotePlan
     ? Math.min(100, Math.round((currentDay / activeRemotePlan.totalDays) * 100))
     : 0;
-  const currentSection =
-    sections.find((section) => resumePage >= section.startPage && resumePage <= section.endPage) ??
-    sections[0];
   const devotionalContext =
     selectedVolume?.introNote ??
     metadata?.devotionalContext ??
@@ -176,15 +163,15 @@ export default function BookHomeScreen() {
   const todayTarget =
     selectedVolume?.todayTarget ??
     metadata?.todayPrompt ??
-    `Read 2 pages from your current place. The goal is consistency, not speed.`;
+    "Read 2 pages from your current place. The goal is consistency, not speed.";
   const featuredQuote =
     metadata?.featuredQuote ??
     "Begin with calm. Continue with steadiness. Let the reading remain the focus.";
-  const downloadStatusLabel = getDownloadStatusLabel({
+  const downloadButtonLabel = getDownloadButtonLabel({
     canDownload,
     isDownloading,
     isFullyDownloaded,
-    isPartiallyDownloaded,
+    progressPercent: downloadProgressPercent,
   });
 
   return (
@@ -200,10 +187,7 @@ export default function BookHomeScreen() {
       <SafeAreaView style={{ flex: 1, backgroundColor: colors.background }}>
         <ScrollView contentContainerStyle={{ padding: 20, gap: 20, paddingBottom: 40 }}>
           {isMetadataLoading || isManifestLoading ? (
-            <LoadingCard
-              title="Loading book data"
-              message="Preparing this book for reading."
-            />
+            <LoadingCard title="Loading book data" message="Preparing this book for reading." />
           ) : null}
           {metadataError || manifestError ? (
             <ErrorCard
@@ -212,10 +196,7 @@ export default function BookHomeScreen() {
             />
           ) : null}
           {!catalogBook ? (
-            <ErrorCard
-              title="Book unavailable"
-              message="This book is not available right now."
-            />
+            <ErrorCard title="Book unavailable" message="This book is not available right now." />
           ) : null}
           {catalogBook &&
           ["language-missing", "volume-missing", "manifest-missing"].includes(remoteState) ? (
@@ -248,57 +229,35 @@ export default function BookHomeScreen() {
               <Text style={{ color: "#FFF9EA", fontSize: 30, fontWeight: "800" }}>
                 {displayTitle}
               </Text>
-              <Text style={{ color: colors.accentSoft, fontSize: 18, fontWeight: "700" }}>
-                {currentSection?.title ?? displaySubtitle}
+              <Text style={{ color: colors.heroSubtle, fontSize: 15, lineHeight: 22 }}>
+                {displaySubtitle}
               </Text>
               <Text style={{ color: colors.heroMuted, fontSize: 15, lineHeight: 22 }}>
-                {displayLanguageTitle} | {displayVolumeTitle}
+                Page {resumePage}
               </Text>
-              <Text style={{ color: colors.heroSubtle, fontSize: 15, lineHeight: 22 }}>
-                Page {resumePage} of {totalPages} | {formatLastReadLabel(progress?.updatedAt)}
-              </Text>
-            </View>
-
-            <View
-              style={{
-                flexDirection: "row",
-                alignItems: "center",
-                justifyContent: "space-between",
-                gap: 16,
-              }}
-            >
-              <View style={{ flex: 1, gap: 4 }}>
-                <Text
-                  style={{
-                    color: colors.heroMuted,
-                    fontSize: 12,
-                    fontWeight: "700",
-                    textTransform: "uppercase",
-                    letterSpacing: 0.4,
-                  }}
-                >
-                  Reading state
-                </Text>
-                <Text style={{ color: "#FFF9EA", fontSize: 14, fontWeight: "600" }}>
-                  Ready to read
-                </Text>
-              </View>
-              <View
-                style={{
-                  borderRadius: 999,
-                  backgroundColor: "rgba(255, 249, 234, 0.16)",
-                  paddingHorizontal: 14,
-                  paddingVertical: 10,
-                }}
-              >
-                <Text style={{ color: "#FFF9EA", fontSize: 13, fontWeight: "700" }}>
-                  {downloadStatusLabel}
-                  {isDownloading ? ` • ${downloadProgressPercent}%` : ""}
-                </Text>
-              </View>
             </View>
 
             <View style={{ flexDirection: "row", gap: 10 }}>
+              <Link
+                href={
+                  `/reader/${readingBookId}/${resolvedLanguageId}/${resolvedVolumeId}/${resumePage}` as const
+                }
+                asChild
+              >
+                <Pressable
+                  style={{
+                    alignSelf: "flex-start",
+                    borderRadius: 999,
+                    backgroundColor: "#F0E1A7",
+                    paddingHorizontal: 20,
+                    paddingVertical: 12,
+                  }}
+                >
+                  <Text style={{ color: colors.text, fontSize: 15, fontWeight: "800" }}>
+                    Resume Reading
+                  </Text>
+                </Pressable>
+              </Link>
               {canDownload ? (
                 <Pressable
                   onPress={() => {
@@ -312,50 +271,11 @@ export default function BookHomeScreen() {
                   }}
                 >
                   <Text style={{ color: "#FFF9EA", fontSize: 13, fontWeight: "800" }}>
-                    {isDownloading
-                      ? `Downloading ${downloadProgressPercent}%`
-                      : isFullyDownloaded
-                        ? "Remove download"
-                        : "Save for offline"}
+                    {downloadButtonLabel}
                   </Text>
                 </Pressable>
               ) : null}
-              {(isPartiallyDownloaded || isFullyDownloaded) && !isDownloading ? (
-                <View
-                  style={{
-                    borderRadius: 999,
-                    backgroundColor: "rgba(255, 249, 234, 0.08)",
-                    paddingHorizontal: 14,
-                    paddingVertical: 12,
-                  }}
-                >
-                  <Text style={{ color: colors.heroSubtle, fontSize: 13, fontWeight: "700" }}>
-                    {cachedPages} of {totalPages} pages cached
-                  </Text>
-                </View>
-              ) : null}
             </View>
-
-            <Link
-              href={
-                `/reader/${readingBookId}/${resolvedLanguageId}/${resolvedVolumeId}/${resumePage}` as const
-              }
-              asChild
-            >
-              <Pressable
-                style={{
-                  alignSelf: "flex-start",
-                  borderRadius: 999,
-                  backgroundColor: "#F0E1A7",
-                  paddingHorizontal: 20,
-                  paddingVertical: 12,
-                }}
-              >
-                <Text style={{ color: colors.text, fontSize: 15, fontWeight: "800" }}>
-                  Resume Reading
-                </Text>
-              </Pressable>
-            </Link>
           </View>
 
           {activeRemotePlan ? (

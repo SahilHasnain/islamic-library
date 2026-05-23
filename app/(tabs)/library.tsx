@@ -1,4 +1,5 @@
 import { Link } from "expo-router";
+import { Image } from "expo-image";
 import { Pressable, ScrollView, Text, View } from "react-native";
 
 import {
@@ -24,34 +25,30 @@ function getContinueLine(page?: number) {
   return page ? `Page ${page}` : "Not started yet";
 }
 
-function getDownloadStatusLabel({
+function getDownloadButtonLabel({
   canDownload,
   isDownloading,
   isFullyDownloaded,
-  isPartiallyDownloaded,
+  progressPercent,
 }: {
   canDownload: boolean;
   isDownloading: boolean;
   isFullyDownloaded: boolean;
-  isPartiallyDownloaded: boolean;
+  progressPercent: number;
 }) {
-  if (!canDownload) {
-    return "Read online";
-  }
-
   if (isDownloading) {
-    return "Saving for offline reading";
+    return progressPercent > 0 ? `Saving... ${progressPercent}%` : "Saving...";
   }
 
   if (isFullyDownloaded) {
-    return "Ready offline";
+    return "Remove Download";
   }
 
-  if (isPartiallyDownloaded) {
-    return "Partly saved offline";
+  if (!canDownload) {
+    return "";
   }
 
-  return "Available to save";
+  return "Save Offline";
 }
 
 function FeaturedBookHero({
@@ -59,29 +56,39 @@ function FeaturedBookHero({
   title,
   subtitle,
   page,
+  languageId,
+  volumeId,
 }: {
   bookId: string;
   title: string;
   subtitle?: string;
   page?: number;
+  languageId?: string;
+  volumeId?: string;
 }) {
-  const { manifest } = useRemoteBookData(bookId);
-  const {
-    canDownload,
-    downloadAll,
-    isDownloading,
-    isFullyDownloaded,
-    isPartiallyDownloaded,
-    progressPercent,
-    removeDownload,
-  } = useVolumeDownload(manifest);
+  const { manifest, metadata, selectedLanguage, selectedVolume } = useRemoteBookData(
+    bookId,
+    languageId,
+    volumeId,
+  );
+  const { canDownload, downloadAll, isDownloading, isFullyDownloaded, progressPercent, removeDownload } =
+    useVolumeDownload(manifest);
 
-  const downloadStatusLabel = getDownloadStatusLabel({
+  const downloadButtonLabel = getDownloadButtonLabel({
     canDownload,
     isDownloading,
     isFullyDownloaded,
-    isPartiallyDownloaded,
+    progressPercent,
   });
+  const readerLanguageId =
+    selectedLanguage?.id ?? languageId ?? metadata?.languages[0]?.id ?? "english";
+  const readerVolumeId =
+    selectedVolume?.id ??
+    volumeId ??
+    selectedLanguage?.volumes[0]?.id ??
+    metadata?.languages[0]?.volumes[0]?.id ??
+    "volume1";
+  const readerPage = page ?? 1;
 
   return (
     <HeroCard>
@@ -96,122 +103,99 @@ function FeaturedBookHero({
       >
         Continue Reading
       </Text>
-      <View style={{ gap: spacing.gapLg }}>
-        <View style={{ gap: spacing.gapSm }}>
-          <Text
-            style={{
-              color: colors.textOnDark,
-              fontSize: typography.sectionTitle,
-              fontWeight: "800",
-            }}
-          >
-            {title}
-          </Text>
-          <BodyText color={colors.textOnDarkMuted}>{subtitle ?? "Reading edition"}</BodyText>
-          <Text
-            style={{
-              color: colors.textOnDarkSubtle,
-              fontSize: typography.bodySmall,
-              lineHeight: 22,
-            }}
-          >
-            {getContinueLine(page)}
-          </Text>
-        </View>
 
-        <View
+      <View style={{ gap: spacing.gapMd }}>
+        <Text
           style={{
-            flexDirection: "row",
-            alignItems: "center",
-            justifyContent: "space-between",
-            gap: 16,
+            color: colors.textOnDark,
+            fontSize: typography.sectionTitle,
+            fontWeight: "800",
           }}
         >
-          <View style={{ flex: 1, gap: 4 }}>
+          {title}
+        </Text>
+        <BodyText color={colors.textOnDarkMuted}>{subtitle ?? "Reading edition"}</BodyText>
+        <Text
+          style={{
+            color: colors.textOnDarkSubtle,
+            fontSize: typography.bodySmall,
+            lineHeight: 22,
+          }}
+        >
+          {getContinueLine(page)}
+        </Text>
+      </View>
+
+      <View style={{ flexDirection: "row", gap: 12, flexWrap: "wrap" }}>
+        <Link
+          href={`/reader/${bookId}/${readerLanguageId}/${readerVolumeId}/${readerPage}` as const}
+          asChild
+        >
+          <Pressable
+            style={{
+              borderRadius: radii.pill,
+              backgroundColor: colors.accent,
+              paddingHorizontal: 20,
+              paddingVertical: 13,
+            }}
+          >
             <Text
               style={{
-                color: colors.textOnDarkMuted,
-                fontSize: typography.control,
-                fontWeight: "700",
-                textTransform: "uppercase",
-                letterSpacing: 0.4,
+                color: colors.text,
+                fontSize: typography.bodySmall,
+                fontWeight: "800",
               }}
             >
-              Reading state
+              {page ? "Resume Reading" : "Start Reading"}
             </Text>
+          </Pressable>
+        </Link>
+
+        <Link href={`/book/${bookId}` as const} asChild>
+          <Pressable
+            style={{
+              borderRadius: radii.pill,
+              borderWidth: 1,
+              borderColor: colors.textOnDarkMuted,
+              paddingHorizontal: 16,
+              paddingVertical: 13,
+            }}
+          >
             <Text
               style={{
                 color: colors.textOnDark,
-                fontSize: typography.bodySmall,
-                fontWeight: "700",
-              }}
-            >
-              {page ? "In progress" : "Ready to begin"}
-            </Text>
-            <Text
-              style={{
-                color: colors.textOnDarkSubtle,
                 fontSize: typography.control,
-                fontWeight: "700",
+                fontWeight: "800",
               }}
             >
-              {downloadStatusLabel}
-              {isDownloading ? ` • ${progressPercent}%` : ""}
+              View Book
             </Text>
-          </View>
-
-          <Link href={`/book/${bookId}` as const} asChild>
-            <Pressable
-              style={{
-                borderRadius: radii.pill,
-                backgroundColor: colors.accent,
-                paddingHorizontal: 18,
-                paddingVertical: 12,
-              }}
-            >
-              <Text
-                style={{
-                  color: colors.text,
-                  fontSize: typography.bodySmall,
-                  fontWeight: "800",
-                }}
-              >
-                {page ? "Resume Reading" : "Open Book"}
-              </Text>
-            </Pressable>
-          </Link>
-        </View>
+          </Pressable>
+        </Link>
 
         {canDownload ? (
-          <View style={{ flexDirection: "row", gap: 10, flexWrap: "wrap" }}>
-            <Pressable
-              onPress={() => {
-                void (isFullyDownloaded ? removeDownload() : downloadAll());
-              }}
+          <Pressable
+            onPress={() => {
+              void (isFullyDownloaded ? removeDownload() : downloadAll());
+            }}
+            style={{
+              borderRadius: radii.pill,
+              borderWidth: 1,
+              borderColor: colors.textOnDarkMuted,
+              paddingHorizontal: 16,
+              paddingVertical: 13,
+            }}
+          >
+            <Text
               style={{
-                alignSelf: "flex-start",
-                borderRadius: radii.pill,
-                borderWidth: 1,
-                borderColor: colors.textOnDarkMuted,
-                paddingHorizontal: 16,
-                paddingVertical: 11,
+                color: colors.textOnDark,
+                fontSize: typography.control,
+                fontWeight: "800",
               }}
             >
-              <Text
-                style={{
-                  color: colors.textOnDark,
-                  fontSize: typography.control,
-                  fontWeight: "800",
-                }}
-              >
-                {isDownloading
-                  ? `Downloading ${progressPercent}%`
-                  : isFullyDownloaded
-                    ? "Remove download"
-                    : "Save offline"}
-              </Text>
-            </Pressable>
-          </View>
+              {downloadButtonLabel}
+            </Text>
+          </Pressable>
         ) : null}
       </View>
     </HeroCard>
@@ -224,30 +208,42 @@ function LibraryBookCard({
   subtitle,
   category,
   page,
+  languageId,
+  volumeId,
+  coverImage,
 }: {
   bookId: string;
   title: string;
   subtitle?: string;
   category?: string;
   page?: number;
+  languageId?: string;
+  volumeId?: string;
+  coverImage?: string;
 }) {
-  const { manifest } = useRemoteBookData(bookId);
-  const {
-    canDownload,
-    downloadAll,
-    isDownloading,
-    isFullyDownloaded,
-    isPartiallyDownloaded,
-    progressPercent,
-    removeDownload,
-  } = useVolumeDownload(manifest);
+  const { manifest, metadata, selectedLanguage, selectedVolume } = useRemoteBookData(
+    bookId,
+    languageId,
+    volumeId,
+  );
+  const { canDownload, downloadAll, isDownloading, isFullyDownloaded, progressPercent, removeDownload } =
+    useVolumeDownload(manifest);
 
-  const downloadStatusLabel = getDownloadStatusLabel({
+  const downloadButtonLabel = getDownloadButtonLabel({
     canDownload,
     isDownloading,
     isFullyDownloaded,
-    isPartiallyDownloaded,
+    progressPercent,
   });
+  const readerLanguageId =
+    selectedLanguage?.id ?? languageId ?? metadata?.languages[0]?.id ?? "english";
+  const readerVolumeId =
+    selectedVolume?.id ??
+    volumeId ??
+    selectedLanguage?.volumes[0]?.id ??
+    metadata?.languages[0]?.volumes[0]?.id ??
+    "volume1";
+  const readerPage = page ?? 1;
 
   return (
     <View
@@ -258,10 +254,27 @@ function LibraryBookCard({
         gap: spacing.gapMd,
       }}
     >
-      <Link href={`/book/${bookId}` as const} asChild>
+      <Link
+        href={`/reader/${bookId}/${readerLanguageId}/${readerVolumeId}/${readerPage}` as const}
+        asChild
+      >
         <Pressable>
           <View style={{ flexDirection: "row", gap: 14, alignItems: "center" }}>
-            <CoverBlock color={colors.accentStrong} />
+            {coverImage ? (
+              <Image
+                source={{ uri: coverImage }}
+                contentFit="cover"
+                transition={120}
+                style={{
+                  width: 54,
+                  height: 72,
+                  borderRadius: 16,
+                  backgroundColor: colors.surfaceMuted,
+                }}
+              />
+            ) : (
+              <CoverBlock color={colors.accentStrong} />
+            )}
             <View style={{ flex: 1, gap: 6 }}>
               <Text style={{ color: colors.text, fontSize: typography.title, fontWeight: "800" }}>
                 {title}
@@ -278,17 +291,30 @@ function LibraryBookCard({
               <MetaText>
                 {category ?? "Library"} | {getContinueLine(page)}
               </MetaText>
-              <MetaText>
-                {downloadStatusLabel}
-                {isDownloading ? ` • ${progressPercent}%` : ""}
-              </MetaText>
             </View>
           </View>
         </Pressable>
       </Link>
 
-      {canDownload ? (
-        <View style={{ flexDirection: "row", gap: 10, flexWrap: "wrap" }}>
+      <View style={{ flexDirection: "row", gap: 10, flexWrap: "wrap" }}>
+        <Link href={`/book/${bookId}` as const} asChild>
+          <Pressable
+            style={{
+              alignSelf: "flex-start",
+              borderRadius: radii.pill,
+              borderWidth: 1,
+              borderColor: colors.textMuted,
+              paddingHorizontal: 14,
+              paddingVertical: 10,
+            }}
+          >
+            <Text style={{ color: colors.text, fontSize: typography.control, fontWeight: "800" }}>
+              View Book
+            </Text>
+          </Pressable>
+        </Link>
+
+        {canDownload ? (
           <Pressable
             onPress={() => {
               void (isFullyDownloaded ? removeDownload() : downloadAll());
@@ -303,16 +329,67 @@ function LibraryBookCard({
             }}
           >
             <Text style={{ color: colors.text, fontSize: typography.control, fontWeight: "800" }}>
-              {isDownloading
-                ? `Downloading ${progressPercent}%`
-                : isFullyDownloaded
-                  ? "Remove download"
-                  : "Save offline"}
+              {downloadButtonLabel}
             </Text>
           </Pressable>
-        </View>
-      ) : null}
+        ) : null}
+      </View>
     </View>
+  );
+}
+
+function InProgressCard({
+  bookId,
+  title,
+  subtitle,
+  page,
+  languageId,
+  volumeId,
+}: {
+  bookId: string;
+  title: string;
+  subtitle?: string;
+  page?: number;
+  languageId?: string;
+  volumeId?: string;
+}) {
+  const { metadata, selectedLanguage, selectedVolume } = useRemoteBookData(
+    bookId,
+    languageId,
+    volumeId,
+  );
+  const readerLanguageId =
+    selectedLanguage?.id ?? languageId ?? metadata?.languages[0]?.id ?? "english";
+  const readerVolumeId =
+    selectedVolume?.id ??
+    volumeId ??
+    selectedLanguage?.volumes[0]?.id ??
+    metadata?.languages[0]?.volumes[0]?.id ??
+    "volume1";
+  const readerPage = page ?? 1;
+
+  return (
+    <Link
+      href={`/reader/${bookId}/${readerLanguageId}/${readerVolumeId}/${readerPage}` as const}
+      asChild
+    >
+      <Pressable
+        style={{
+          backgroundColor: colors.surfaceMuted,
+          borderRadius: radii.md,
+          padding: spacing.card,
+          gap: 6,
+        }}
+      >
+        <Text style={{ color: colors.text, fontSize: typography.subtitle, fontWeight: "800" }}>
+          {title}
+        </Text>
+        <Text style={{ color: colors.textMuted, fontSize: typography.bodySmall, lineHeight: 22 }}>
+          {subtitle ?? "Continue from your saved reading position"}
+        </Text>
+        <MetaText>{getContinueLine(page)}</MetaText>
+      </Pressable>
+    </Link>
   );
 }
 
@@ -330,6 +407,9 @@ export default function LibraryScreen() {
   const inProgressBooks = remoteBooks.filter((book) => progressMap[book.id]);
   const featuredBook = inProgressBooks[0] ?? remoteBooks[0];
   const featuredProgress = featuredBook ? progressMap[featuredBook.id] : undefined;
+  const additionalInProgressBooks = featuredBook
+    ? inProgressBooks.filter((book) => book.id !== featuredBook.id)
+    : [];
   const categoryLabels =
     remoteBooks.length > 0
       ? Array.from(new Set(remoteBooks.map((book) => book.category).filter(Boolean)))
@@ -366,10 +446,7 @@ export default function LibraryScreen() {
           />
         ) : null}
         {isCatalogLoading ? (
-          <LoadingCard
-            title="Loading library"
-            message="Bringing your books into view."
-          />
+          <LoadingCard title="Loading library" message="Bringing your books into view." />
         ) : null}
         {catalogError ? (
           <ErrorCard
@@ -384,10 +461,7 @@ export default function LibraryScreen() {
           />
         ) : null}
         {isCatalogConfigured && !isCatalogLoading && !catalogError && !hasRemoteCatalog ? (
-          <ErrorCard
-            title="No books yet"
-            message="The library does not contain any books yet."
-          />
+          <ErrorCard title="No books yet" message="The library does not contain any books yet." />
         ) : null}
 
         {featuredBook ? (
@@ -396,6 +470,8 @@ export default function LibraryScreen() {
             title={featuredBook.title}
             subtitle={featuredBook.subtitle}
             page={featuredProgress?.page}
+            languageId={featuredProgress?.languageId}
+            volumeId={featuredProgress?.volumeId}
           />
         ) : null}
 
@@ -407,7 +483,10 @@ export default function LibraryScreen() {
               : "Choose one book and read for 5 steady minutes."}
           </BodyText>
           {featuredBook ? (
-            <Link href={`/book/${featuredBook.id}` as const} asChild>
+            <Link
+              href={`/reader/${featuredBook.id}/${featuredProgress?.languageId ?? "english"}/${featuredProgress?.volumeId ?? "volume1"}/${featuredProgress?.page ?? 1}` as const}
+              asChild
+            >
               <Pressable
                 style={{
                   alignSelf: "flex-start",
@@ -426,37 +505,27 @@ export default function LibraryScreen() {
           ) : null}
         </SectionCard>
 
-        <SectionCard>
-          <CardTitle>In progress</CardTitle>
-          <View style={{ gap: 12 }}>
-            {inProgressBooks.map((book) => {
-              const progress = progressMap[book.id];
-              return (
-                <Link key={book.id} href={`/book/${book.id}` as const} asChild>
-                  <Pressable
-                    style={{
-                      backgroundColor: colors.surfaceMuted,
-                      borderRadius: radii.md,
-                      padding: spacing.card,
-                      gap: 6,
-                    }}
-                  >
-                    <Text style={{ color: colors.text, fontSize: typography.subtitle, fontWeight: "800" }}>
-                      {book.title}
-                    </Text>
-                    <Text style={{ color: colors.textMuted, fontSize: typography.bodySmall, lineHeight: 22 }}>
-                      {book.subtitle ?? "Continue from your saved reading position"}
-                    </Text>
-                    <MetaText>{getContinueLine(progress?.page)}</MetaText>
-                  </Pressable>
-                </Link>
-              );
-            })}
-            {inProgressBooks.length === 0 ? (
-              <BodyText>No saved reading progress yet. Begin with one book and continue gently.</BodyText>
-            ) : null}
-          </View>
-        </SectionCard>
+        {additionalInProgressBooks.length > 0 ? (
+          <SectionCard>
+            <CardTitle>In progress</CardTitle>
+            <View style={{ gap: 12 }}>
+              {additionalInProgressBooks.map((book) => {
+                const progress = progressMap[book.id];
+                return (
+                  <InProgressCard
+                    key={book.id}
+                    bookId={book.id}
+                    title={book.title}
+                    subtitle={book.subtitle}
+                    page={progress?.page}
+                    languageId={progress?.languageId}
+                    volumeId={progress?.volumeId}
+                  />
+                );
+              })}
+            </View>
+          </SectionCard>
+        ) : null}
 
         <SectionCard>
           <CardTitle>Featured categories</CardTitle>
@@ -482,6 +551,9 @@ export default function LibraryScreen() {
                 subtitle={book.subtitle}
                 category={book.category}
                 page={progressMap[book.id]?.page}
+                languageId={progressMap[book.id]?.languageId}
+                volumeId={progressMap[book.id]?.volumeId}
+                coverImage={book.coverImage}
               />
             ))
           ) : (
@@ -499,7 +571,8 @@ export default function LibraryScreen() {
               textAlign: "center",
             }}
           >
-            Begin with calm. Continue with steadiness. Let the app remove friction so the reading itself remains the focus.
+            Begin with calm. Continue with steadiness. Let the app remove friction so the reading
+            itself remains the focus.
           </Text>
         </SectionCard>
       </ScrollView>

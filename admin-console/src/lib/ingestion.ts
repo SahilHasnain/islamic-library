@@ -76,6 +76,16 @@ export type WorkerJobPayload = {
   publishMode: "public";
 };
 
+export type MetadataRepublishPayload = {
+  bookSlug: string;
+  title: string;
+  subtitle?: string;
+  author?: string;
+  description?: string;
+  category?: string;
+  requestedBy: string;
+};
+
 export type PublishEventRecord = {
   $id: string;
   jobId: string;
@@ -363,4 +373,51 @@ export async function dispatchJobToWorker(jobId: string) {
     payload,
     workerResponse: await response.json().catch(() => ({})),
   };
+}
+
+export async function republishBookMetadata(payload: MetadataRepublishPayload) {
+  const workerApiUrl = requireWorkerEnv("WORKER_API_URL");
+  const workerApiToken = requireWorkerEnv("WORKER_API_TOKEN");
+
+  const booksResponse = await appwriteDatabases.listDocuments(
+    APPWRITE_IDS.databaseId,
+    APPWRITE_IDS.booksCollectionId,
+    [Query.equal("slug", payload.bookSlug), Query.limit(1)],
+  );
+
+  const book = booksResponse.documents[0] as unknown as BookRecord | undefined;
+  if (!book) {
+    throw new Error("Book not found.");
+  }
+
+  const now = new Date().toISOString();
+  await appwriteDatabases.updateDocument(
+    APPWRITE_IDS.databaseId,
+    APPWRITE_IDS.booksCollectionId,
+    book.$id,
+    {
+      title: payload.title,
+      subtitle: payload.subtitle || "",
+      author: payload.author || "",
+      description: payload.description || "",
+      category: payload.category || "",
+      updatedAt: now,
+    },
+  );
+
+  const response = await fetch(`${workerApiUrl.replace(/\/$/, "")}/books/republish-metadata`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${workerApiToken}`,
+    },
+    body: JSON.stringify(payload),
+  });
+
+  if (!response.ok) {
+    const message = await response.text();
+    throw new Error(`Metadata republish failed: ${message}`);
+  }
+
+  return response.json().catch(() => ({}));
 }
