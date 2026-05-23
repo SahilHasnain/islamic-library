@@ -1,9 +1,10 @@
 import { ScrollView, Text, View } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { useRemoteCatalog } from "../../hooks/useRemoteCatalog";
+import { Screen } from "../../components/ui";
 import { useReadingPlans } from "../../hooks/useReadingPlans";
 import { useReadingProgress } from "../../hooks/useReadingProgress";
+import { useRemoteCatalog } from "../../hooks/useRemoteCatalog";
 
 const colors = {
   background: "#F7F1E3",
@@ -17,6 +18,7 @@ export default function JourneyScreen() {
   const { progressMap } = useReadingProgress();
   const { activePlanMap } = useReadingPlans();
   const { catalog } = useRemoteCatalog();
+  const insets = useSafeAreaInsets();
   const totalPagesRead = Object.values(progressMap).reduce((sum, progress) => sum + progress.page, 0);
   const activePlans = Object.values(activePlanMap).map((plan) => ({
     plan,
@@ -24,8 +26,8 @@ export default function JourneyScreen() {
   }));
 
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: colors.background }}>
-      <ScrollView contentContainerStyle={{ padding: 20, gap: 18, paddingBottom: 40 }}>
+    <Screen>
+      <ScrollView contentContainerStyle={{ paddingTop: insets.top + 5, paddingHorizontal: 20, gap: 18, paddingBottom: 40 }}>
         <View style={{ gap: 8 }}>
           <Text style={{ color: colors.text, fontSize: 36, fontWeight: "800" }}>
             Journey
@@ -85,6 +87,6 @@ export default function JourneyScreen() {
           )}
         </View>
       </ScrollView>
-    </SafeAreaView>
+    </Screen>
   );
 }

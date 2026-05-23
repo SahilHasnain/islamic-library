@@ -1,6 +1,5 @@
 import type { PropsWithChildren, ReactNode } from "react";
 import { Text, View } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
 
 import { colors, lineHeights, radii, spacing, typography } from "../constants/theme";
 
@@ -8,7 +7,7 @@ export function Screen({
   children,
   backgroundColor = colors.background,
 }: PropsWithChildren<{ backgroundColor?: string }>) {
-  return <SafeAreaView style={{ flex: 1, backgroundColor }}>{children}</SafeAreaView>;
+  return <View style={{ flex: 1, backgroundColor }}>{children}</View>;
 }
 
 export function SectionCard({

@@ -1,18 +1,20 @@
 import { Link } from "expo-router";
-import { Pressable, ScrollView, Text, View } from "react-native";
+import { Pressable, ScrollView, Text } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { EmptyCard, ErrorCard, LoadingCard, PageHeader, Screen, SectionCard } from "../../components/ui";
+import { EmptyCard, ErrorCard, LoadingCard, PageHeader, Screen } from "../../components/ui";
+import { colors } from "../../constants/theme";
 import { useBookmarks } from "../../hooks/useBookmarks";
 import { useRemoteCatalog } from "../../hooks/useRemoteCatalog";
-import { colors } from "../../constants/theme";
 
 export default function BookmarksScreen() {
   const { error, filteredBookmarks, isLoaded, removeBookmark } = useBookmarks();
   const { catalog } = useRemoteCatalog();
+  const insets = useSafeAreaInsets();
 
   return (
     <Screen>
-      <ScrollView contentContainerStyle={{ padding: 20, gap: 18, paddingBottom: 40 }}>
+      <ScrollView contentContainerStyle={{ paddingTop: insets.top + 5, paddingHorizontal: 20, gap: 18, paddingBottom: 40 }}>
         <PageHeader
           title="Bookmarks"
           subtitle="Saved passages across books will be collected here."
@@ -46,8 +48,8 @@ export default function BookmarksScreen() {
                     padding: 20,
                     gap: 10,
                   }}
-                  >
-                    <Text style={{ color: colors.text, fontSize: 20, fontWeight: "800" }}>
+                >
+                  <Text style={{ color: colors.text, fontSize: 20, fontWeight: "800" }}>
                     {book?.title ?? bookmark.bookId}
                   </Text>
                   <Text style={{ color: colors.textMuted, fontSize: 16, lineHeight: 23 }}>

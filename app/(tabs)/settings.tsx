@@ -1,7 +1,7 @@
-import { Pressable, ScrollView, Text, View } from "react-native";
-
+import { useEffect, useRef, useState } from "react";
+import { Alert, Animated, Platform, Pressable, ScrollView, Text, ToastAndroid, View } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import {
-  BodyText,
   CardTitle,
   EmptyCard,
   ErrorCard,
@@ -13,10 +13,72 @@ import {
 } from "../../components/ui";
 import { colors, radii, spacing, typography } from "../../constants/theme";
 import { useBookmarks } from "../../hooks/useBookmarks";
-import { useRemoteCatalog } from "../../hooks/useRemoteCatalog";
-import { useReadingPlans } from "../../hooks/useReadingPlans";
 import { useReaderPreferences } from "../../hooks/useReaderPreferences";
+import { useReadingPlans } from "../../hooks/useReadingPlans";
 import { useReadingProgress } from "../../hooks/useReadingProgress";
+import { useRemoteCatalog } from "../../hooks/useRemoteCatalog";
+
+function CustomToast({ message, visible }: { message: string; visible: boolean }) {
+  const opacity = useRef(new Animated.Value(0)).current;
+  const translateY = useRef(new Animated.Value(20)).current;
+
+  useEffect(() => {
+    if (visible) {
+      Animated.parallel([
+        Animated.timing(opacity, {
+          toValue: 1,
+          duration: 200,
+          useNativeDriver: true,
+        }),
+        Animated.timing(translateY, {
+          toValue: 0,
+          duration: 200,
+          useNativeDriver: true,
+        }),
+      ]).start();
+
+      const timer = setTimeout(() => {
+        Animated.parallel([
+          Animated.timing(opacity, {
+            toValue: 0,
+            duration: 200,
+            useNativeDriver: true,
+          }),
+          Animated.timing(translateY, {
+            toValue: 20,
+            duration: 200,
+            useNativeDriver: true,
+          }),
+        ]).start();
+      }, 2000);
+
+      return () => clearTimeout(timer);
+    }
+  }, [visible, message, opacity, translateY]);
+
+  if (!visible) return null;
+
+  return (
+    <Animated.View
+      style={{
+        position: "absolute",
+        bottom: 100,
+        left: 20,
+        right: 20,
+        backgroundColor: colors.primaryButton,
+        borderRadius: radii.md,
+        padding: 16,
+        opacity,
+        transform: [{ translateY }],
+        zIndex: 1000,
+      }}
+    >
+      <Text style={{ color: colors.primaryButtonText, fontSize: typography.body, textAlign: "center" }}>
+        {message}
+      </Text>
+    </Animated.View>
+  );
+}
 
 function ActionButton({
   label,
@@ -79,50 +141,62 @@ export default function SettingsScreen() {
     progressMap,
     resetProgress,
   } = useReadingProgress();
+  const insets = useSafeAreaInsets();
+  const [showDangerZone, setShowDangerZone] = useState(false);
+  const [toastMessage, setToastMessage] = useState("");
+  const [showToast, setShowToast] = useState(false);
 
   const activePlanCount = Object.keys(activePlanMap).length;
   const progressCount = Object.keys(progressMap).length;
   const storageIsLoading =
     !bookmarksLoaded || !plansLoaded || !preferencesLoaded || !progressLoaded;
 
+  const displayToast = (message: string) => {
+    if (Platform.OS === "android") {
+      ToastAndroid.show(message, ToastAndroid.SHORT);
+    } else {
+      setToastMessage(message);
+      setShowToast(true);
+      setTimeout(() => setShowToast(false), 2500);
+    }
+  };
+
   return (
     <Screen>
+      <CustomToast message={toastMessage} visible={showToast} />
       <ScrollView
         contentContainerStyle={{
-          padding: spacing.page,
+          paddingTop: insets.top + 5,
+          paddingHorizontal: spacing.page,
           gap: spacing.gap2xl,
           paddingBottom: 40,
         }}
       >
         <PageHeader
           title="Settings"
-          subtitle="Reader preferences, local data, and app-level controls for your library."
+          subtitle="Customize your reading experience and manage your library."
         />
 
         {storageIsLoading ? (
           <LoadingCard
             title="Loading settings"
-            message="Restoring preferences, saved plans, bookmarks, and reading progress."
+            message="Getting your preferences and reading data ready."
           />
         ) : null}
 
         {preferencesError || bookmarksError || plansError || progressError ? (
           <ErrorCard
-            title="Some settings are using fallback state"
-            message="One or more local settings collections could not be loaded from storage."
+            title="Couldn't load some settings"
+            message="Some of your preferences couldn't be loaded. Using defaults for now."
           />
         ) : null}
 
         <SectionCard>
-          <CardTitle>Reader preferences</CardTitle>
-          <BodyText>
-            The current reader theme applies to the in-app reading surface and will stay
-            active across sessions.
-          </BodyText>
+          <CardTitle>Reading theme</CardTitle>
           <View style={{ gap: spacing.gapSm }}>
             <MetaText>Current theme</MetaText>
             <Text style={{ color: colors.text, fontSize: typography.subtitle, fontWeight: "800" }}>
-              {theme === "light" ? "Light reader" : "Sepia reader"}
+              {theme === "light" ? "Light" : "Sepia"}
             </Text>
           </View>
           <ActionButton
@@ -135,22 +209,22 @@ export default function SettingsScreen() {
         </SectionCard>
 
         <SectionCard>
-          <CardTitle>Library data</CardTitle>
+          <CardTitle>Your library</CardTitle>
           <View style={{ gap: spacing.gapMd }}>
             <View style={{ gap: spacing.gapXs }}>
-              <MetaText>Tracked books</MetaText>
+              <MetaText>Books you're reading</MetaText>
               <Text style={{ color: colors.text, fontSize: typography.subtitle, fontWeight: "800" }}>
                 {progressCount} of {catalog?.books.length ?? 0}
               </Text>
             </View>
             <View style={{ gap: spacing.gapXs }}>
-              <MetaText>Bookmarks saved</MetaText>
+              <MetaText>Saved bookmarks</MetaText>
               <Text style={{ color: colors.text, fontSize: typography.subtitle, fontWeight: "800" }}>
                 {bookmarks.length}
               </Text>
             </View>
             <View style={{ gap: spacing.gapXs }}>
-              <MetaText>Active plans</MetaText>
+              <MetaText>Active reading plans</MetaText>
               <Text style={{ color: colors.text, fontSize: typography.subtitle, fontWeight: "800" }}>
                 {activePlanCount}
               </Text>
@@ -158,65 +232,97 @@ export default function SettingsScreen() {
           </View>
         </SectionCard>
 
-        <SectionCard backgroundColor={colors.surfaceMuted}>
-          <CardTitle>Local data tools</CardTitle>
-          <BodyText color={colors.text}>
-            These controls manage device-local app state only. They do not affect the published
-            remote catalog.
-          </BodyText>
-          <View style={{ flexDirection: "row", flexWrap: "wrap", gap: spacing.gapMd }}>
-            <ActionButton
-              label="Reset progress"
-              onPress={() => {
-                void resetProgress();
-              }}
-            />
-            <ActionButton
-              label="Clear bookmarks"
-              onPress={() => {
-                void clearBookmarks();
-              }}
-            />
-            <ActionButton
-              label="Clear active plans"
-              onPress={() => {
-                void clearAllPlans();
-              }}
-            />
+        <Pressable
+          onPress={() => setShowDangerZone(!showDangerZone)}
+          style={{
+            backgroundColor: colors.surfaceMuted,
+            borderRadius: radii.lg,
+            padding: spacing.page,
+            gap: spacing.gapLg,
+          }}
+        >
+          <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
+            <CardTitle>Manage your data</CardTitle>
+            <Text style={{ color: colors.textMuted, fontSize: typography.title }}>
+              {showDangerZone ? "−" : "+"}
+            </Text>
           </View>
-        </SectionCard>
 
-        <SectionCard>
-          <CardTitle>App scope</CardTitle>
-          <BodyText>
-            This version of the app is remote-catalog driven, storage-backed, and focused
-            on published reading flows rather than account sync.
-          </BodyText>
-          <View style={{ gap: spacing.gapSm }}>
-            {[
-              "Offline-first reading state",
-              "Remote catalog, metadata, and manifest delivery",
-              "Book, plan, and bookmark management on device",
-              "Shared theme layer and reusable UI primitives",
-            ].map((item) => (
-              <Text
-                key={item}
-                style={{
-                  color: colors.textMuted,
-                  fontSize: typography.body,
-                  lineHeight: 23,
-                }}
-              >
-                - {item}
+          {showDangerZone ? (
+            <View style={{ gap: spacing.gapMd }}>
+              <Text style={{ color: colors.textMuted, fontSize: typography.bodySmall, lineHeight: 22 }}>
+                These actions will permanently delete your data from this device.
               </Text>
-            ))}
-          </View>
-        </SectionCard>
+              <View style={{ flexDirection: "row", flexWrap: "wrap", gap: spacing.gapMd }}>
+                <ActionButton
+                  label="Clear reading progress"
+                  onPress={() => {
+                    Alert.alert(
+                      "Clear reading progress?",
+                      "This will remove all your reading progress from all books. This cannot be undone.",
+                      [
+                        { text: "Cancel", style: "cancel" },
+                        {
+                          text: "Clear",
+                          style: "destructive",
+                          onPress: () => {
+                            void resetProgress();
+                            displayToast("Reading progress cleared");
+                          },
+                        },
+                      ]
+                    );
+                  }}
+                />
+                <ActionButton
+                  label="Clear bookmarks"
+                  onPress={() => {
+                    Alert.alert(
+                      "Clear all bookmarks?",
+                      "This will remove all saved bookmarks from your library. This cannot be undone.",
+                      [
+                        { text: "Cancel", style: "cancel" },
+                        {
+                          text: "Clear",
+                          style: "destructive",
+                          onPress: () => {
+                            void clearBookmarks();
+                            displayToast("Bookmarks cleared");
+                          },
+                        },
+                      ]
+                    );
+                  }}
+                />
+                <ActionButton
+                  label="Clear reading plans"
+                  onPress={() => {
+                    Alert.alert(
+                      "Clear all reading plans?",
+                      "This will remove all active reading plans. This cannot be undone.",
+                      [
+                        { text: "Cancel", style: "cancel" },
+                        {
+                          text: "Clear",
+                          style: "destructive",
+                          onPress: () => {
+                            void clearAllPlans();
+                            displayToast("Reading plans cleared");
+                          },
+                        },
+                      ]
+                    );
+                  }}
+                />
+              </View>
+            </View>
+          ) : null}
+        </Pressable>
 
         {(catalog?.books.length ?? 0) === 0 ? (
           <EmptyCard
-            title="No remote books published"
-            message="The app shell is present, but the remote catalog does not currently expose any published books."
+            title="No books available"
+            message="Your library is empty right now. Books will appear here when they're added."
           />
         ) : null}
       </ScrollView>

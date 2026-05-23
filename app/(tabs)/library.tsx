@@ -1,7 +1,8 @@
-import { Link } from "expo-router";
 import { Image } from "expo-image";
+import { Link } from "expo-router";
 import { Pressable, ScrollView, Text, View } from "react-native";
 
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import {
   BodyText,
   CardTitle,
@@ -16,9 +17,9 @@ import {
   SectionCard,
 } from "../../components/ui";
 import { colors, radii, spacing, typography } from "../../constants/theme";
+import { useReadingProgress } from "../../hooks/useReadingProgress";
 import { useRemoteBookData } from "../../hooks/useRemoteBookData";
 import { useRemoteCatalog } from "../../hooks/useRemoteCatalog";
-import { useReadingProgress } from "../../hooks/useReadingProgress";
 import { useVolumeDownload } from "../../hooks/useVolumeDownload";
 
 function getContinueLine(page?: number) {
@@ -402,6 +403,7 @@ export default function LibraryScreen() {
     isConfigured: isCatalogConfigured,
     isLoading: isCatalogLoading,
   } = useRemoteCatalog();
+  const insets = useSafeAreaInsets();
 
   const remoteBooks = catalog?.books ?? [];
   const inProgressBooks = remoteBooks.filter((book) => progressMap[book.id]);
@@ -422,7 +424,8 @@ export default function LibraryScreen() {
     <Screen>
       <ScrollView
         contentContainerStyle={{
-          padding: spacing.page,
+          paddingTop: insets.top + 5,
+          paddingHorizontal: spacing.page,
           gap: spacing.gap3xl,
           paddingBottom: 40,
         }}
