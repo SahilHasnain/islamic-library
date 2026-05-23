@@ -7,7 +7,11 @@ const STORAGE_KEY = "islamic-library:reading-progress";
 
 type ReadingProgressMap = Record<string, ReadingProgress>;
 
-export function useReadingProgress(bookId?: string) {
+function getProgressKey(bookId: string, languageId: string, volumeId: string) {
+  return `${bookId}::${languageId}::${volumeId}`;
+}
+
+export function useReadingProgress(bookId?: string, languageId?: string, volumeId?: string) {
   const [progressMap, setProgressMap] = useState<ReadingProgressMap>({});
   const [isLoaded, setIsLoaded] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -54,14 +58,47 @@ export function useReadingProgress(bookId?: string) {
       return undefined;
     }
 
-    return progressMap[bookId];
-  }, [bookId, progressMap]);
+    if (languageId && volumeId) {
+      return progressMap[getProgressKey(bookId, languageId, volumeId)];
+    }
+
+    const bookProgressEntries = Object.values(progressMap).filter(
+      (entry) => entry.bookId === bookId,
+    );
+
+    return bookProgressEntries.sort((left, right) => {
+      return new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime();
+    })[0];
+  }, [bookId, languageId, progressMap, volumeId]);
+
+  const latestProgressByBook = useMemo(() => {
+    const nextMap: ReadingProgressMap = {};
+
+    Object.values(progressMap).forEach((entry) => {
+      const current = nextMap[entry.bookId];
+      if (!current) {
+        nextMap[entry.bookId] = entry;
+        return;
+      }
+
+      if (new Date(entry.updatedAt).getTime() > new Date(current.updatedAt).getTime()) {
+        nextMap[entry.bookId] = entry;
+      }
+    });
+
+    return nextMap;
+  }, [progressMap]);
 
   const saveProgress = useCallback(async (nextProgress: ReadingProgress) => {
     setProgressMap((currentMap) => {
+      const key = getProgressKey(
+        nextProgress.bookId,
+        nextProgress.languageId,
+        nextProgress.volumeId,
+      );
       const nextMap = {
         ...currentMap,
-        [nextProgress.bookId]: nextProgress,
+        [key]: nextProgress,
       };
 
       void AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(nextMap)).catch(() => {
@@ -86,6 +123,7 @@ export function useReadingProgress(bookId?: string) {
   return {
     error,
     isLoaded,
+    latestProgressByBook,
     progress,
     progressMap,
     resetProgress,

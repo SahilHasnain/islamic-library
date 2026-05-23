@@ -37,7 +37,6 @@ type MetadataFormState = {
   defaultLanguageId: string;
   requestedBy: string;
   languages: EditionLanguageEditorItem[];
-  sections: SectionEditorItem[];
 };
 
 type EditionVolumeEditorItem = {
@@ -48,6 +47,24 @@ type EditionVolumeEditorItem = {
   manifestUrl: string;
   introNote: string;
   todayTarget: string;
+  sections: SectionEditorItem[];
+  plans: PlanEditorItem[];
+};
+
+type PlanEditorItem = {
+  id: string;
+  title: string;
+  description: string;
+  totalDays: string;
+  items: PlanDayEditorItem[];
+};
+
+type PlanDayEditorItem = {
+  day: string;
+  label: string;
+  startPage: string;
+  endPage: string;
+  estimatedMinutes: string;
 };
 
 type EditionLanguageEditorItem = {
@@ -72,16 +89,6 @@ type SectionEditorItem = {
   estimatedMinutes: string;
   description: string;
 };
-
-const sectionKinds = [
-  { label: "Custom", value: "custom" },
-  { label: "Opening", value: "front-matter" },
-  { label: "Chapter", value: "chapter" },
-  { label: "Litany", value: "litany" },
-  { label: "Dua", value: "dua" },
-  { label: "Reflection", value: "reflection" },
-  { label: "Appendix", value: "appendix" },
-] as const;
 
 const publicAppwriteConfig = {
   endpoint: process.env.NEXT_PUBLIC_APPWRITE_ENDPOINT,
@@ -112,6 +119,7 @@ type PublishedMetadataPayload = {
       introNote?: string;
       todayTarget?: string;
       sections?: unknown[];
+      plans?: unknown[];
     }[];
   }[];
 };
@@ -125,6 +133,28 @@ function createEmptyVolume(): EditionVolumeEditorItem {
     manifestUrl: "",
     introNote: "",
     todayTarget: "",
+    sections: getDefaultSections(),
+    plans: [],
+  };
+}
+
+function createEmptyPlanDay(): PlanDayEditorItem {
+  return {
+    day: "",
+    label: "",
+    startPage: "",
+    endPage: "",
+    estimatedMinutes: "",
+  };
+}
+
+function createEmptyPlan(): PlanEditorItem {
+  return {
+    id: "",
+    title: "",
+    description: "",
+    totalDays: "",
+    items: [createEmptyPlanDay()],
   };
 }
 
@@ -194,6 +224,36 @@ function normalizeSections(value: unknown[] | undefined): SectionEditorItem[] {
   });
 }
 
+function normalizePlans(value: unknown[] | undefined): PlanEditorItem[] {
+  if (!value || value.length === 0) {
+    return [];
+  }
+
+  return value.map((plan) => {
+    const item = plan as Record<string, unknown>;
+    const rawItems = Array.isArray(item.items) ? item.items : [];
+    return {
+      id: String(item.id || ""),
+      title: String(item.title || ""),
+      description: String(item.description || ""),
+      totalDays: item.totalDays == null ? "" : String(item.totalDays),
+      items: rawItems.length
+        ? rawItems.map((dayItem) => {
+            const day = dayItem as Record<string, unknown>;
+            return {
+              day: day.day == null ? "" : String(day.day),
+              label: String(day.label || ""),
+              startPage: day.startPage == null ? "" : String(day.startPage),
+              endPage: day.endPage == null ? "" : String(day.endPage),
+              estimatedMinutes:
+                day.estimatedMinutes == null ? "" : String(day.estimatedMinutes),
+            };
+          })
+        : [createEmptyPlanDay()],
+    };
+  });
+}
+
 function normalizeLanguages(
   value: PublishedMetadataPayload["languages"],
   fallbackLanguageId?: string,
@@ -221,6 +281,8 @@ function normalizeLanguages(
             manifestUrl: "",
             introNote: "",
             todayTarget: "",
+            sections: getDefaultSections(),
+            plans: [],
           },
         ],
       },
@@ -244,6 +306,8 @@ function normalizeLanguages(
             manifestUrl: String(volume.manifestUrl || ""),
             introNote: String(volume.introNote || ""),
             todayTarget: String(volume.todayTarget || ""),
+            sections: normalizeSections(volume.sections),
+            plans: normalizePlans((volume as { plans?: unknown[] }).plans),
           }))
         : [createEmptyVolume()],
   }));
@@ -278,6 +342,61 @@ function buildLanguagePayload(languages: EditionLanguageEditorItem[]) {
             manifestUrl: volume.manifestUrl.trim() || undefined,
             introNote: volume.introNote.trim() || undefined,
             todayTarget: volume.todayTarget.trim() || undefined,
+            sections: buildSectionPayload(volume.sections),
+            plans: volume.plans
+              .filter((plan) => plan.id.trim() || plan.title.trim())
+              .map((plan, planIndex) => {
+                const id = plan.id.trim();
+                const title = plan.title.trim();
+                const totalDays = Number(plan.totalDays);
+
+                if (!id || !title || !Number.isFinite(totalDays)) {
+                  throw new Error(
+                    `Plan ${planIndex + 1} in ${title || volumeTitle} is incomplete.`,
+                  );
+                }
+
+                const items = plan.items
+                  .filter((item) => item.day.trim() || item.label.trim())
+                  .map((item, itemIndex) => {
+                    const day = Number(item.day);
+                    const startPage = Number(item.startPage);
+                    const endPage = Number(item.endPage);
+                    const estimatedMinutes = Number(item.estimatedMinutes);
+
+                    if (
+                      !Number.isFinite(day) ||
+                      !item.label.trim() ||
+                      !Number.isFinite(startPage) ||
+                      !Number.isFinite(endPage) ||
+                      !Number.isFinite(estimatedMinutes)
+                    ) {
+                      throw new Error(
+                        `Plan day ${itemIndex + 1} in ${title} is incomplete.`,
+                      );
+                    }
+
+                    return {
+                      day,
+                      label: item.label.trim(),
+                      startPage,
+                      endPage,
+                      estimatedMinutes,
+                    };
+                  });
+
+                if (items.length === 0) {
+                  throw new Error(`Plan ${title} needs at least one day item.`);
+                }
+
+                return {
+                  id,
+                  title,
+                  description: plan.description.trim(),
+                  totalDays,
+                  items,
+                };
+              }),
           };
         });
 
@@ -407,7 +526,6 @@ export function AdminConsole({ initialSnapshot }: { initialSnapshot: MonitoringS
     defaultLanguageId: "",
     requestedBy: "admin-console",
     languages: [],
-    sections: getDefaultSections(),
   });
 
   async function uploadPdfDirect(file: File) {
@@ -516,10 +634,6 @@ export function AdminConsole({ initialSnapshot }: { initialSnapshot: MonitoringS
         const matchingLanguage =
           payload.languages?.find((language) => language.id === knownBook.languageId) ??
           payload.languages?.[0];
-        const matchingVolume =
-          matchingLanguage?.volumes?.find((volume) => volume.id === knownBook.volumeId) ??
-          matchingLanguage?.volumes?.[0];
-
         setMetadataForm((current) => {
           if (current.bookSlug.trim() !== slug) {
             return current;
@@ -541,7 +655,6 @@ export function AdminConsole({ initialSnapshot }: { initialSnapshot: MonitoringS
               knownBook.languageId,
               knownBook.volumeId,
             ),
-            sections: normalizeSections(matchingVolume?.sections),
           };
         });
       } catch {
@@ -704,7 +817,6 @@ export function AdminConsole({ initialSnapshot }: { initialSnapshot: MonitoringS
     setMetadataState({});
 
     try {
-      const sections = buildSectionPayload(metadataForm.sections);
       const languages = buildLanguagePayload(metadataForm.languages);
 
       const response = await fetch("/api/books/republish-metadata", {
@@ -716,7 +828,6 @@ export function AdminConsole({ initialSnapshot }: { initialSnapshot: MonitoringS
           ...metadataForm,
           defaultLanguageId: metadataForm.defaultLanguageId.trim() || undefined,
           languages,
-          sections,
         }),
       });
 
@@ -751,8 +862,9 @@ export function AdminConsole({ initialSnapshot }: { initialSnapshot: MonitoringS
             Upload a source PDF and queue ingestion
           </h1>
           <p className="mt-3 max-w-2xl text-sm leading-6 text-stone-300">
-            This admin console uploads the original PDF to Appwrite, creates the canonical
-            book record, and queues an ingestion job for the worker pipeline.
+            This admin console uploads the original PDF to Appwrite and queues one
+            language/volume ingestion job. Reuse the same slug when you are adding a new
+            edition to an existing book.
           </p>
         </div>
 
@@ -765,8 +877,18 @@ export function AdminConsole({ initialSnapshot }: { initialSnapshot: MonitoringS
                   <input required name="title" className="w-full rounded-2xl border border-stone-700 bg-stone-950 px-4 py-3 text-sm outline-none transition focus:border-amber-300" placeholder="Light of the Prophet" />
                 </label>
                 <label className="space-y-2">
-                  <span className="text-sm text-stone-200">Slug</span>
-                  <input name="slug" className="w-full rounded-2xl border border-stone-700 bg-stone-950 px-4 py-3 text-sm outline-none transition focus:border-amber-300" placeholder="Optional. Auto-generated if empty" />
+                  <span className="text-sm text-stone-200">Book slug</span>
+                  <input
+                    name="slug"
+                    list="known-book-slugs"
+                    className="w-full rounded-2xl border border-stone-700 bg-stone-950 px-4 py-3 text-sm outline-none transition focus:border-amber-300"
+                    placeholder="Reuse an existing slug to attach a new edition"
+                  />
+                  <datalist id="known-book-slugs">
+                    {knownBooks.map((book) => (
+                      <option key={book!.$id} value={book!.slug} />
+                    ))}
+                  </datalist>
                 </label>
                 <label className="space-y-2">
                   <span className="text-sm text-stone-200">Subtitle</span>
@@ -821,8 +943,8 @@ export function AdminConsole({ initialSnapshot }: { initialSnapshot: MonitoringS
               <p className="text-xs uppercase tracking-[0.24em] text-stone-400">Pipeline</p>
               <ul className="mt-3 space-y-3 text-sm leading-6 text-stone-300">
                 <li>1. Source PDF goes to Appwrite `source_pdfs`.</li>
-                <li>2. Book document is created with `queued` status.</li>
-                <li>3. Ingestion job is created for the VPS worker.</li>
+                <li>2. The job either creates a new book slug or attaches to an existing one.</li>
+                <li>3. One language/volume ingestion job is created for the VPS worker.</li>
                 <li>4. Worker converts, validates, and publishes assets.</li>
               </ul>
             </div>
@@ -882,7 +1004,6 @@ export function AdminConsole({ initialSnapshot }: { initialSnapshot: MonitoringS
                       languages: knownBook
                         ? normalizeLanguages(undefined, knownBook.languageId, knownBook.volumeId)
                         : [],
-                      sections: knownBook ? current.sections : getDefaultSections(),
                     }));
                   }}
                   className="w-full rounded-2xl border border-stone-700 bg-stone-950 px-4 py-3 text-sm outline-none transition focus:border-amber-300"
@@ -1385,249 +1506,647 @@ export function AdminConsole({ initialSnapshot }: { initialSnapshot: MonitoringS
                                 />
                               </label>
                             </div>
+
+                            <div className="mt-5 space-y-4">
+                              <div className="flex items-center justify-between gap-4">
+                                <div>
+                                  <span className="text-sm text-stone-200">Sections</span>
+                                  <p className="mt-1 text-xs leading-5 text-stone-400">
+                                    Author real reading sections for this specific volume.
+                                  </p>
+                                </div>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setMetadataForm((current) => ({
+                                      ...current,
+                                      languages: current.languages.map((item, currentIndex) =>
+                                        currentIndex === languageIndex
+                                          ? {
+                                              ...item,
+                                              volumes: item.volumes.map((currentVolume, currentVolumeIndex) =>
+                                                currentVolumeIndex === volumeIndex
+                                                  ? {
+                                                      ...currentVolume,
+                                                      sections: [...currentVolume.sections, createEmptySection()],
+                                                    }
+                                                  : currentVolume,
+                                              ),
+                                            }
+                                          : item,
+                                      ),
+                                    }));
+                                  }}
+                                  className="rounded-full border border-stone-700 px-4 py-2 text-xs font-medium text-stone-200 transition hover:border-amber-300 hover:text-amber-200"
+                                >
+                                  Add section
+                                </button>
+                              </div>
+
+                              {volume.sections.length === 0 ? (
+                                <div className="rounded-2xl border border-dashed border-stone-700 bg-stone-950/60 p-4 text-sm text-stone-400">
+                                  No sections yet for this volume.
+                                </div>
+                              ) : (
+                                <div className="space-y-4">
+                                  {volume.sections.map((section, sectionIndex) => (
+                                    <div
+                                      key={`${section.id || "section"}-${sectionIndex}`}
+                                      className="rounded-3xl border border-stone-800 bg-stone-950/60 p-4"
+                                    >
+                                      <div className="mb-4 flex items-center justify-between gap-4">
+                                        <div>
+                                          <p className="text-sm font-medium text-stone-100">Section {sectionIndex + 1}</p>
+                                          <p className="text-xs text-stone-400">Use clear, reader-friendly names for this volume.</p>
+                                        </div>
+                                        <button
+                                          type="button"
+                                          onClick={() => {
+                                            setMetadataForm((current) => ({
+                                              ...current,
+                                              languages: current.languages.map((item, currentIndex) =>
+                                                currentIndex === languageIndex
+                                                  ? {
+                                                      ...item,
+                                                      volumes: item.volumes.map((currentVolume, currentVolumeIndex) =>
+                                                        currentVolumeIndex === volumeIndex
+                                                          ? {
+                                                              ...currentVolume,
+                                                              sections: currentVolume.sections.filter((_, currentSectionIndex) => currentSectionIndex !== sectionIndex),
+                                                            }
+                                                          : currentVolume,
+                                                      ),
+                                                    }
+                                                  : item,
+                                              ),
+                                            }));
+                                          }}
+                                          className="rounded-full border border-rose-900/60 px-4 py-2 text-xs font-medium text-rose-200 transition hover:border-rose-400 hover:text-rose-100"
+                                        >
+                                          Remove
+                                        </button>
+                                      </div>
+                                      <div className="grid gap-4 md:grid-cols-2">
+                                        <label className="space-y-2">
+                                          <span className="text-xs text-stone-300">Section ID</span>
+                                          <input
+                                            value={section.id}
+                                            onChange={(event) => {
+                                              const value = event.target.value;
+                                              setMetadataForm((current) => ({
+                                                ...current,
+                                                languages: current.languages.map((item, currentIndex) =>
+                                                  currentIndex === languageIndex
+                                                    ? {
+                                                        ...item,
+                                                        volumes: item.volumes.map((currentVolume, currentVolumeIndex) =>
+                                                          currentVolumeIndex === volumeIndex
+                                                            ? {
+                                                                ...currentVolume,
+                                                                sections: currentVolume.sections.map((currentSection, currentSectionIndex) =>
+                                                                  currentSectionIndex === sectionIndex ? { ...currentSection, id: value } : currentSection,
+                                                                ),
+                                                              }
+                                                            : currentVolume,
+                                                        ),
+                                                      }
+                                                    : item,
+                                                ),
+                                              }));
+                                            }}
+                                            className="w-full rounded-2xl border border-stone-700 bg-stone-950 px-4 py-3 text-sm outline-none transition focus:border-amber-300"
+                                          />
+                                        </label>
+                                        <label className="space-y-2">
+                                          <span className="text-xs text-stone-300">Title</span>
+                                          <input
+                                            value={section.title}
+                                            onChange={(event) => {
+                                              const value = event.target.value;
+                                              setMetadataForm((current) => ({
+                                                ...current,
+                                                languages: current.languages.map((item, currentIndex) =>
+                                                  currentIndex === languageIndex
+                                                    ? {
+                                                        ...item,
+                                                        volumes: item.volumes.map((currentVolume, currentVolumeIndex) =>
+                                                          currentVolumeIndex === volumeIndex
+                                                            ? {
+                                                                ...currentVolume,
+                                                                sections: currentVolume.sections.map((currentSection, currentSectionIndex) =>
+                                                                  currentSectionIndex === sectionIndex ? { ...currentSection, title: value } : currentSection,
+                                                                ),
+                                                              }
+                                                            : currentVolume,
+                                                        ),
+                                                      }
+                                                    : item,
+                                                ),
+                                              }));
+                                            }}
+                                            className="w-full rounded-2xl border border-stone-700 bg-stone-950 px-4 py-3 text-sm outline-none transition focus:border-amber-300"
+                                          />
+                                        </label>
+                                        <label className="space-y-2">
+                                          <span className="text-xs text-stone-300">Start page</span>
+                                          <input
+                                            inputMode="numeric"
+                                            value={section.startPage}
+                                            onChange={(event) => {
+                                              const value = event.target.value;
+                                              setMetadataForm((current) => ({
+                                                ...current,
+                                                languages: current.languages.map((item, currentIndex) =>
+                                                  currentIndex === languageIndex
+                                                    ? {
+                                                        ...item,
+                                                        volumes: item.volumes.map((currentVolume, currentVolumeIndex) =>
+                                                          currentVolumeIndex === volumeIndex
+                                                            ? {
+                                                                ...currentVolume,
+                                                                sections: currentVolume.sections.map((currentSection, currentSectionIndex) =>
+                                                                  currentSectionIndex === sectionIndex ? { ...currentSection, startPage: value } : currentSection,
+                                                                ),
+                                                              }
+                                                            : currentVolume,
+                                                        ),
+                                                      }
+                                                    : item,
+                                                ),
+                                              }));
+                                            }}
+                                            className="w-full rounded-2xl border border-stone-700 bg-stone-950 px-4 py-3 text-sm outline-none transition focus:border-amber-300"
+                                          />
+                                        </label>
+                                        <label className="space-y-2">
+                                          <span className="text-xs text-stone-300">End page</span>
+                                          <input
+                                            inputMode="numeric"
+                                            value={section.endPage}
+                                            onChange={(event) => {
+                                              const value = event.target.value;
+                                              setMetadataForm((current) => ({
+                                                ...current,
+                                                languages: current.languages.map((item, currentIndex) =>
+                                                  currentIndex === languageIndex
+                                                    ? {
+                                                        ...item,
+                                                        volumes: item.volumes.map((currentVolume, currentVolumeIndex) =>
+                                                          currentVolumeIndex === volumeIndex
+                                                            ? {
+                                                                ...currentVolume,
+                                                                sections: currentVolume.sections.map((currentSection, currentSectionIndex) =>
+                                                                  currentSectionIndex === sectionIndex ? { ...currentSection, endPage: value } : currentSection,
+                                                                ),
+                                                              }
+                                                            : currentVolume,
+                                                        ),
+                                                      }
+                                                    : item,
+                                                ),
+                                              }));
+                                            }}
+                                            className="w-full rounded-2xl border border-stone-700 bg-stone-950 px-4 py-3 text-sm outline-none transition focus:border-amber-300"
+                                          />
+                                        </label>
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+
+                            <div className="mt-5 space-y-4">
+                              <div className="flex items-center justify-between gap-4">
+                                <div>
+                                  <span className="text-sm text-stone-200">Plans</span>
+                                  <p className="mt-1 text-xs leading-5 text-stone-400">
+                                    Author reading plans for this specific volume.
+                                  </p>
+                                </div>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setMetadataForm((current) => ({
+                                      ...current,
+                                      languages: current.languages.map((item, currentIndex) =>
+                                        currentIndex === languageIndex
+                                          ? {
+                                              ...item,
+                                              volumes: item.volumes.map((currentVolume, currentVolumeIndex) =>
+                                                currentVolumeIndex === volumeIndex
+                                                  ? {
+                                                      ...currentVolume,
+                                                      plans: [...currentVolume.plans, createEmptyPlan()],
+                                                    }
+                                                  : currentVolume,
+                                              ),
+                                            }
+                                          : item,
+                                      ),
+                                    }));
+                                  }}
+                                  className="rounded-full border border-stone-700 px-4 py-2 text-xs font-medium text-stone-200 transition hover:border-amber-300 hover:text-amber-200"
+                                >
+                                  Add plan
+                                </button>
+                              </div>
+
+                              {volume.plans.length === 0 ? (
+                                <div className="rounded-2xl border border-dashed border-stone-700 bg-stone-950/60 p-4 text-sm text-stone-400">
+                                  No plans yet for this volume.
+                                </div>
+                              ) : (
+                                <div className="space-y-4">
+                                  {volume.plans.map((plan, planIndex) => (
+                                    <div
+                                      key={`${plan.id || "plan"}-${planIndex}`}
+                                      className="rounded-3xl border border-stone-800 bg-stone-950/60 p-4"
+                                    >
+                                      <div className="mb-4 flex items-center justify-between gap-4">
+                                        <div>
+                                          <p className="text-sm font-medium text-stone-100">Plan {planIndex + 1}</p>
+                                          <p className="text-xs text-stone-400">A structured pace for this volume.</p>
+                                        </div>
+                                        <button
+                                          type="button"
+                                          onClick={() => {
+                                            setMetadataForm((current) => ({
+                                              ...current,
+                                              languages: current.languages.map((item, currentIndex) =>
+                                                currentIndex === languageIndex
+                                                  ? {
+                                                      ...item,
+                                                      volumes: item.volumes.map((currentVolume, currentVolumeIndex) =>
+                                                        currentVolumeIndex === volumeIndex
+                                                          ? {
+                                                              ...currentVolume,
+                                                              plans: currentVolume.plans.filter((_, currentPlanIndex) => currentPlanIndex !== planIndex),
+                                                            }
+                                                          : currentVolume,
+                                                      ),
+                                                    }
+                                                  : item,
+                                              ),
+                                            }));
+                                          }}
+                                          className="rounded-full border border-rose-900/60 px-4 py-2 text-xs font-medium text-rose-200 transition hover:border-rose-400 hover:text-rose-100"
+                                        >
+                                          Remove
+                                        </button>
+                                      </div>
+
+                                      <div className="grid gap-4 md:grid-cols-2">
+                                        <label className="space-y-2">
+                                          <span className="text-xs text-stone-300">Plan ID</span>
+                                          <input
+                                            value={plan.id}
+                                            onChange={(event) => {
+                                              const value = event.target.value;
+                                              setMetadataForm((current) => ({
+                                                ...current,
+                                                languages: current.languages.map((item, currentIndex) =>
+                                                  currentIndex === languageIndex
+                                                    ? {
+                                                        ...item,
+                                                        volumes: item.volumes.map((currentVolume, currentVolumeIndex) =>
+                                                          currentVolumeIndex === volumeIndex
+                                                            ? {
+                                                                ...currentVolume,
+                                                                plans: currentVolume.plans.map((currentPlan, currentPlanIndex) =>
+                                                                  currentPlanIndex === planIndex ? { ...currentPlan, id: value } : currentPlan,
+                                                                ),
+                                                              }
+                                                            : currentVolume,
+                                                        ),
+                                                      }
+                                                    : item,
+                                                ),
+                                              }));
+                                            }}
+                                            className="w-full rounded-2xl border border-stone-700 bg-stone-950 px-4 py-3 text-sm outline-none transition focus:border-amber-300"
+                                          />
+                                        </label>
+                                        <label className="space-y-2">
+                                          <span className="text-xs text-stone-300">Title</span>
+                                          <input
+                                            value={plan.title}
+                                            onChange={(event) => {
+                                              const value = event.target.value;
+                                              setMetadataForm((current) => ({
+                                                ...current,
+                                                languages: current.languages.map((item, currentIndex) =>
+                                                  currentIndex === languageIndex
+                                                    ? {
+                                                        ...item,
+                                                        volumes: item.volumes.map((currentVolume, currentVolumeIndex) =>
+                                                          currentVolumeIndex === volumeIndex
+                                                            ? {
+                                                                ...currentVolume,
+                                                                plans: currentVolume.plans.map((currentPlan, currentPlanIndex) =>
+                                                                  currentPlanIndex === planIndex ? { ...currentPlan, title: value } : currentPlan,
+                                                                ),
+                                                              }
+                                                            : currentVolume,
+                                                        ),
+                                                      }
+                                                    : item,
+                                                ),
+                                              }));
+                                            }}
+                                            className="w-full rounded-2xl border border-stone-700 bg-stone-950 px-4 py-3 text-sm outline-none transition focus:border-amber-300"
+                                          />
+                                        </label>
+                                        <label className="space-y-2">
+                                          <span className="text-xs text-stone-300">Total days</span>
+                                          <input
+                                            inputMode="numeric"
+                                            value={plan.totalDays}
+                                            onChange={(event) => {
+                                              const value = event.target.value;
+                                              setMetadataForm((current) => ({
+                                                ...current,
+                                                languages: current.languages.map((item, currentIndex) =>
+                                                  currentIndex === languageIndex
+                                                    ? {
+                                                        ...item,
+                                                        volumes: item.volumes.map((currentVolume, currentVolumeIndex) =>
+                                                          currentVolumeIndex === volumeIndex
+                                                            ? {
+                                                                ...currentVolume,
+                                                                plans: currentVolume.plans.map((currentPlan, currentPlanIndex) =>
+                                                                  currentPlanIndex === planIndex ? { ...currentPlan, totalDays: value } : currentPlan,
+                                                                ),
+                                                              }
+                                                            : currentVolume,
+                                                        ),
+                                                      }
+                                                    : item,
+                                                ),
+                                              }));
+                                            }}
+                                            className="w-full rounded-2xl border border-stone-700 bg-stone-950 px-4 py-3 text-sm outline-none transition focus:border-amber-300"
+                                          />
+                                        </label>
+                                        <label className="space-y-2 md:col-span-2">
+                                          <span className="text-xs text-stone-300">Description</span>
+                                          <textarea
+                                            rows={3}
+                                            value={plan.description}
+                                            onChange={(event) => {
+                                              const value = event.target.value;
+                                              setMetadataForm((current) => ({
+                                                ...current,
+                                                languages: current.languages.map((item, currentIndex) =>
+                                                  currentIndex === languageIndex
+                                                    ? {
+                                                        ...item,
+                                                        volumes: item.volumes.map((currentVolume, currentVolumeIndex) =>
+                                                          currentVolumeIndex === volumeIndex
+                                                            ? {
+                                                                ...currentVolume,
+                                                                plans: currentVolume.plans.map((currentPlan, currentPlanIndex) =>
+                                                                  currentPlanIndex === planIndex ? { ...currentPlan, description: value } : currentPlan,
+                                                                ),
+                                                              }
+                                                            : currentVolume,
+                                                        ),
+                                                      }
+                                                    : item,
+                                                ),
+                                              }));
+                                            }}
+                                            className="w-full rounded-2xl border border-stone-700 bg-stone-950 px-4 py-3 text-sm leading-6 outline-none transition focus:border-amber-300"
+                                          />
+                                        </label>
+                                      </div>
+
+                                      <div className="mt-4 space-y-3">
+                                        <div className="flex items-center justify-between gap-4">
+                                          <span className="text-xs uppercase tracking-[0.18em] text-stone-400">Plan days</span>
+                                          <button
+                                            type="button"
+                                            onClick={() => {
+                                              setMetadataForm((current) => ({
+                                                ...current,
+                                                languages: current.languages.map((item, currentIndex) =>
+                                                  currentIndex === languageIndex
+                                                    ? {
+                                                        ...item,
+                                                        volumes: item.volumes.map((currentVolume, currentVolumeIndex) =>
+                                                          currentVolumeIndex === volumeIndex
+                                                            ? {
+                                                                ...currentVolume,
+                                                                plans: currentVolume.plans.map((currentPlan, currentPlanIndex) =>
+                                                                  currentPlanIndex === planIndex
+                                                                    ? { ...currentPlan, items: [...currentPlan.items, createEmptyPlanDay()] }
+                                                                    : currentPlan,
+                                                                ),
+                                                              }
+                                                            : currentVolume,
+                                                        ),
+                                                      }
+                                                    : item,
+                                                ),
+                                              }));
+                                            }}
+                                            className="rounded-full border border-stone-700 px-4 py-2 text-xs font-medium text-stone-200 transition hover:border-amber-300 hover:text-amber-200"
+                                          >
+                                            Add day
+                                          </button>
+                                        </div>
+
+                                        {plan.items.map((planItem, itemIndex) => (
+                                          <div
+                                            key={`${planItem.day || "day"}-${itemIndex}`}
+                                            className="rounded-2xl border border-stone-800 bg-stone-900/40 p-4"
+                                          >
+                                            <div className="mb-3 flex items-center justify-between gap-4">
+                                              <p className="text-xs font-medium uppercase tracking-[0.18em] text-stone-400">
+                                                Day {itemIndex + 1}
+                                              </p>
+                                              <button
+                                                type="button"
+                                                onClick={() => {
+                                                  setMetadataForm((current) => ({
+                                                    ...current,
+                                                    languages: current.languages.map((item, currentIndex) =>
+                                                      currentIndex === languageIndex
+                                                        ? {
+                                                            ...item,
+                                                            volumes: item.volumes.map((currentVolume, currentVolumeIndex) =>
+                                                              currentVolumeIndex === volumeIndex
+                                                                ? {
+                                                                    ...currentVolume,
+                                                                    plans: currentVolume.plans.map((currentPlan, currentPlanIndex) =>
+                                                                      currentPlanIndex === planIndex
+                                                                        ? {
+                                                                            ...currentPlan,
+                                                                            items: currentPlan.items.filter((_, currentItemIndex) => currentItemIndex !== itemIndex),
+                                                                          }
+                                                                        : currentPlan,
+                                                                    ),
+                                                                  }
+                                                                : currentVolume,
+                                                            ),
+                                                          }
+                                                        : item,
+                                                    ),
+                                                  }));
+                                                }}
+                                                className="rounded-full border border-rose-900/60 px-3 py-1.5 text-xs font-medium text-rose-200 transition hover:border-rose-400 hover:text-rose-100"
+                                              >
+                                                Remove
+                                              </button>
+                                            </div>
+                                            <div className="grid gap-4 md:grid-cols-2">
+                                              <label className="space-y-2">
+                                                <span className="text-xs text-stone-300">Day</span>
+                                                <input inputMode="numeric" value={planItem.day} onChange={(event) => {
+                                                  const value = event.target.value;
+                                                  setMetadataForm((current) => ({
+                                                    ...current,
+                                                    languages: current.languages.map((item, currentIndex) =>
+                                                      currentIndex === languageIndex ? {
+                                                        ...item,
+                                                        volumes: item.volumes.map((currentVolume, currentVolumeIndex) =>
+                                                          currentVolumeIndex === volumeIndex ? {
+                                                            ...currentVolume,
+                                                            plans: currentVolume.plans.map((currentPlan, currentPlanIndex) =>
+                                                              currentPlanIndex === planIndex ? {
+                                                                ...currentPlan,
+                                                                items: currentPlan.items.map((currentItem, currentItemIndex) =>
+                                                                  currentItemIndex === itemIndex ? { ...currentItem, day: value } : currentItem,
+                                                                ),
+                                                              } : currentPlan,
+                                                            ),
+                                                          } : currentVolume,
+                                                        ),
+                                                      } : item,
+                                                    ),
+                                                  }));
+                                                }} className="w-full rounded-2xl border border-stone-700 bg-stone-950 px-4 py-3 text-sm outline-none transition focus:border-amber-300" />
+                                              </label>
+                                              <label className="space-y-2">
+                                                <span className="text-xs text-stone-300">Label</span>
+                                                <input value={planItem.label} onChange={(event) => {
+                                                  const value = event.target.value;
+                                                  setMetadataForm((current) => ({
+                                                    ...current,
+                                                    languages: current.languages.map((item, currentIndex) =>
+                                                      currentIndex === languageIndex ? {
+                                                        ...item,
+                                                        volumes: item.volumes.map((currentVolume, currentVolumeIndex) =>
+                                                          currentVolumeIndex === volumeIndex ? {
+                                                            ...currentVolume,
+                                                            plans: currentVolume.plans.map((currentPlan, currentPlanIndex) =>
+                                                              currentPlanIndex === planIndex ? {
+                                                                ...currentPlan,
+                                                                items: currentPlan.items.map((currentItem, currentItemIndex) =>
+                                                                  currentItemIndex === itemIndex ? { ...currentItem, label: value } : currentItem,
+                                                                ),
+                                                              } : currentPlan,
+                                                            ),
+                                                          } : currentVolume,
+                                                        ),
+                                                      } : item,
+                                                    ),
+                                                  }));
+                                                }} className="w-full rounded-2xl border border-stone-700 bg-stone-950 px-4 py-3 text-sm outline-none transition focus:border-amber-300" />
+                                              </label>
+                                              <label className="space-y-2">
+                                                <span className="text-xs text-stone-300">Start page</span>
+                                                <input inputMode="numeric" value={planItem.startPage} onChange={(event) => {
+                                                  const value = event.target.value;
+                                                  setMetadataForm((current) => ({
+                                                    ...current,
+                                                    languages: current.languages.map((item, currentIndex) =>
+                                                      currentIndex === languageIndex ? {
+                                                        ...item,
+                                                        volumes: item.volumes.map((currentVolume, currentVolumeIndex) =>
+                                                          currentVolumeIndex === volumeIndex ? {
+                                                            ...currentVolume,
+                                                            plans: currentVolume.plans.map((currentPlan, currentPlanIndex) =>
+                                                              currentPlanIndex === planIndex ? {
+                                                                ...currentPlan,
+                                                                items: currentPlan.items.map((currentItem, currentItemIndex) =>
+                                                                  currentItemIndex === itemIndex ? { ...currentItem, startPage: value } : currentItem,
+                                                                ),
+                                                              } : currentPlan,
+                                                            ),
+                                                          } : currentVolume,
+                                                        ),
+                                                      } : item,
+                                                    ),
+                                                  }));
+                                                }} className="w-full rounded-2xl border border-stone-700 bg-stone-950 px-4 py-3 text-sm outline-none transition focus:border-amber-300" />
+                                              </label>
+                                              <label className="space-y-2">
+                                                <span className="text-xs text-stone-300">End page</span>
+                                                <input inputMode="numeric" value={planItem.endPage} onChange={(event) => {
+                                                  const value = event.target.value;
+                                                  setMetadataForm((current) => ({
+                                                    ...current,
+                                                    languages: current.languages.map((item, currentIndex) =>
+                                                      currentIndex === languageIndex ? {
+                                                        ...item,
+                                                        volumes: item.volumes.map((currentVolume, currentVolumeIndex) =>
+                                                          currentVolumeIndex === volumeIndex ? {
+                                                            ...currentVolume,
+                                                            plans: currentVolume.plans.map((currentPlan, currentPlanIndex) =>
+                                                              currentPlanIndex === planIndex ? {
+                                                                ...currentPlan,
+                                                                items: currentPlan.items.map((currentItem, currentItemIndex) =>
+                                                                  currentItemIndex === itemIndex ? { ...currentItem, endPage: value } : currentItem,
+                                                                ),
+                                                              } : currentPlan,
+                                                            ),
+                                                          } : currentVolume,
+                                                        ),
+                                                      } : item,
+                                                    ),
+                                                  }));
+                                                }} className="w-full rounded-2xl border border-stone-700 bg-stone-950 px-4 py-3 text-sm outline-none transition focus:border-amber-300" />
+                                              </label>
+                                              <label className="space-y-2">
+                                                <span className="text-xs text-stone-300">Estimated minutes</span>
+                                                <input inputMode="numeric" value={planItem.estimatedMinutes} onChange={(event) => {
+                                                  const value = event.target.value;
+                                                  setMetadataForm((current) => ({
+                                                    ...current,
+                                                    languages: current.languages.map((item, currentIndex) =>
+                                                      currentIndex === languageIndex ? {
+                                                        ...item,
+                                                        volumes: item.volumes.map((currentVolume, currentVolumeIndex) =>
+                                                          currentVolumeIndex === volumeIndex ? {
+                                                            ...currentVolume,
+                                                            plans: currentVolume.plans.map((currentPlan, currentPlanIndex) =>
+                                                              currentPlanIndex === planIndex ? {
+                                                                ...currentPlan,
+                                                                items: currentPlan.items.map((currentItem, currentItemIndex) =>
+                                                                  currentItemIndex === itemIndex ? { ...currentItem, estimatedMinutes: value } : currentItem,
+                                                                ),
+                                                              } : currentPlan,
+                                                            ),
+                                                          } : currentVolume,
+                                                        ),
+                                                      } : item,
+                                                    ),
+                                                  }));
+                                                }} className="w-full rounded-2xl border border-stone-700 bg-stone-950 px-4 py-3 text-sm outline-none transition focus:border-amber-300" />
+                                              </label>
+                                            </div>
+                                          </div>
+                                        ))}
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
                           </div>
                         ))}
                       </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-
-            <div className="space-y-4">
-              <div className="flex items-center justify-between gap-4">
-                <div>
-                  <span className="text-sm text-stone-200">Sections</span>
-                  <p className="mt-1 text-xs leading-5 text-stone-400">
-                    Author real reading sections with titles, page ranges, and entry points. This editor still targets the currently published/default edition path.
-                  </p>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setMetadataForm((current) => ({
-                      ...current,
-                      sections: [...current.sections, createEmptySection()],
-                    }));
-                  }}
-                  className="rounded-full border border-stone-700 px-4 py-2 text-xs font-medium text-stone-200 transition hover:border-amber-300 hover:text-amber-200"
-                >
-                  Add section
-                </button>
-              </div>
-
-              {metadataForm.sections.length === 0 ? (
-                <div className="rounded-2xl border border-dashed border-stone-700 bg-stone-950/60 p-4 text-sm text-stone-400">
-                  No sections yet. Add the first one above.
-                </div>
-              ) : (
-                <div className="space-y-4">
-                  {metadataForm.sections.map((section, index) => (
-                    <div
-                      key={`${section.id || "section"}-${index}`}
-                      className="rounded-3xl border border-stone-800 bg-stone-950/60 p-4"
-                    >
-                      <div className="mb-4 flex items-center justify-between gap-4">
-                        <div>
-                          <p className="text-sm font-medium text-stone-100">Section {index + 1}</p>
-                          <p className="text-xs text-stone-400">
-                            Use clear, reader-friendly names instead of generic buckets.
-                          </p>
-                        </div>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setMetadataForm((current) => ({
-                              ...current,
-                              sections: current.sections.filter((_, currentIndex) => currentIndex !== index),
-                            }));
-                          }}
-                          className="rounded-full border border-rose-900/60 px-4 py-2 text-xs font-medium text-rose-200 transition hover:border-rose-400 hover:text-rose-100"
-                        >
-                          Remove
-                        </button>
-                      </div>
-
-                      <div className="grid gap-4 md:grid-cols-2">
-                        <label className="space-y-2">
-                          <span className="text-xs text-stone-300">Section ID</span>
-                          <input
-                            value={section.id}
-                            onChange={(event) => {
-                              const value = event.target.value;
-                              setMetadataForm((current) => ({
-                                ...current,
-                                sections: current.sections.map((item, currentIndex) =>
-                                  currentIndex === index ? { ...item, id: value } : item,
-                                ),
-                              }));
-                            }}
-                            className="w-full rounded-2xl border border-stone-700 bg-stone-950 px-4 py-3 text-sm outline-none transition focus:border-amber-300"
-                            placeholder="majlis-1"
-                          />
-                        </label>
-                        <label className="space-y-2">
-                          <span className="text-xs text-stone-300">Title</span>
-                          <input
-                            value={section.title}
-                            onChange={(event) => {
-                              const value = event.target.value;
-                              setMetadataForm((current) => ({
-                                ...current,
-                                sections: current.sections.map((item, currentIndex) =>
-                                  currentIndex === index ? { ...item, title: value } : item,
-                                ),
-                              }));
-                            }}
-                            className="w-full rounded-2xl border border-stone-700 bg-stone-950 px-4 py-3 text-sm outline-none transition focus:border-amber-300"
-                            placeholder="Majlis 1"
-                          />
-                        </label>
-                        <label className="space-y-2">
-                          <span className="text-xs text-stone-300">Subtitle</span>
-                          <input
-                            value={section.subtitle}
-                            onChange={(event) => {
-                              const value = event.target.value;
-                              setMetadataForm((current) => ({
-                                ...current,
-                                sections: current.sections.map((item, currentIndex) =>
-                                  currentIndex === index ? { ...item, subtitle: value } : item,
-                                ),
-                              }));
-                            }}
-                            className="w-full rounded-2xl border border-stone-700 bg-stone-950 px-4 py-3 text-sm outline-none transition focus:border-amber-300"
-                            placeholder="A gentle place to begin the main reading"
-                          />
-                        </label>
-                        <label className="space-y-2">
-                          <span className="text-xs text-stone-300">Kind</span>
-                          <select
-                            value={section.kind}
-                            onChange={(event) => {
-                              const value = event.target.value;
-                              setMetadataForm((current) => ({
-                                ...current,
-                                sections: current.sections.map((item, currentIndex) =>
-                                  currentIndex === index ? { ...item, kind: value } : item,
-                                ),
-                              }));
-                            }}
-                            className="w-full rounded-2xl border border-stone-700 bg-stone-950 px-4 py-3 text-sm outline-none transition focus:border-amber-300"
-                          >
-                            {sectionKinds.map((kind) => (
-                              <option key={kind.value} value={kind.value}>
-                                {kind.label}
-                              </option>
-                            ))}
-                          </select>
-                        </label>
-                        <label className="space-y-2">
-                          <span className="text-xs text-stone-300">Start page</span>
-                          <input
-                            inputMode="numeric"
-                            value={section.startPage}
-                            onChange={(event) => {
-                              const value = event.target.value;
-                              setMetadataForm((current) => ({
-                                ...current,
-                                sections: current.sections.map((item, currentIndex) =>
-                                  currentIndex === index ? { ...item, startPage: value } : item,
-                                ),
-                              }));
-                            }}
-                            className="w-full rounded-2xl border border-stone-700 bg-stone-950 px-4 py-3 text-sm outline-none transition focus:border-amber-300"
-                          />
-                        </label>
-                        <label className="space-y-2">
-                          <span className="text-xs text-stone-300">End page</span>
-                          <input
-                            inputMode="numeric"
-                            value={section.endPage}
-                            onChange={(event) => {
-                              const value = event.target.value;
-                              setMetadataForm((current) => ({
-                                ...current,
-                                sections: current.sections.map((item, currentIndex) =>
-                                  currentIndex === index ? { ...item, endPage: value } : item,
-                                ),
-                              }));
-                            }}
-                            className="w-full rounded-2xl border border-stone-700 bg-stone-950 px-4 py-3 text-sm outline-none transition focus:border-amber-300"
-                          />
-                        </label>
-                        <label className="space-y-2">
-                          <span className="text-xs text-stone-300">Entry page</span>
-                          <input
-                            inputMode="numeric"
-                            value={section.entryPage}
-                            onChange={(event) => {
-                              const value = event.target.value;
-                              setMetadataForm((current) => ({
-                                ...current,
-                                sections: current.sections.map((item, currentIndex) =>
-                                  currentIndex === index ? { ...item, entryPage: value } : item,
-                                ),
-                              }));
-                            }}
-                            className="w-full rounded-2xl border border-stone-700 bg-stone-950 px-4 py-3 text-sm outline-none transition focus:border-amber-300"
-                            placeholder="Optional"
-                          />
-                        </label>
-                        <label className="space-y-2">
-                          <span className="text-xs text-stone-300">Estimated minutes</span>
-                          <input
-                            inputMode="numeric"
-                            value={section.estimatedMinutes}
-                            onChange={(event) => {
-                              const value = event.target.value;
-                              setMetadataForm((current) => ({
-                                ...current,
-                                sections: current.sections.map((item, currentIndex) =>
-                                  currentIndex === index ? { ...item, estimatedMinutes: value } : item,
-                                ),
-                              }));
-                            }}
-                            className="w-full rounded-2xl border border-stone-700 bg-stone-950 px-4 py-3 text-sm outline-none transition focus:border-amber-300"
-                          />
-                        </label>
-                        <label className="space-y-2">
-                          <span className="text-xs text-stone-300">Order</span>
-                          <input
-                            inputMode="numeric"
-                            value={section.order}
-                            onChange={(event) => {
-                              const value = event.target.value;
-                              setMetadataForm((current) => ({
-                                ...current,
-                                sections: current.sections.map((item, currentIndex) =>
-                                  currentIndex === index ? { ...item, order: value } : item,
-                                ),
-                              }));
-                            }}
-                            className="w-full rounded-2xl border border-stone-700 bg-stone-950 px-4 py-3 text-sm outline-none transition focus:border-amber-300"
-                            placeholder="Optional"
-                          />
-                        </label>
-                      </div>
-
-                      <label className="mt-4 block space-y-2">
-                        <span className="text-xs text-stone-300">Description</span>
-                        <textarea
-                          rows={3}
-                          value={section.description}
-                          onChange={(event) => {
-                            const value = event.target.value;
-                            setMetadataForm((current) => ({
-                              ...current,
-                              sections: current.sections.map((item, currentIndex) =>
-                                currentIndex === index ? { ...item, description: value } : item,
-                              ),
-                            }));
-                          }}
-                          className="w-full rounded-2xl border border-stone-700 bg-stone-950 px-4 py-3 text-sm leading-6 outline-none transition focus:border-amber-300"
-                        />
-                      </label>
                     </div>
                   ))}
                 </div>

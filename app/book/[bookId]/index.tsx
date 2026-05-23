@@ -123,7 +123,11 @@ export default function BookHomeScreen() {
   const [selectedVolumeId, setSelectedVolumeId] = useState<string | undefined>(
     Array.isArray(routeVolumeId) ? routeVolumeId[0] : routeVolumeId,
   );
-  const { activePlan } = useReadingPlans(readingBookId);
+  const { activePlan } = useReadingPlans(
+    readingBookId,
+    selectedLanguageId ?? progress?.languageId,
+    selectedVolumeId ?? progress?.volumeId,
+  );
   const {
     catalogBook,
     metadata,

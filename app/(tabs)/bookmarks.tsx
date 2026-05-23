@@ -53,7 +53,9 @@ export default function BookmarksScreen() {
                     {book?.title ?? bookmark.bookId}
                   </Text>
                   <Text style={{ color: colors.textMuted, fontSize: 16, lineHeight: 23 }}>
-                    {book?.subtitle ?? `${bookmark.languageId} | ${bookmark.volumeId}`}
+                    {[book?.subtitle, bookmark.languageId, bookmark.volumeId]
+                      .filter(Boolean)
+                      .join(" | ")}
                   </Text>
                   <Text
                     style={{

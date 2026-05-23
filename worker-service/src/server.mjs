@@ -342,7 +342,6 @@ async function handleMetadataRepublish(request, response) {
     defaultLanguageId,
     requestedBy,
     languages,
-    sections,
   } = payload || {};
 
   if (!bookSlug || !title) {
@@ -371,7 +370,6 @@ async function handleMetadataRepublish(request, response) {
       volumeId: bookDocument.volumeId,
       version,
       languages,
-      sections,
     });
 
     await updateBookDocument(bookDocument.$id, {

@@ -164,7 +164,7 @@ export default function ReaderScreen() {
     selectedVolume,
   } = useRemoteBookData(bookId, languageId, volumeId);
   const readingBookId = Array.isArray(bookId) ? bookId[0] : bookId ?? "";
-  const { saveProgress } = useReadingProgress(readingBookId);
+  const { saveProgress } = useReadingProgress(readingBookId, languageId, volumeId);
   const { addBookmark, getBookmarkForPage, removeBookmark } = useBookmarks(readingBookId);
   const { theme, cycleTheme } = useReaderPreferences();
   const colors = themeColors[theme];

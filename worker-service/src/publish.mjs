@@ -260,7 +260,6 @@ export async function republishBookMetadata({
   volumeId,
   version,
   languages,
-  sections,
 }) {
   const bookRoot = path.join(assetsRepoPath, "books", bookSlug);
   const metadataPath = path.join(bookRoot, "metadata.json");
@@ -303,11 +302,8 @@ export async function republishBookMetadata({
               order: volume.order,
               introNote: volume.introNote,
               todayTarget: volume.todayTarget,
-              sections:
-                language.languageId === languageId && volume.id === volumeId && sections?.length
-                  ? sections
-                  : existingVolume?.sections,
-              plans: existingVolume?.plans,
+              sections: volume.sections?.length ? volume.sections : existingVolume?.sections,
+              plans: volume.plans?.length ? volume.plans : existingVolume?.plans,
             };
           }),
         }))
@@ -319,7 +315,6 @@ export async function republishBookMetadata({
                   volume.id === volumeId
                     ? {
                         ...volume,
-                        sections: sections && sections.length > 0 ? sections : volume.sections,
                         manifestUrl: volume.manifestUrl || jsdelivrUrl(manifestRelativePath),
                       }
                     : volume,

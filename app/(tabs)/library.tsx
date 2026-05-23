@@ -395,7 +395,7 @@ function InProgressCard({
 }
 
 export default function LibraryScreen() {
-  const { error, isLoaded, progressMap } = useReadingProgress();
+  const { error, isLoaded, latestProgressByBook } = useReadingProgress();
   const {
     catalog,
     error: catalogError,
@@ -406,9 +406,9 @@ export default function LibraryScreen() {
   const insets = useSafeAreaInsets();
 
   const remoteBooks = catalog?.books ?? [];
-  const inProgressBooks = remoteBooks.filter((book) => progressMap[book.id]);
+  const inProgressBooks = remoteBooks.filter((book) => latestProgressByBook[book.id]);
   const featuredBook = inProgressBooks[0] ?? remoteBooks[0];
-  const featuredProgress = featuredBook ? progressMap[featuredBook.id] : undefined;
+  const featuredProgress = featuredBook ? latestProgressByBook[featuredBook.id] : undefined;
   const additionalInProgressBooks = featuredBook
     ? inProgressBooks.filter((book) => book.id !== featuredBook.id)
     : [];
@@ -513,7 +513,7 @@ export default function LibraryScreen() {
             <CardTitle>In progress</CardTitle>
             <View style={{ gap: 12 }}>
               {additionalInProgressBooks.map((book) => {
-                const progress = progressMap[book.id];
+                const progress = latestProgressByBook[book.id];
                 return (
                   <InProgressCard
                     key={book.id}
@@ -553,9 +553,9 @@ export default function LibraryScreen() {
                 title={book.title}
                 subtitle={book.subtitle}
                 category={book.category}
-                page={progressMap[book.id]?.page}
-                languageId={progressMap[book.id]?.languageId}
-                volumeId={progressMap[book.id]?.volumeId}
+                page={latestProgressByBook[book.id]?.page}
+                languageId={latestProgressByBook[book.id]?.languageId}
+                volumeId={latestProgressByBook[book.id]?.volumeId}
                 coverImage={book.coverImage}
               />
             ))

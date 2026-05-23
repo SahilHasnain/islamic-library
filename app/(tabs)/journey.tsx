@@ -15,14 +15,16 @@ const colors = {
 };
 
 export default function JourneyScreen() {
-  const { progressMap } = useReadingProgress();
+  const { latestProgressByBook, progressMap } = useReadingProgress();
   const { activePlanMap } = useReadingPlans();
   const { catalog } = useRemoteCatalog();
   const insets = useSafeAreaInsets();
   const totalPagesRead = Object.values(progressMap).reduce((sum, progress) => sum + progress.page, 0);
+  const booksInProgress = Object.keys(latestProgressByBook).length;
   const activePlans = Object.values(activePlanMap).map((plan) => ({
     plan,
     title: catalog?.books.find((book) => book.id === plan.bookId)?.title ?? plan.bookId,
+    subtitle: catalog?.books.find((book) => book.id === plan.bookId)?.subtitle,
   }));
 
   return (
@@ -45,7 +47,19 @@ export default function JourneyScreen() {
             {totalPagesRead}
           </Text>
           <Text style={{ color: colors.textMuted, fontSize: 16, lineHeight: 23 }}>
-            Pages reached across your current library.
+            Pages reached across all saved editions in your current library.
+          </Text>
+        </View>
+
+        <View style={{ backgroundColor: colors.surface, borderRadius: 24, padding: 20, gap: 12 }}>
+          <Text style={{ color: colors.text, fontSize: 22, fontWeight: "800" }}>
+            Books in progress
+          </Text>
+          <Text style={{ color: colors.text, fontSize: 36, fontWeight: "800" }}>
+            {booksInProgress}
+          </Text>
+          <Text style={{ color: colors.textMuted, fontSize: 16, lineHeight: 23 }}>
+            Distinct books with at least one active reading edition.
           </Text>
         </View>
 
@@ -58,10 +72,13 @@ export default function JourneyScreen() {
               No active plans yet. Choose one from a book to start tracking daily progress.
             </Text>
           ) : (
-            activePlans.map(({ plan, title }) => (
-              <View key={plan.bookId} style={{ gap: 8 }}>
+            activePlans.map(({ plan, title, subtitle }) => (
+              <View key={`${plan.bookId}-${plan.languageId}-${plan.volumeId}`} style={{ gap: 8 }}>
                 <Text style={{ color: colors.text, fontSize: 18, fontWeight: "800" }}>
                   {title}
+                </Text>
+                <Text style={{ color: colors.textMuted, fontSize: 15, lineHeight: 22 }}>
+                  {[subtitle, plan.languageId, plan.volumeId].filter(Boolean).join(" | ")}
                 </Text>
                 <Text style={{ color: colors.textMuted, fontSize: 15, lineHeight: 22 }}>
                   {plan.planId} | Started {new Date(plan.startedAt).toLocaleDateString()}

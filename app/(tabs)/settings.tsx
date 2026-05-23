@@ -138,6 +138,7 @@ export default function SettingsScreen() {
   const {
     error: progressError,
     isLoaded: progressLoaded,
+    latestProgressByBook,
     progressMap,
     resetProgress,
   } = useReadingProgress();
@@ -147,7 +148,8 @@ export default function SettingsScreen() {
   const [showToast, setShowToast] = useState(false);
 
   const activePlanCount = Object.keys(activePlanMap).length;
-  const progressCount = Object.keys(progressMap).length;
+  const progressCount = Object.keys(latestProgressByBook).length;
+  const editionProgressCount = Object.keys(progressMap).length;
   const storageIsLoading =
     !bookmarksLoaded || !plansLoaded || !preferencesLoaded || !progressLoaded;
 
@@ -212,9 +214,15 @@ export default function SettingsScreen() {
           <CardTitle>Your library</CardTitle>
           <View style={{ gap: spacing.gapMd }}>
             <View style={{ gap: spacing.gapXs }}>
-              <MetaText>Books you're reading</MetaText>
+              <MetaText>Books you&apos;re reading</MetaText>
               <Text style={{ color: colors.text, fontSize: typography.subtitle, fontWeight: "800" }}>
                 {progressCount} of {catalog?.books.length ?? 0}
+              </Text>
+            </View>
+            <View style={{ gap: spacing.gapXs }}>
+              <MetaText>Saved reading editions</MetaText>
+              <Text style={{ color: colors.text, fontSize: typography.subtitle, fontWeight: "800" }}>
+                {editionProgressCount}
               </Text>
             </View>
             <View style={{ gap: spacing.gapXs }}>
@@ -259,7 +267,7 @@ export default function SettingsScreen() {
                   onPress={() => {
                     Alert.alert(
                       "Clear reading progress?",
-                      "This will remove all your reading progress from all books. This cannot be undone.",
+                      "This will remove all your reading progress from every saved edition. This cannot be undone.",
                       [
                         { text: "Cancel", style: "cancel" },
                         {

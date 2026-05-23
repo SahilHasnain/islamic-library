@@ -7,7 +7,11 @@ const STORAGE_KEY = "islamic-library:active-plans";
 
 type ActivePlanMap = Record<string, ActiveReadingPlan>;
 
-export function useReadingPlans(bookId?: string) {
+function getPlanKey(bookId: string, languageId: string, volumeId: string) {
+  return `${bookId}::${languageId}::${volumeId}`;
+}
+
+export function useReadingPlans(bookId?: string, languageId?: string, volumeId?: string) {
   const [activePlanMap, setActivePlanMap] = useState<ActivePlanMap>({});
   const [isLoaded, setIsLoaded] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -46,8 +50,15 @@ export function useReadingPlans(bookId?: string) {
       return undefined;
     }
 
-    return activePlanMap[bookId];
-  }, [activePlanMap, bookId]);
+    if (languageId && volumeId) {
+      return activePlanMap[getPlanKey(bookId, languageId, volumeId)];
+    }
+
+    const bookPlans = Object.values(activePlanMap).filter((plan) => plan.bookId === bookId);
+    return bookPlans.sort((left, right) => {
+      return new Date(right.startedAt).getTime() - new Date(left.startedAt).getTime();
+    })[0];
+  }, [activePlanMap, bookId, languageId, volumeId]);
 
   const persist = useCallback(async (nextMap: ActivePlanMap) => {
     setActivePlanMap(nextMap);
@@ -62,16 +73,24 @@ export function useReadingPlans(bookId?: string) {
     async (plan: ActiveReadingPlan) => {
       await persist({
         ...activePlanMap,
-        [plan.bookId]: plan,
+        [getPlanKey(plan.bookId, plan.languageId, plan.volumeId)]: plan,
       });
     },
     [activePlanMap, persist],
   );
 
   const clearPlan = useCallback(
-    async (targetBookId: string) => {
+    async (targetBookId: string, targetLanguageId?: string, targetVolumeId?: string) => {
       const nextMap = { ...activePlanMap };
-      delete nextMap[targetBookId];
+      if (targetLanguageId && targetVolumeId) {
+        delete nextMap[getPlanKey(targetBookId, targetLanguageId, targetVolumeId)];
+      } else {
+        Object.keys(nextMap).forEach((key) => {
+          if (nextMap[key]?.bookId === targetBookId) {
+            delete nextMap[key];
+          }
+        });
+      }
       await persist(nextMap);
     },
     [activePlanMap, persist],

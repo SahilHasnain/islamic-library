@@ -46,7 +46,7 @@ export default function BookPlansScreen() {
   const preferredLanguageId = Array.isArray(routeLanguageId) ? routeLanguageId[0] : routeLanguageId;
   const preferredVolumeId = Array.isArray(routeVolumeId) ? routeVolumeId[0] : routeVolumeId;
   const { error: plansError, isLoaded: plansLoaded, activePlan, clearPlan, selectPlan } =
-    useReadingPlans(readingBookId);
+    useReadingPlans(readingBookId, preferredLanguageId, preferredVolumeId);
   const { error: progressError, isLoaded: progressLoaded, progress } =
     useReadingProgress(readingBookId);
   const {
@@ -161,7 +161,7 @@ export default function BookPlansScreen() {
                     <ProgressBar progressPercent={progressPercent} />
                     <Pressable
                       onPress={() => {
-                        void clearPlan(readingBookId);
+                            void clearPlan(readingBookId, resolvedLanguageId, resolvedVolumeId);
                       }}
                       style={{
                         alignSelf: "flex-start",

@@ -38,6 +38,57 @@ function parseSections(value: unknown) {
   });
 }
 
+function parsePlans(value: unknown) {
+  if (!Array.isArray(value)) {
+    return undefined;
+  }
+
+  return value.map((plan, planIndex) => {
+    const item = plan as Record<string, unknown>;
+    const id = String(item.id || "").trim();
+    const title = String(item.title || "").trim();
+    const totalDays = Number(item.totalDays);
+    const rawItems = Array.isArray(item.items) ? item.items : [];
+
+    if (!id || !title || !Number.isFinite(totalDays) || rawItems.length === 0) {
+      throw new Error(`Plan ${planIndex + 1} is invalid.`);
+    }
+
+    return {
+      id,
+      title,
+      description: String(item.description || "").trim(),
+      totalDays,
+      items: rawItems.map((dayItem, itemIndex) => {
+        const day = dayItem as Record<string, unknown>;
+        const dayNumber = Number(day.day);
+        const label = String(day.label || "").trim();
+        const startPage = Number(day.startPage);
+        const endPage = Number(day.endPage);
+        const estimatedMinutes = Number(day.estimatedMinutes);
+
+        if (
+          !Number.isFinite(dayNumber) ||
+          !label ||
+          !Number.isFinite(startPage) ||
+          !Number.isFinite(endPage) ||
+          !Number.isFinite(estimatedMinutes)
+        ) {
+          throw new Error(`Plan day ${itemIndex + 1} in ${title} is invalid.`);
+        }
+
+        return {
+          day: dayNumber,
+          label,
+          startPage,
+          endPage,
+          estimatedMinutes,
+        };
+      }),
+    };
+  });
+}
+
 function parseLanguages(value: unknown) {
   if (!Array.isArray(value)) {
     return undefined;
@@ -87,6 +138,8 @@ function parseLanguages(value: unknown) {
           manifestUrl: String(volumeItem.manifestUrl || "").trim() || undefined,
           introNote: String(volumeItem.introNote || "").trim() || undefined,
           todayTarget: String(volumeItem.todayTarget || "").trim() || undefined,
+          sections: parseSections(volumeItem.sections),
+          plans: parsePlans(volumeItem.plans),
         };
       }),
     };
@@ -105,7 +158,6 @@ export async function POST(request: Request) {
       defaultLanguageId?: string;
       requestedBy?: string;
       languages?: unknown;
-      sections?: unknown;
     };
 
     const bookSlug = String(payload.bookSlug || "").trim();
@@ -128,7 +180,6 @@ export async function POST(request: Request) {
       defaultLanguageId: String(payload.defaultLanguageId || "").trim() || undefined,
       requestedBy: String(payload.requestedBy || "admin-console").trim(),
       languages: parseLanguages(payload.languages),
-      sections: parseSections(payload.sections),
     });
 
     return NextResponse.json({
