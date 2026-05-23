@@ -332,7 +332,7 @@ async function handleMetadataRepublish(request, response) {
   }
 
   const payload = await readJsonBody(request);
-  const { bookSlug, title, subtitle, author, description, category, requestedBy } = payload || {};
+  const { bookSlug, title, subtitle, author, description, category, requestedBy, sections } = payload || {};
 
   if (!bookSlug || !title) {
     sendJson(response, 400, { error: "Missing required metadata payload fields." });
@@ -358,6 +358,7 @@ async function handleMetadataRepublish(request, response) {
       languageId: bookDocument.languageId,
       volumeId: bookDocument.volumeId,
       version,
+      sections,
     });
 
     await updateBookDocument(bookDocument.$id, {

@@ -96,6 +96,18 @@ function buildFallbackSections(totalPages: number): PublicBookSection[] {
   });
 }
 
+function getOrderedSections(sections: PublicBookSection[]) {
+  return [...sections].sort((left, right) => {
+    const leftOrder = left.order ?? Number.MAX_SAFE_INTEGER;
+    const rightOrder = right.order ?? Number.MAX_SAFE_INTEGER;
+    if (leftOrder !== rightOrder) {
+      return leftOrder - rightOrder;
+    }
+
+    return left.startPage - right.startPage;
+  });
+}
+
 export default function BookHomeScreen() {
   const { bookId } = useLocalSearchParams<{ bookId: string }>();
   const readingBookId = Array.isArray(bookId) ? bookId[0] : bookId ?? "";
@@ -138,8 +150,10 @@ export default function BookHomeScreen() {
     metadata?.description ?? "Open the book and continue with steady reading.";
   const displayAuthor = metadata?.author ?? catalogBook?.author;
   const displayCategory = metadata?.category ?? catalogBook?.category ?? "Library";
-  const sections =
-    selectedVolume?.sections?.length ? selectedVolume.sections : buildFallbackSections(totalPages);
+  const hasAuthoredSections = Boolean(selectedVolume?.sections?.length);
+  const sections = getOrderedSections(
+    hasAuthoredSections ? selectedVolume?.sections ?? [] : buildFallbackSections(totalPages),
+  );
   const plans =
     selectedVolume?.plans?.length ? selectedVolume.plans : buildFallbackPlans(totalPages);
   const activeRemotePlan =
@@ -444,6 +458,11 @@ export default function BookHomeScreen() {
             <Text style={{ color: colors.text, fontSize: 22, fontWeight: "800" }}>
               Reading structure
             </Text>
+            {!hasAuthoredSections ? (
+              <Text style={{ color: colors.textMuted, fontSize: 14, lineHeight: 22 }}>
+                Guided sections are still being prepared. For now, the book is divided into gentle page ranges.
+              </Text>
+            ) : null}
             {sections.slice(0, 3).map((section) => (
               <View
                 key={section.id}
@@ -457,6 +476,11 @@ export default function BookHomeScreen() {
                   <Text style={{ color: colors.text, fontSize: 17, fontWeight: "700" }}>
                     {section.title}
                   </Text>
+                  {section.subtitle ? (
+                    <Text style={{ color: colors.textMuted, fontSize: 14, marginTop: 2 }}>
+                      {section.subtitle}
+                    </Text>
+                  ) : null}
                   <Text style={{ color: colors.textMuted, fontSize: 15, marginTop: 2 }}>
                     Pages {section.startPage}-{section.endPage}
                   </Text>

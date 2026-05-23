@@ -258,6 +258,7 @@ export async function republishBookMetadata({
   languageId,
   volumeId,
   version,
+  sections,
 }) {
   const bookRoot = path.join(assetsRepoPath, "books", bookSlug);
   const metadataPath = path.join(bookRoot, "metadata.json");
@@ -285,6 +286,7 @@ export async function republishBookMetadata({
               volume.id === volumeId
                 ? {
                     ...volume,
+                    sections: sections && sections.length > 0 ? sections : volume.sections,
                     manifestUrl: volume.manifestUrl || jsdelivrUrl(manifestRelativePath),
                   }
                 : volume,

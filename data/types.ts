@@ -137,10 +137,21 @@ export type PublicBookMetadata = {
 export type PublicBookSection = {
   id: string;
   title: string;
+  subtitle?: string;
+  kind?:
+    | "front-matter"
+    | "chapter"
+    | "litany"
+    | "dua"
+    | "reflection"
+    | "appendix"
+    | "custom";
   startPage: number;
   endPage: number;
   estimatedMinutes: number;
   description?: string;
+  entryPage?: number;
+  order?: number;
 };
 
 export type PublicBookPlanItem = {

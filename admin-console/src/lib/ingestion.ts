@@ -31,6 +31,8 @@ export type BookRecord = {
   author?: string;
   description?: string;
   category?: string;
+  metadataUrl?: string;
+  manifestUrl?: string;
   languageId: string;
   volumeId: string;
   sourceFileId: string;
@@ -84,6 +86,18 @@ export type MetadataRepublishPayload = {
   description?: string;
   category?: string;
   requestedBy: string;
+  sections?: {
+    id: string;
+    title: string;
+    subtitle?: string;
+    kind?: string;
+    startPage: number;
+    endPage: number;
+    estimatedMinutes: number;
+    description?: string;
+    entryPage?: number;
+    order?: number;
+  }[];
 };
 
 export type PublishEventRecord = {

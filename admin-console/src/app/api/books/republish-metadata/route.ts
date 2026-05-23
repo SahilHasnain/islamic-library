@@ -2,6 +2,42 @@ import { NextResponse } from "next/server";
 
 import { republishBookMetadata } from "@/lib/ingestion";
 
+function parseSections(value: unknown) {
+  if (!Array.isArray(value)) {
+    return undefined;
+  }
+
+  return value.map((section, index) => {
+    const item = section as Record<string, unknown>;
+    const id = String(item.id || "").trim();
+    const title = String(item.title || "").trim();
+    const startPage = Number(item.startPage);
+    const endPage = Number(item.endPage);
+    const estimatedMinutes = Number(item.estimatedMinutes);
+
+    if (!id || !title || !Number.isFinite(startPage) || !Number.isFinite(endPage) || !Number.isFinite(estimatedMinutes)) {
+      throw new Error(`Section ${index + 1} is invalid.`);
+    }
+
+    return {
+      id,
+      title,
+      subtitle: String(item.subtitle || "").trim() || undefined,
+      kind: String(item.kind || "").trim() || undefined,
+      startPage,
+      endPage,
+      estimatedMinutes,
+      description: String(item.description || "").trim() || undefined,
+      entryPage: item.entryPage === undefined || item.entryPage === null || item.entryPage === ""
+        ? undefined
+        : Number(item.entryPage),
+      order: item.order === undefined || item.order === null || item.order === ""
+        ? undefined
+        : Number(item.order),
+    };
+  });
+}
+
 export async function POST(request: Request) {
   try {
     const payload = (await request.json()) as {
@@ -12,6 +48,7 @@ export async function POST(request: Request) {
       description?: string;
       category?: string;
       requestedBy?: string;
+      sections?: unknown;
     };
 
     const bookSlug = String(payload.bookSlug || "").trim();
@@ -32,6 +69,7 @@ export async function POST(request: Request) {
       description: String(payload.description || "").trim() || undefined,
       category: String(payload.category || "").trim() || undefined,
       requestedBy: String(payload.requestedBy || "admin-console").trim(),
+      sections: parseSections(payload.sections),
     });
 
     return NextResponse.json({

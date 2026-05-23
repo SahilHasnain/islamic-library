@@ -34,6 +34,41 @@ function buildSections(totalPages: number): PublicBookSection[] {
   });
 }
 
+function getOrderedSections(sections: PublicBookSection[]) {
+  return [...sections].sort((left, right) => {
+    const leftOrder = left.order ?? Number.MAX_SAFE_INTEGER;
+    const rightOrder = right.order ?? Number.MAX_SAFE_INTEGER;
+    if (leftOrder !== rightOrder) {
+      return leftOrder - rightOrder;
+    }
+
+    return left.startPage - right.startPage;
+  });
+}
+
+function getSectionEntryPage(section: PublicBookSection) {
+  return section.entryPage ?? section.startPage;
+}
+
+function getSectionKindLabel(section: PublicBookSection) {
+  switch (section.kind) {
+    case "front-matter":
+      return "Opening";
+    case "chapter":
+      return "Chapter";
+    case "litany":
+      return "Litany";
+    case "dua":
+      return "Dua";
+    case "reflection":
+      return "Reflection";
+    case "appendix":
+      return "Appendix";
+    default:
+      return null;
+  }
+}
+
 export default function BookSectionsScreen() {
   const { bookId } = useLocalSearchParams<{ bookId: string }>();
   const readingBookId = Array.isArray(bookId) ? bookId[0] : bookId ?? "";
@@ -47,8 +82,10 @@ export default function BookSectionsScreen() {
     selectedVolume,
   } = useRemoteBookData(readingBookId, progress?.languageId, progress?.volumeId);
   const totalPages = manifest?.totalPages ?? 1;
-  const sections =
-    selectedVolume?.sections?.length ? selectedVolume.sections : buildSections(totalPages);
+  const hasAuthoredSections = Boolean(selectedVolume?.sections?.length);
+  const sections = getOrderedSections(
+    hasAuthoredSections ? selectedVolume?.sections ?? [] : buildSections(totalPages),
+  );
   const displayTitle = metadata?.title ?? "Published book";
   const displayLanguageTitle = selectedLanguage?.title ?? progress?.languageId ?? "Edition";
   const resolvedLanguageId = selectedLanguage?.id ?? progress?.languageId ?? "english";
@@ -88,10 +125,15 @@ export default function BookSectionsScreen() {
             Move through the book in calm, manageable portions. Choose the section that matches
             your current pace.
           </Text>
+          {!hasAuthoredSections ? (
+            <Text style={{ color: colors.accent, fontSize: 13, fontWeight: "700" }}>
+              Guided sections are still being prepared for this book.
+            </Text>
+          ) : null}
           {sections.map((section) => (
             <Link
               key={section.id}
-              href={`/reader/${readingBookId}/${resolvedLanguageId}/${resolvedVolumeId}/${section.startPage}` as const}
+              href={`/reader/${readingBookId}/${resolvedLanguageId}/${resolvedVolumeId}/${getSectionEntryPage(section)}` as const}
               asChild
             >
               <Pressable
@@ -105,6 +147,11 @@ export default function BookSectionsScreen() {
                 <Text style={{ color: colors.text, fontSize: 18, fontWeight: "800" }}>
                   {section.title}
                 </Text>
+                {section.subtitle ? (
+                  <Text style={{ color: colors.textMuted, fontSize: 15, lineHeight: 22 }}>
+                    {section.subtitle}
+                  </Text>
+                ) : null}
                 <Text style={{ color: colors.textMuted, fontSize: 15 }}>
                   Pages {section.startPage}-{section.endPage}
                 </Text>
@@ -122,7 +169,9 @@ export default function BookSectionsScreen() {
                     letterSpacing: 0.4,
                   }}
                 >
-                  {section.estimatedMinutes} min
+                  {[getSectionKindLabel(section), `${section.estimatedMinutes} min`]
+                    .filter(Boolean)
+                    .join(" | ")}
                 </Text>
               </Pressable>
             </Link>

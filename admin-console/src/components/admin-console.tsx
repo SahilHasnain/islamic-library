@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useState } from "react";
 
 import type {
   JobListItem,
@@ -35,13 +35,135 @@ type MetadataFormState = {
   description: string;
   category: string;
   requestedBy: string;
+  sections: SectionEditorItem[];
 };
+
+type SectionEditorItem = {
+  id: string;
+  title: string;
+  subtitle: string;
+  kind: string;
+  startPage: string;
+  endPage: string;
+  entryPage: string;
+  order: string;
+  estimatedMinutes: string;
+  description: string;
+};
+
+const sectionKinds = [
+  { label: "Custom", value: "custom" },
+  { label: "Opening", value: "front-matter" },
+  { label: "Chapter", value: "chapter" },
+  { label: "Litany", value: "litany" },
+  { label: "Dua", value: "dua" },
+  { label: "Reflection", value: "reflection" },
+  { label: "Appendix", value: "appendix" },
+] as const;
 
 const publicAppwriteConfig = {
   endpoint: process.env.NEXT_PUBLIC_APPWRITE_ENDPOINT,
   projectId: process.env.NEXT_PUBLIC_APPWRITE_PROJECT_ID,
   sourcePdfsBucketId: process.env.NEXT_PUBLIC_APPWRITE_SOURCE_PDFS_BUCKET_ID,
 };
+
+type PublishedMetadataPayload = {
+  title?: string;
+  subtitle?: string;
+  author?: string;
+  description?: string;
+  category?: string;
+  languages?: {
+    id: string;
+    volumes?: {
+      id: string;
+      sections?: unknown[];
+    }[];
+  }[];
+};
+
+function createEmptySection(): SectionEditorItem {
+  return {
+    id: "",
+    title: "",
+    subtitle: "",
+    kind: "custom",
+    startPage: "",
+    endPage: "",
+    entryPage: "",
+    order: "",
+    estimatedMinutes: "",
+    description: "",
+  };
+}
+
+function getDefaultSections() {
+  return [
+    {
+      id: "muqaddimah",
+      title: "Muqaddimah",
+      subtitle: "Opening pages and devotional framing",
+      kind: "front-matter",
+      startPage: "1",
+      endPage: "12",
+      entryPage: "1",
+      order: "1",
+      estimatedMinutes: "8",
+      description: "A gentle place to begin.",
+    },
+  ];
+}
+
+function normalizeSections(value: unknown[] | undefined): SectionEditorItem[] {
+  if (!value || value.length === 0) {
+    return [];
+  }
+
+  return value.map((section) => {
+    const item = section as Record<string, unknown>;
+    return {
+      id: String(item.id || ""),
+      title: String(item.title || ""),
+      subtitle: String(item.subtitle || ""),
+      kind: String(item.kind || "custom"),
+      startPage: item.startPage == null ? "" : String(item.startPage),
+      endPage: item.endPage == null ? "" : String(item.endPage),
+      entryPage: item.entryPage == null ? "" : String(item.entryPage),
+      order: item.order == null ? "" : String(item.order),
+      estimatedMinutes: item.estimatedMinutes == null ? "" : String(item.estimatedMinutes),
+      description: String(item.description || ""),
+    };
+  });
+}
+
+function buildSectionPayload(sections: SectionEditorItem[]) {
+  return sections
+    .filter((section) => section.id.trim() || section.title.trim())
+    .map((section, index) => {
+      const id = section.id.trim();
+      const title = section.title.trim();
+      const startPage = Number(section.startPage);
+      const endPage = Number(section.endPage);
+      const estimatedMinutes = Number(section.estimatedMinutes);
+
+      if (!id || !title || !Number.isFinite(startPage) || !Number.isFinite(endPage) || !Number.isFinite(estimatedMinutes)) {
+        throw new Error(`Section ${index + 1} is incomplete.`);
+      }
+
+      return {
+        id,
+        title,
+        subtitle: section.subtitle.trim() || undefined,
+        kind: section.kind || undefined,
+        startPage,
+        endPage,
+        estimatedMinutes,
+        description: section.description.trim() || undefined,
+        entryPage: section.entryPage.trim() ? Number(section.entryPage) : undefined,
+        order: section.order.trim() ? Number(section.order) : undefined,
+      };
+    });
+}
 
 function formatDate(value?: string) {
   if (!value) {
@@ -122,6 +244,7 @@ export function AdminConsole({ initialSnapshot }: { initialSnapshot: MonitoringS
     description: "",
     category: "Other",
     requestedBy: "admin-console",
+    sections: getDefaultSections(),
   });
 
   async function uploadPdfDirect(file: File) {
@@ -201,6 +324,65 @@ export function AdminConsole({ initialSnapshot }: { initialSnapshot: MonitoringS
     });
     return Array.from(map.values()).filter(Boolean);
   }, [jobs]);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    async function hydrateMetadataForm() {
+      const slug = metadataForm.bookSlug.trim();
+      if (!slug) {
+        return;
+      }
+
+      const knownBook = knownBooks.find((book) => book?.slug === slug);
+      if (!knownBook?.metadataUrl) {
+        return;
+      }
+
+      try {
+        const response = await fetch(knownBook.metadataUrl, { cache: "no-store" });
+        if (!response.ok) {
+          return;
+        }
+
+        const payload = (await response.json()) as PublishedMetadataPayload;
+        if (!isMounted) {
+          return;
+        }
+
+        const matchingLanguage =
+          payload.languages?.find((language) => language.id === knownBook.languageId) ??
+          payload.languages?.[0];
+        const matchingVolume =
+          matchingLanguage?.volumes?.find((volume) => volume.id === knownBook.volumeId) ??
+          matchingLanguage?.volumes?.[0];
+
+        setMetadataForm((current) => {
+          if (current.bookSlug.trim() !== slug) {
+            return current;
+          }
+
+          return {
+            ...current,
+            title: payload.title || current.title,
+            subtitle: payload.subtitle || "",
+            author: payload.author || "",
+            description: payload.description || "",
+            category: payload.category || current.category,
+            sections: normalizeSections(matchingVolume?.sections),
+          };
+        });
+      } catch {
+        // Keep the current draft values if the published metadata cannot be loaded.
+      }
+    }
+
+    void hydrateMetadataForm();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [knownBooks, metadataForm.bookSlug]);
 
   async function fetchJobs() {
     try {
@@ -350,12 +532,17 @@ export function AdminConsole({ initialSnapshot }: { initialSnapshot: MonitoringS
     setMetadataState({});
 
     try {
+      const sections = buildSectionPayload(metadataForm.sections);
+
       const response = await fetch("/api/books/republish-metadata", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify(metadataForm),
+        body: JSON.stringify({
+          ...metadataForm,
+          sections,
+        }),
       });
 
       const payload = (await response.json()) as SubmissionState & { error?: string };
@@ -516,6 +703,7 @@ export function AdminConsole({ initialSnapshot }: { initialSnapshot: MonitoringS
                       author: knownBook?.author || current.author,
                       description: knownBook?.description || current.description,
                       category: knownBook?.category || current.category,
+                      sections: knownBook ? current.sections : getDefaultSections(),
                     }));
                   }}
                   className="w-full rounded-2xl border border-stone-700 bg-stone-950 px-4 py-3 text-sm outline-none transition focus:border-amber-300"
@@ -603,6 +791,246 @@ export function AdminConsole({ initialSnapshot }: { initialSnapshot: MonitoringS
                 className="w-full rounded-3xl border border-stone-700 bg-stone-950 px-4 py-3 text-sm leading-6 outline-none transition focus:border-amber-300"
               />
             </label>
+
+            <div className="space-y-4">
+              <div className="flex items-center justify-between gap-4">
+                <div>
+                  <span className="text-sm text-stone-200">Sections</span>
+                  <p className="mt-1 text-xs leading-5 text-stone-400">
+                    Author real reading sections with titles, page ranges, and entry points.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setMetadataForm((current) => ({
+                      ...current,
+                      sections: [...current.sections, createEmptySection()],
+                    }));
+                  }}
+                  className="rounded-full border border-stone-700 px-4 py-2 text-xs font-medium text-stone-200 transition hover:border-amber-300 hover:text-amber-200"
+                >
+                  Add section
+                </button>
+              </div>
+
+              {metadataForm.sections.length === 0 ? (
+                <div className="rounded-2xl border border-dashed border-stone-700 bg-stone-950/60 p-4 text-sm text-stone-400">
+                  No sections yet. Add the first one above.
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  {metadataForm.sections.map((section, index) => (
+                    <div
+                      key={`${section.id || "section"}-${index}`}
+                      className="rounded-3xl border border-stone-800 bg-stone-950/60 p-4"
+                    >
+                      <div className="mb-4 flex items-center justify-between gap-4">
+                        <div>
+                          <p className="text-sm font-medium text-stone-100">Section {index + 1}</p>
+                          <p className="text-xs text-stone-400">
+                            Use clear, reader-friendly names instead of generic buckets.
+                          </p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setMetadataForm((current) => ({
+                              ...current,
+                              sections: current.sections.filter((_, currentIndex) => currentIndex !== index),
+                            }));
+                          }}
+                          className="rounded-full border border-rose-900/60 px-4 py-2 text-xs font-medium text-rose-200 transition hover:border-rose-400 hover:text-rose-100"
+                        >
+                          Remove
+                        </button>
+                      </div>
+
+                      <div className="grid gap-4 md:grid-cols-2">
+                        <label className="space-y-2">
+                          <span className="text-xs text-stone-300">Section ID</span>
+                          <input
+                            value={section.id}
+                            onChange={(event) => {
+                              const value = event.target.value;
+                              setMetadataForm((current) => ({
+                                ...current,
+                                sections: current.sections.map((item, currentIndex) =>
+                                  currentIndex === index ? { ...item, id: value } : item,
+                                ),
+                              }));
+                            }}
+                            className="w-full rounded-2xl border border-stone-700 bg-stone-950 px-4 py-3 text-sm outline-none transition focus:border-amber-300"
+                            placeholder="majlis-1"
+                          />
+                        </label>
+                        <label className="space-y-2">
+                          <span className="text-xs text-stone-300">Title</span>
+                          <input
+                            value={section.title}
+                            onChange={(event) => {
+                              const value = event.target.value;
+                              setMetadataForm((current) => ({
+                                ...current,
+                                sections: current.sections.map((item, currentIndex) =>
+                                  currentIndex === index ? { ...item, title: value } : item,
+                                ),
+                              }));
+                            }}
+                            className="w-full rounded-2xl border border-stone-700 bg-stone-950 px-4 py-3 text-sm outline-none transition focus:border-amber-300"
+                            placeholder="Majlis 1"
+                          />
+                        </label>
+                        <label className="space-y-2">
+                          <span className="text-xs text-stone-300">Subtitle</span>
+                          <input
+                            value={section.subtitle}
+                            onChange={(event) => {
+                              const value = event.target.value;
+                              setMetadataForm((current) => ({
+                                ...current,
+                                sections: current.sections.map((item, currentIndex) =>
+                                  currentIndex === index ? { ...item, subtitle: value } : item,
+                                ),
+                              }));
+                            }}
+                            className="w-full rounded-2xl border border-stone-700 bg-stone-950 px-4 py-3 text-sm outline-none transition focus:border-amber-300"
+                            placeholder="A gentle place to begin the main reading"
+                          />
+                        </label>
+                        <label className="space-y-2">
+                          <span className="text-xs text-stone-300">Kind</span>
+                          <select
+                            value={section.kind}
+                            onChange={(event) => {
+                              const value = event.target.value;
+                              setMetadataForm((current) => ({
+                                ...current,
+                                sections: current.sections.map((item, currentIndex) =>
+                                  currentIndex === index ? { ...item, kind: value } : item,
+                                ),
+                              }));
+                            }}
+                            className="w-full rounded-2xl border border-stone-700 bg-stone-950 px-4 py-3 text-sm outline-none transition focus:border-amber-300"
+                          >
+                            {sectionKinds.map((kind) => (
+                              <option key={kind.value} value={kind.value}>
+                                {kind.label}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                        <label className="space-y-2">
+                          <span className="text-xs text-stone-300">Start page</span>
+                          <input
+                            inputMode="numeric"
+                            value={section.startPage}
+                            onChange={(event) => {
+                              const value = event.target.value;
+                              setMetadataForm((current) => ({
+                                ...current,
+                                sections: current.sections.map((item, currentIndex) =>
+                                  currentIndex === index ? { ...item, startPage: value } : item,
+                                ),
+                              }));
+                            }}
+                            className="w-full rounded-2xl border border-stone-700 bg-stone-950 px-4 py-3 text-sm outline-none transition focus:border-amber-300"
+                          />
+                        </label>
+                        <label className="space-y-2">
+                          <span className="text-xs text-stone-300">End page</span>
+                          <input
+                            inputMode="numeric"
+                            value={section.endPage}
+                            onChange={(event) => {
+                              const value = event.target.value;
+                              setMetadataForm((current) => ({
+                                ...current,
+                                sections: current.sections.map((item, currentIndex) =>
+                                  currentIndex === index ? { ...item, endPage: value } : item,
+                                ),
+                              }));
+                            }}
+                            className="w-full rounded-2xl border border-stone-700 bg-stone-950 px-4 py-3 text-sm outline-none transition focus:border-amber-300"
+                          />
+                        </label>
+                        <label className="space-y-2">
+                          <span className="text-xs text-stone-300">Entry page</span>
+                          <input
+                            inputMode="numeric"
+                            value={section.entryPage}
+                            onChange={(event) => {
+                              const value = event.target.value;
+                              setMetadataForm((current) => ({
+                                ...current,
+                                sections: current.sections.map((item, currentIndex) =>
+                                  currentIndex === index ? { ...item, entryPage: value } : item,
+                                ),
+                              }));
+                            }}
+                            className="w-full rounded-2xl border border-stone-700 bg-stone-950 px-4 py-3 text-sm outline-none transition focus:border-amber-300"
+                            placeholder="Optional"
+                          />
+                        </label>
+                        <label className="space-y-2">
+                          <span className="text-xs text-stone-300">Estimated minutes</span>
+                          <input
+                            inputMode="numeric"
+                            value={section.estimatedMinutes}
+                            onChange={(event) => {
+                              const value = event.target.value;
+                              setMetadataForm((current) => ({
+                                ...current,
+                                sections: current.sections.map((item, currentIndex) =>
+                                  currentIndex === index ? { ...item, estimatedMinutes: value } : item,
+                                ),
+                              }));
+                            }}
+                            className="w-full rounded-2xl border border-stone-700 bg-stone-950 px-4 py-3 text-sm outline-none transition focus:border-amber-300"
+                          />
+                        </label>
+                        <label className="space-y-2">
+                          <span className="text-xs text-stone-300">Order</span>
+                          <input
+                            inputMode="numeric"
+                            value={section.order}
+                            onChange={(event) => {
+                              const value = event.target.value;
+                              setMetadataForm((current) => ({
+                                ...current,
+                                sections: current.sections.map((item, currentIndex) =>
+                                  currentIndex === index ? { ...item, order: value } : item,
+                                ),
+                              }));
+                            }}
+                            className="w-full rounded-2xl border border-stone-700 bg-stone-950 px-4 py-3 text-sm outline-none transition focus:border-amber-300"
+                            placeholder="Optional"
+                          />
+                        </label>
+                      </div>
+
+                      <label className="mt-4 block space-y-2">
+                        <span className="text-xs text-stone-300">Description</span>
+                        <textarea
+                          rows={3}
+                          value={section.description}
+                          onChange={(event) => {
+                            const value = event.target.value;
+                            setMetadataForm((current) => ({
+                              ...current,
+                              sections: current.sections.map((item, currentIndex) =>
+                                currentIndex === index ? { ...item, description: value } : item,
+                              ),
+                            }));
+                          }}
+                          className="w-full rounded-2xl border border-stone-700 bg-stone-950 px-4 py-3 text-sm leading-6 outline-none transition focus:border-amber-300"
+                        />
+                      </label>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
 
             <button
               type="submit"

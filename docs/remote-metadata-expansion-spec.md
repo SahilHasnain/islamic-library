@@ -129,10 +129,14 @@ Each section should include:
 
 - `id`
 - `title`
+- optional `subtitle`
+- optional `kind`
 - `startPage`
 - `endPage`
 - `estimatedMinutes`
 - optional `description`
+- optional `entryPage`
+- optional `order`
 
 Purpose:
 
@@ -151,8 +155,12 @@ Example:
     {
       "id": "opening-salawat",
       "title": "Opening Salawat",
+      "subtitle": "A steady beginning for daily reading",
+      "kind": "litany",
       "startPage": 1,
       "endPage": 18,
+      "entryPage": 1,
+      "order": 1,
       "estimatedMinutes": 12,
       "description": "A gentle opening portion for daily continuation."
     }
@@ -247,10 +255,21 @@ type PublicBookMetadataVolume = {
 type PublicBookSection = {
   id: string;
   title: string;
+  subtitle?: string;
+  kind?:
+    | "front-matter"
+    | "chapter"
+    | "litany"
+    | "dua"
+    | "reflection"
+    | "appendix"
+    | "custom";
   startPage: number;
   endPage: number;
   estimatedMinutes: number;
   description?: string;
+  entryPage?: number;
+  order?: number;
 };
 
 type PublicBookPlan = {
@@ -268,6 +287,53 @@ type PublicBookPlanItem = {
   endPage: number;
   estimatedMinutes: number;
 };
+```
+
+## Section Design Guidance
+
+Sections should be authored as real reader entry points, not just page buckets.
+
+That means a good section should answer:
+
+- where should the reader begin from here?
+- what kind of portion is this?
+- how heavy or light is this portion?
+
+Recommended editorial rules:
+
+- `title` should be the main visible label
+- `subtitle` should add human guidance, not repeat the title
+- `kind` should support calmer UI treatment in the app
+- `entryPage` should be used when the best jump point is not simply `startPage`
+- `order` should define explicit display order when needed
+
+Example better section list:
+
+```json
+[
+  {
+    "id": "muqaddimah",
+    "title": "Muqaddimah",
+    "subtitle": "Opening pages and devotional framing",
+    "kind": "front-matter",
+    "startPage": 1,
+    "endPage": 12,
+    "entryPage": 1,
+    "order": 1,
+    "estimatedMinutes": 8
+  },
+  {
+    "id": "majlis-1",
+    "title": "Majlis 1",
+    "subtitle": "A gentle place to begin the main reading",
+    "kind": "chapter",
+    "startPage": 13,
+    "endPage": 44,
+    "entryPage": 13,
+    "order": 2,
+    "estimatedMinutes": 18
+  }
+]
 ```
 
 ## What Stays In Manifest
@@ -393,4 +459,3 @@ The correct long-term contract is:
 - `manifest.json` for page delivery
 
 This is the missing layer between the current backend pipeline and the frontend quality we want.
-
