@@ -3,7 +3,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Pressable, ScrollView, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
-import { ErrorCard, LoadingCard } from "../../../components/ui";
+import { ErrorCard } from "../../../components/ui";
 import type { PublicBookPlan, PublicBookSection } from "../../../data/types";
 import { useRemoteBookData } from "../../../hooks/useRemoteBookData";
 import { useReadingPlans } from "../../../hooks/useReadingPlans";
@@ -21,6 +21,27 @@ const colors = {
   heroSubtle: "#C9D5CF",
   heroMuted: "#D9E2DC",
 };
+
+function SkeletonBlock({
+  width,
+  height,
+  color,
+}: {
+  width: number | `${number}%`;
+  height: number;
+  color: string;
+}) {
+  return (
+    <View
+      style={{
+        width,
+        height,
+        borderRadius: 999,
+        backgroundColor: color,
+      }}
+    />
+  );
+}
 
 function getDownloadButtonLabel({
   canDownload,
@@ -130,6 +151,7 @@ export default function BookHomeScreen() {
   );
   const {
     catalogBook,
+    isCatalogLoading,
     metadata,
     metadataError,
     isMetadataLoading,
@@ -268,6 +290,9 @@ export default function BookHomeScreen() {
     isFullyDownloaded,
     progressPercent: downloadProgressPercent,
   });
+  const isBookDataLoading = isCatalogLoading || isMetadataLoading || isManifestLoading;
+  const shouldShowInitialSkeleton =
+    isBookDataLoading && !metadata && !manifest && !metadataError && !manifestError;
 
   return (
     <>
@@ -280,20 +305,83 @@ export default function BookHomeScreen() {
         }}
       />
       <SafeAreaView style={{ flex: 1, backgroundColor: colors.background }}>
+        {shouldShowInitialSkeleton ? (
+          <ScrollView contentContainerStyle={{ padding: 20, gap: 20, paddingBottom: 40 }}>
+            <View
+              style={{
+                backgroundColor: colors.text,
+                borderRadius: 28,
+                padding: 24,
+                gap: 18,
+              }}
+            >
+              <SkeletonBlock width={140} height={16} color="rgba(255, 249, 234, 0.18)" />
+              <View style={{ gap: 10 }}>
+                <SkeletonBlock width="72%" height={34} color="rgba(255, 249, 234, 0.2)" />
+                <SkeletonBlock width="42%" height={20} color="rgba(255, 249, 234, 0.16)" />
+                <SkeletonBlock width="26%" height={18} color="rgba(255, 249, 234, 0.14)" />
+              </View>
+              <View style={{ flexDirection: "row", gap: 10 }}>
+                <SkeletonBlock width={170} height={46} color="#F0E1A7" />
+                <SkeletonBlock width={132} height={46} color="rgba(255, 249, 234, 0.16)" />
+              </View>
+            </View>
+
+            <View
+              style={{
+                backgroundColor: colors.surfaceMuted,
+                borderRadius: 24,
+                padding: 22,
+                gap: 14,
+              }}
+            >
+              <SkeletonBlock width={112} height={14} color="#E2D3AA" />
+              <SkeletonBlock width="68%" height={28} color="#E2D3AA" />
+              <SkeletonBlock width="100%" height={18} color="#E9DCBA" />
+              <SkeletonBlock width="74%" height={18} color="#E9DCBA" />
+            </View>
+
+            <View
+              style={{
+                backgroundColor: colors.surfaceMuted,
+                borderRadius: 24,
+                padding: 20,
+                gap: 14,
+              }}
+            >
+              <SkeletonBlock width={180} height={26} color="#E2D3AA" />
+              <SkeletonBlock width="100%" height={18} color="#E9DCBA" />
+              <SkeletonBlock width="84%" height={18} color="#E9DCBA" />
+              <SkeletonBlock width={150} height={42} color="#F0E1A7" />
+            </View>
+
+            <View
+              style={{
+                backgroundColor: colors.surface,
+                borderRadius: 24,
+                padding: 20,
+                gap: 12,
+              }}
+            >
+              <SkeletonBlock width={170} height={26} color="#E8DDC0" />
+              <SkeletonBlock width="100%" height={18} color="#F1E8D1" />
+              <SkeletonBlock width="88%" height={18} color="#F1E8D1" />
+              <SkeletonBlock width="92%" height={18} color="#F1E8D1" />
+            </View>
+          </ScrollView>
+        ) : (
         <ScrollView contentContainerStyle={{ padding: 20, gap: 20, paddingBottom: 40 }}>
-          {isMetadataLoading || isManifestLoading ? (
-            <LoadingCard title="Loading book data" message="Preparing this book for reading." />
-          ) : null}
-          {metadataError || manifestError ? (
+          {!isBookDataLoading && (metadataError || manifestError) ? (
             <ErrorCard
               title="Book details unavailable"
               message="This book could not be loaded right now."
             />
           ) : null}
-          {!catalogBook ? (
+          {!isBookDataLoading && !catalogBook ? (
             <ErrorCard title="Book unavailable" message="This book is not available right now." />
           ) : null}
-          {catalogBook &&
+          {!isBookDataLoading &&
+          catalogBook &&
           ["language-missing", "volume-missing", "manifest-missing"].includes(remoteState) ? (
             <ErrorCard
               title="Edition unavailable"
@@ -427,6 +515,17 @@ export default function BookHomeScreen() {
               <Text style={{ color: colors.heroMuted, fontSize: 15, lineHeight: 22 }}>
                 Page {resumePage}
               </Text>
+              {isBookDataLoading ? (
+                <Text
+                  style={{
+                    color: colors.heroSubtle,
+                    fontSize: 13,
+                    fontWeight: "700",
+                  }}
+                >
+                  Preparing this book...
+                </Text>
+              ) : null}
             </View>
 
             <View style={{ flexDirection: "row", gap: 10 }}>
@@ -781,6 +880,7 @@ export default function BookHomeScreen() {
             </Text>
           </View>
         </ScrollView>
+        )}
       </SafeAreaView>
     </>
   );
