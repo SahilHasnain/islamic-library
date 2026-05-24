@@ -96,7 +96,7 @@ function ReaderPageSurface({
         width={screenWidth}
         height={Math.min(screenHeight, screenWidth / imageAspectRatio)}
         onZoomChange={onZoomChange}
-        onError={() => {}}
+        onError={() => { }}
       />
     );
   }
@@ -505,26 +505,6 @@ export default function ReaderScreen() {
                   }}
                 />
               </View>
-              <Text
-                style={{
-                  color: colors.textMuted,
-                  fontSize: 13,
-                  fontWeight: "700",
-                  textAlign: "center",
-                }}
-              >
-                {activePageDeliveryLabel}
-              </Text>
-              <Text
-                style={{
-                  color: colors.textMuted,
-                  fontSize: 12,
-                  lineHeight: 18,
-                  textAlign: "center",
-                }}
-              >
-                {activePageSupportMessage}
-              </Text>
             </View>
 
             <Pressable
