@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 import type { PublicCatalog } from "../data/types";
 
 export function useRemoteCatalog() {
-  const catalogUrl = process.env.EXPO_PUBLIC_LIBRARY_CATALOG_URL;
+  const catalogUrl = "https://raw.githubusercontent.com/SahilHasnain/islamic-library-assets/main/catalog.json";
   const [catalog, setCatalog] = useState<PublicCatalog | null>(null);
   const [isLoading, setIsLoading] = useState(Boolean(catalogUrl));
   const [error, setError] = useState<string | null>(null);
