@@ -2,6 +2,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  BackHandler,
   FlatList,
   Modal,
   Platform,
@@ -14,6 +15,7 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
+import { SessionCompletionModal } from "../../../../../components/session-completion-modal";
 import { ZoomableReaderImage } from "../../../../../components/zoomable-reader-image";
 import { useBookmarks } from "../../../../../hooks/useBookmarks";
 import { useReaderPreferences } from "../../../../../hooks/useReaderPreferences";
@@ -175,7 +177,16 @@ export default function ReaderScreen() {
   const [pageInput, setPageInput] = useState(String(routePage));
   const [isZoomed, setIsZoomed] = useState(false);
   const [isPageModalVisible, setIsPageModalVisible] = useState(false);
+  const [showCompletionModal, setShowCompletionModal] = useState(false);
+  const [completionData, setCompletionData] = useState<{
+    pagesRead: number;
+    durationMinutes: number;
+  } | null>(null);
   const flatListRef = useRef<FlatList<number>>(null);
+  const sessionStartTime = useRef(Date.now());
+  const sessionMinPage = useRef(routePage);
+  const sessionMaxPage = useRef(routePage);
+  const sessionCompletedRef = useRef(false);
   const pages = useMemo(
     () => Array.from({ length: totalPages }, (_, index) => index + 1),
     [totalPages],
@@ -236,6 +247,57 @@ export default function ReaderScreen() {
   useEffect(() => {
     setPageInput(String(currentPage));
   }, [currentPage]);
+
+  useEffect(() => {
+    sessionMinPage.current = Math.min(sessionMinPage.current, currentPage);
+    sessionMaxPage.current = Math.max(sessionMaxPage.current, currentPage);
+  }, [currentPage]);
+
+  const completeSession = useCallback(async () => {
+    if (sessionCompletedRef.current) {
+      return false;
+    }
+
+    const endTime = Date.now();
+    const durationMs = endTime - sessionStartTime.current;
+    const durationMinutes = Math.max(1, Math.round(durationMs / 60000));
+    const pagesRead = sessionMaxPage.current - sessionMinPage.current + 1;
+    const shouldShowModal = durationMs >= 180000 || pagesRead >= 5;
+
+    if (durationMs >= 30000) {
+      sessionCompletedRef.current = true;
+
+      if (shouldShowModal) {
+        setCompletionData({
+          pagesRead,
+          durationMinutes,
+        });
+        setShowCompletionModal(true);
+        return true;
+      }
+    }
+
+    return false;
+  }, []);
+
+  useEffect(() => {
+    const backHandler = BackHandler.addEventListener("hardwareBackPress", () => {
+      if (showCompletionModal) {
+        setShowCompletionModal(false);
+        setCompletionData(null);
+        return true;
+      }
+
+      void completeSession().then((showingModal) => {
+        if (!showingModal) {
+          router.back();
+        }
+      });
+      return true;
+    });
+
+    return () => backHandler.remove();
+  }, [completeSession, router, showCompletionModal]);
 
   async function toggleBookmark() {
     if (existingBookmark) {
@@ -391,7 +453,13 @@ export default function ReaderScreen() {
         }}
       >
         <Pressable
-          onPress={() => router.back()}
+          onPress={() => {
+            void completeSession().then((showingModal) => {
+              if (!showingModal) {
+                router.back();
+              }
+            });
+          }}
           style={({ pressed }) => ({
             width: 40,
             height: 40,
@@ -609,6 +677,29 @@ export default function ReaderScreen() {
           </Pressable>
         </Pressable>
       </Modal>
+
+      {showCompletionModal && completionData && (
+        <SessionCompletionModal
+          visible={showCompletionModal}
+          panelColor={colors.panel}
+          panelTextColor={colors.panelText}
+          mutedTextColor={colors.textMuted}
+          primaryActionColor={colors.accent}
+          primaryActionTextColor={theme === "night" ? "#0F1714" : "#173D31"}
+          secondaryActionColor={theme === "night" ? "#21302B" : "#F4ECD9"}
+          pagesRead={completionData.pagesRead}
+          durationMinutes={completionData.durationMinutes}
+          onContinue={() => {
+            setShowCompletionModal(false);
+            setCompletionData(null);
+          }}
+          onGoHome={() => {
+            setShowCompletionModal(false);
+            setCompletionData(null);
+            router.replace("/(tabs)/" as any);
+          }}
+        />
+      )}
     </View>
   );
 }
