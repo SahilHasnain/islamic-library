@@ -12,6 +12,11 @@ on:
           - development
           - preview
           - production
+  push:
+    branches:
+      - main
+    paths:
+      - app.json
 
 jobs:
   build-android:
@@ -115,4 +120,3 @@ jobs:
           cd android
           bundle install
           fastlane android deploy
-
