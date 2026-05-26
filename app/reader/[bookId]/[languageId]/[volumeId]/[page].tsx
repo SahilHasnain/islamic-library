@@ -3,9 +3,11 @@ import { useLocalSearchParams, useRouter } from "expo-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   FlatList,
+  Modal,
   Platform,
   Pressable,
   Text,
+  TextInput,
   useWindowDimensions,
   View,
   type ViewToken,
@@ -170,7 +172,9 @@ export default function ReaderScreen() {
   );
   const routePage = clampPage(Number(page ?? 1) || 1);
   const [currentPage, setCurrentPage] = useState(routePage);
+  const [pageInput, setPageInput] = useState(String(routePage));
   const [isZoomed, setIsZoomed] = useState(false);
+  const [isPageModalVisible, setIsPageModalVisible] = useState(false);
   const flatListRef = useRef<FlatList<number>>(null);
   const pages = useMemo(
     () => Array.from({ length: totalPages }, (_, index) => index + 1),
@@ -229,6 +233,10 @@ export default function ReaderScreen() {
     });
   }, [routePage]);
 
+  useEffect(() => {
+    setPageInput(String(currentPage));
+  }, [currentPage]);
+
   async function toggleBookmark() {
     if (existingBookmark) {
       await removeBookmark(existingBookmark.id);
@@ -246,12 +254,20 @@ export default function ReaderScreen() {
   const moveToPage = useCallback(
     (nextPage: number) => {
       const safePage = clampPage(nextPage);
-      router.replace(
-        `/reader/${readingBookId}/${resolvedLanguageId}/${resolvedVolumeId}/${safePage}` as const,
-      );
+      setCurrentPage(safePage);
+      flatListRef.current?.scrollToIndex({
+        index: safePage - 1,
+        animated: true,
+      });
     },
-    [clampPage, readingBookId, resolvedLanguageId, resolvedVolumeId, router],
+    [clampPage],
   );
+
+  const submitPageInput = useCallback(() => {
+    const parsedPage = Number(pageInput.replace(/[^0-9]/g, ""));
+    moveToPage(Number.isFinite(parsedPage) ? parsedPage : currentPage);
+    setIsPageModalVisible(false);
+  }, [currentPage, moveToPage, pageInput]);
 
   const handleViewableItemsChanged = useRef(
     ({ viewableItems }: { viewableItems: ViewToken[] }) => {
@@ -464,26 +480,22 @@ export default function ReaderScreen() {
             }}
           >
             <Pressable
-              disabled={currentPage <= 1}
-              onPress={() => moveToPage(currentPage - 1)}
+              onPress={() => setIsPageModalVisible(true)}
               style={({ pressed }) => ({
-                width: 48,
+                minWidth: 72,
                 height: 48,
                 borderRadius: 24,
-                backgroundColor: currentPage <= 1 ? colors.overlayMuted : colors.accent,
+                paddingHorizontal: 18,
+                backgroundColor: theme === "night" ? "#284239" : "#2A4A3D",
                 alignItems: "center",
                 justifyContent: "center",
-                opacity: pressed && currentPage > 1 ? 0.8 : 1,
+                opacity: pressed ? 0.8 : 1,
               })}
             >
-              <Ionicons
-                name="chevron-back"
-                size={24}
-                color={currentPage <= 1 ? colors.textMuted : colors.textStrong}
-              />
+              <Text style={{ color: colors.text, fontSize: 14, fontWeight: "800" }}>Go</Text>
             </Pressable>
 
-            <View style={{ flex: 1, alignItems: "center", gap: 8 }}>
+            <View style={{ flex: 1, alignItems: "center", gap: 8, transform: [{ translateX: 14 }] }}>
               <Text style={{ color: colors.text, fontSize: 18, fontWeight: "800" }}>
                 Page {currentPage} of {totalPages}
               </Text>
@@ -507,28 +519,96 @@ export default function ReaderScreen() {
               </View>
             </View>
 
-            <Pressable
-              disabled={currentPage >= totalPages}
-              onPress={() => moveToPage(currentPage + 1)}
-              style={({ pressed }) => ({
-                width: 48,
-                height: 48,
-                borderRadius: 24,
-                backgroundColor: currentPage >= totalPages ? colors.overlayMuted : colors.accent,
-                alignItems: "center",
-                justifyContent: "center",
-                opacity: pressed && currentPage < totalPages ? 0.8 : 1,
-              })}
-            >
-              <Ionicons
-                name="chevron-forward"
-                size={24}
-                color={currentPage >= totalPages ? colors.textMuted : colors.textStrong}
-              />
-            </Pressable>
+            <View style={{ width: 72 }} />
           </View>
         </View>
       </SafeAreaView>
+
+      <Modal
+        visible={isPageModalVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setIsPageModalVisible(false)}
+      >
+        <Pressable
+          onPress={() => setIsPageModalVisible(false)}
+          style={{
+            flex: 1,
+            backgroundColor: "rgba(0, 0, 0, 0.45)",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: 24,
+          }}
+        >
+          <Pressable
+            onPress={() => {}}
+            style={{
+              width: "100%",
+              maxWidth: 360,
+              borderRadius: 24,
+              backgroundColor: colors.panel,
+              padding: 20,
+              gap: 16,
+            }}
+          >
+            <Text style={{ color: colors.panelText, fontSize: 18, fontWeight: "800" }}>
+              Go to page
+            </Text>
+            <TextInput
+              autoFocus
+              value={pageInput}
+              onChangeText={(value) => setPageInput(value.replace(/[^0-9]/g, ""))}
+              onSubmitEditing={submitPageInput}
+              keyboardType="number-pad"
+              placeholder={`Enter page 1-${totalPages}`}
+              placeholderTextColor={theme === "night" ? "#8FA19A" : "#7A8A82"}
+              style={{
+                height: 48,
+                borderRadius: 16,
+                paddingHorizontal: 16,
+                backgroundColor: theme === "night" ? "#21302B" : "#F4ECD9",
+                color: colors.panelText,
+                fontSize: 16,
+                fontWeight: "600",
+              }}
+            />
+            <View style={{ flexDirection: "row", justifyContent: "flex-end", gap: 10 }}>
+              <Pressable
+                onPress={() => setIsPageModalVisible(false)}
+                style={({ pressed }) => ({
+                  height: 44,
+                  borderRadius: 22,
+                  paddingHorizontal: 18,
+                  alignItems: "center",
+                  justifyContent: "center",
+                  backgroundColor: theme === "night" ? "#21302B" : "#F4ECD9",
+                  opacity: pressed ? 0.8 : 1,
+                })}
+              >
+                <Text style={{ color: colors.panelText, fontSize: 14, fontWeight: "600" }}>
+                  Cancel
+                </Text>
+              </Pressable>
+              <Pressable
+                onPress={submitPageInput}
+                style={({ pressed }) => ({
+                  height: 44,
+                  borderRadius: 22,
+                  paddingHorizontal: 18,
+                  alignItems: "center",
+                  justifyContent: "center",
+                  backgroundColor: theme === "night" ? "#284239" : "#2A4A3D",
+                  opacity: pressed ? 0.8 : 1,
+                })}
+              >
+                <Text style={{ color: colors.text, fontSize: 14, fontWeight: "800" }}>
+                  Go
+                </Text>
+              </Pressable>
+            </View>
+          </Pressable>
+        </Pressable>
+      </Modal>
     </View>
   );
 }
