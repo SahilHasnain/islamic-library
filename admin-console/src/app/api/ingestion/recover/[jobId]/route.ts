@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { recoverJob, type RecoveryAction } from "@/lib/ingestion";
+import { triggerQueueProcessing } from "@/lib/job-queue";
 
 type Params = {
   params: Promise<{ jobId: string }>;
@@ -17,6 +18,12 @@ export async function POST(request: Request, context: Params) {
     }
 
     const result = await recoverJob(jobId, action);
+
+    // Trigger queue processing after requeuing
+    triggerQueueProcessing().catch((error) => {
+      console.error("Failed to trigger queue processing:", error);
+    });
+
     return NextResponse.json(result);
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown error";

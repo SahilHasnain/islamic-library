@@ -2,9 +2,9 @@ import { NextResponse } from "next/server";
 import { Query } from "node-appwrite";
 
 import {
-  APPWRITE_IDS,
-  appwriteDatabases,
-  ID,
+    APPWRITE_IDS,
+    appwriteDatabases,
+    ID,
 } from "@/lib/appwrite";
 
 const ALLOWED_CATEGORIES = [
@@ -173,6 +173,11 @@ export async function POST(request: Request) {
         updatedAt: timestamp,
       },
     );
+
+    // Trigger queue processing in the background
+    triggerQueueProcessing().catch((error) => {
+      console.error("Failed to trigger queue processing:", error);
+    });
 
     return NextResponse.json({
       success: true,

@@ -6,7 +6,9 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "add-attributes": "node ./scripts/add-missing-attributes.mjs",
+    "test-queue": "node ./scripts/test-queue.mjs"
   },
   "dependencies": {
     "next": "16.2.6",
