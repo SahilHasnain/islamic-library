@@ -1,7 +1,7 @@
 import { Image } from "expo-image";
 import { Link, useFocusEffect } from "expo-router";
-import { useCallback, useMemo, useState } from "react";
-import { Pressable, ScrollView, Text, View } from "react-native";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { Pressable, ScrollView, Text, TextInput, View } from "react-native";
 
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import {
@@ -463,8 +463,9 @@ export default function LibraryScreen() {
   const insets = useSafeAreaInsets();
   const [selectedCategory, setSelectedCategory] = useState<string>("all");
   const [selectedLanguage, setSelectedLanguage] = useState<string>("all");
-  const [sortBy, setSortBy] = useState<"catalog" | "alpha" | "recent">("catalog");
+  const [sortBy, setSortBy] = useState<"alpha" | "recent">("recent");
   const [searchQuery, setSearchQuery] = useState<string>("");
+  const [showLanguageMenu, setShowLanguageMenu] = useState<boolean>(false);
   const [bookMetadataMap, setBookMetadataMap] = useState<Record<string, { languages: string[] }>>({});
 
   useFocusEffect(
@@ -595,7 +596,6 @@ export default function LibraryScreen() {
         return new Date(bProgress.updatedAt).getTime() - new Date(aProgress.updatedAt).getTime();
       });
     }
-    // "catalog" keeps original order
 
     return books;
   }, [
@@ -619,6 +619,21 @@ export default function LibraryScreen() {
         }}
         showsVerticalScrollIndicator={false}
       >
+        {/* Language menu overlay - close menu when tapping outside */}
+        {showLanguageMenu ? (
+          <Pressable
+            onPress={() => setShowLanguageMenu(false)}
+            style={{
+              position: "absolute",
+              top: 0,
+              left: 0,
+              right: 0,
+              bottom: 0,
+              zIndex: 999,
+            }}
+          />
+        ) : null}
+
         <PageHeader
           title="Library"
           subtitle="Continue with steadiness. Let the library keep the next step ready for you."
@@ -764,17 +779,10 @@ export default function LibraryScreen() {
           {/* Filters and Sort */}
           <View style={{ flexDirection: "row", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
             <MetaText>{filteredAndSortedBooks.length} books</MetaText>
-            <Text style={{ color: colors.textMuted, fontSize: typography.meta }}>•</Text>
+            <Text style={{ color: colors.textMuted, fontSize: typography.caption }}>•</Text>
             <Pressable
               onPress={() => {
-                const sortOptions: Array<"catalog" | "alpha" | "recent"> = [
-                  "catalog",
-                  "alpha",
-                  "recent",
-                ];
-                const currentIndex = sortOptions.indexOf(sortBy);
-                const nextIndex = (currentIndex + 1) % sortOptions.length;
-                setSortBy(sortOptions[nextIndex]);
+                setSortBy(sortBy === "alpha" ? "recent" : "alpha");
               }}
               style={{
                 flexDirection: "row",
@@ -782,32 +790,92 @@ export default function LibraryScreen() {
                 gap: 4,
               }}
             >
-              <MetaText>
-                Sort: {sortBy === "catalog" ? "Default" : sortBy === "alpha" ? "A-Z" : "Recent"}
-              </MetaText>
-              <Text style={{ color: colors.textMuted, fontSize: typography.meta }}>▾</Text>
+              <MetaText>{sortBy === "alpha" ? "A-Z" : "Recent"}</MetaText>
+              <Text style={{ color: colors.textMuted, fontSize: typography.caption }}>▾</Text>
             </Pressable>
             {uniqueLanguages.length > 0 ? (
               <>
-                <Text style={{ color: colors.textMuted, fontSize: typography.meta }}>•</Text>
-                <Pressable
-                  onPress={() => {
-                    const allLanguages = ["all", ...uniqueLanguages];
-                    const currentIndex = allLanguages.indexOf(selectedLanguage);
-                    const nextIndex = (currentIndex + 1) % allLanguages.length;
-                    setSelectedLanguage(allLanguages[nextIndex]);
-                  }}
-                  style={{
-                    flexDirection: "row",
-                    alignItems: "center",
-                    gap: 4,
-                  }}
-                >
-                  <MetaText>
-                    Language: {selectedLanguage === "all" ? "All" : selectedLanguage}
-                  </MetaText>
-                  <Text style={{ color: colors.textMuted, fontSize: typography.meta }}>▾</Text>
-                </Pressable>
+                <Text style={{ color: colors.textMuted, fontSize: typography.caption }}>•</Text>
+                <View style={{ position: "relative" }}>
+                  <Pressable
+                    onPress={() => setShowLanguageMenu(!showLanguageMenu)}
+                    style={{
+                      flexDirection: "row",
+                      alignItems: "center",
+                      gap: 4,
+                    }}
+                  >
+                    <MetaText>{selectedLanguage === "all" ? "All" : selectedLanguage}</MetaText>
+                    <Text style={{ color: colors.textMuted, fontSize: typography.caption }}>▾</Text>
+                  </Pressable>
+                  {showLanguageMenu ? (
+                    <View
+                      style={{
+                        position: "absolute",
+                        top: 24,
+                        right: 0,
+                        backgroundColor: colors.surface,
+                        borderRadius: radii.md,
+                        paddingVertical: 8,
+                        minWidth: 120,
+                        shadowColor: "#000",
+                        shadowOffset: { width: 0, height: 2 },
+                        shadowOpacity: 0.1,
+                        shadowRadius: 8,
+                        elevation: 4,
+                        zIndex: 1000,
+                      }}
+                    >
+                      <Pressable
+                        onPress={() => {
+                          setSelectedLanguage("all");
+                          setShowLanguageMenu(false);
+                        }}
+                        style={{
+                          paddingHorizontal: 16,
+                          paddingVertical: 10,
+                          backgroundColor:
+                            selectedLanguage === "all" ? colors.surfaceMuted : "transparent",
+                        }}
+                      >
+                        <Text
+                          style={{
+                            color: colors.text,
+                            fontSize: typography.bodySmall,
+                            fontWeight: selectedLanguage === "all" ? "800" : "400",
+                          }}
+                        >
+                          All Languages
+                        </Text>
+                      </Pressable>
+                      {uniqueLanguages.map((lang) => (
+                        <Pressable
+                          key={lang}
+                          onPress={() => {
+                            setSelectedLanguage(lang);
+                            setShowLanguageMenu(false);
+                          }}
+                          style={{
+                            paddingHorizontal: 16,
+                            paddingVertical: 10,
+                            backgroundColor:
+                              selectedLanguage === lang ? colors.surfaceMuted : "transparent",
+                          }}
+                        >
+                          <Text
+                            style={{
+                              color: colors.text,
+                              fontSize: typography.bodySmall,
+                              fontWeight: selectedLanguage === lang ? "800" : "400",
+                            }}
+                          >
+                            {lang}
+                          </Text>
+                        </Pressable>
+                      ))}
+                    </View>
+                  ) : null}
+                </View>
               </>
             ) : null}
           </View>
