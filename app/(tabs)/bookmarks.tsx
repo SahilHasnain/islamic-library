@@ -1,4 +1,5 @@
-import { Link } from "expo-router";
+import { Link, useFocusEffect } from "expo-router";
+import { useCallback } from "react";
 import { Pressable, ScrollView, Text } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
@@ -8,9 +9,15 @@ import { useBookmarks } from "../../hooks/useBookmarks";
 import { useRemoteCatalog } from "../../hooks/useRemoteCatalog";
 
 export default function BookmarksScreen() {
-  const { error, filteredBookmarks, isLoaded, removeBookmark } = useBookmarks();
+  const { error, filteredBookmarks, isLoaded, refreshBookmarks, removeBookmark } = useBookmarks();
   const { catalog } = useRemoteCatalog();
   const insets = useSafeAreaInsets();
+
+  useFocusEffect(
+    useCallback(() => {
+      void refreshBookmarks();
+    }, [refreshBookmarks]),
+  );
 
   return (
     <Screen>

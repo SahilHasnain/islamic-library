@@ -1,5 +1,6 @@
 import { Image } from "expo-image";
-import { Link } from "expo-router";
+import { Link, useFocusEffect } from "expo-router";
+import { useCallback } from "react";
 import { Pressable, ScrollView, Text, View } from "react-native";
 
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -421,7 +422,7 @@ function InProgressCard({
 }
 
 export default function LibraryScreen() {
-  const { error, isLoaded, latestProgressByBook } = useReadingProgress();
+  const { error, isLoaded, latestProgressByBook, refreshProgress } = useReadingProgress();
   const {
     catalog,
     error: catalogError,
@@ -430,6 +431,12 @@ export default function LibraryScreen() {
     isLoading: isCatalogLoading,
   } = useRemoteCatalog();
   const insets = useSafeAreaInsets();
+
+  useFocusEffect(
+    useCallback(() => {
+      void refreshProgress();
+    }, [refreshProgress]),
+  );
 
   const remoteBooks = catalog?.books ?? [];
   const inProgressBooks = remoteBooks.filter((book) => latestProgressByBook[book.id]);

@@ -1,3 +1,5 @@
+import { useFocusEffect } from "expo-router";
+import { useCallback } from "react";
 import { ScrollView, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
@@ -15,10 +17,18 @@ const colors = {
 };
 
 export default function JourneyScreen() {
-  const { latestProgressByBook, progressMap } = useReadingProgress();
-  const { activePlanMap } = useReadingPlans();
+  const { latestProgressByBook, progressMap, refreshProgress } = useReadingProgress();
+  const { activePlanMap, refreshPlans } = useReadingPlans();
   const { catalog } = useRemoteCatalog();
   const insets = useSafeAreaInsets();
+
+  useFocusEffect(
+    useCallback(() => {
+      void refreshProgress();
+      void refreshPlans();
+    }, [refreshProgress, refreshPlans]),
+  );
+
   const totalPagesRead = Object.values(progressMap).reduce((sum, progress) => sum + progress.page, 0);
   const booksInProgress = Object.keys(latestProgressByBook).length;
   const activePlans = Object.values(activePlanMap).map((plan) => ({

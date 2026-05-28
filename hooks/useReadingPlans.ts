@@ -16,34 +16,34 @@ export function useReadingPlans(bookId?: string, languageId?: string, volumeId?:
   const [isLoaded, setIsLoaded] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const loadPlans = useCallback(async () => {
+    try {
+      const stored = await AsyncStorage.getItem(STORAGE_KEY);
+
+      setActivePlanMap(stored ? (JSON.parse(stored) as ActivePlanMap) : {});
+      setError(null);
+      setIsLoaded(true);
+    } catch {
+      setActivePlanMap({});
+      setError("reading-plans-load-failed");
+      setIsLoaded(true);
+    }
+  }, []);
+
   useEffect(() => {
     let isMounted = true;
 
-    async function loadPlans() {
-      try {
-        const stored = await AsyncStorage.getItem(STORAGE_KEY);
-        if (!isMounted) {
-          return;
-        }
-
-        setActivePlanMap(stored ? (JSON.parse(stored) as ActivePlanMap) : {});
-        setError(null);
-        setIsLoaded(true);
-      } catch {
-        if (isMounted) {
-          setActivePlanMap({});
-          setError("reading-plans-load-failed");
-          setIsLoaded(true);
-        }
+    void loadPlans().then(() => {
+      if (!isMounted) {
+        setActivePlanMap({});
+        setIsLoaded(false);
       }
-    }
-
-    void loadPlans();
+    });
 
     return () => {
       isMounted = false;
     };
-  }, []);
+  }, [loadPlans]);
 
   const activePlan = useMemo(() => {
     if (!bookId) {
@@ -100,13 +100,18 @@ export function useReadingPlans(bookId?: string, languageId?: string, volumeId?:
     await persist({});
   }, [persist]);
 
+  const refreshPlans = useCallback(async () => {
+    await loadPlans();
+  }, [loadPlans]);
+
   return {
     error,
     isLoaded,
     activePlan,
     activePlanMap,
     clearAllPlans,
-    selectPlan,
     clearPlan,
+    refreshPlans,
+    selectPlan,
   };
 }

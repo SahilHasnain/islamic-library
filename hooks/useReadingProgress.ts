@@ -16,42 +16,42 @@ export function useReadingProgress(bookId?: string, languageId?: string, volumeI
   const [isLoaded, setIsLoaded] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const loadProgress = useCallback(async () => {
+    try {
+      const stored = await AsyncStorage.getItem(STORAGE_KEY);
+
+      if (!stored) {
+        setProgressMap({});
+        setError(null);
+        setIsLoaded(true);
+        return;
+      }
+
+      const parsed = JSON.parse(stored) as ReadingProgressMap;
+      setProgressMap(parsed);
+      setError(null);
+      setIsLoaded(true);
+    } catch {
+      setProgressMap({});
+      setError("reading-progress-load-failed");
+      setIsLoaded(true);
+    }
+  }, []);
+
   useEffect(() => {
     let isMounted = true;
 
-    async function loadProgress() {
-      try {
-        const stored = await AsyncStorage.getItem(STORAGE_KEY);
-        if (!isMounted) {
-          return;
-        }
-
-        if (!stored) {
-          setProgressMap({});
-          setError(null);
-          setIsLoaded(true);
-          return;
-        }
-
-        const parsed = JSON.parse(stored) as ReadingProgressMap;
-        setProgressMap(parsed);
-        setError(null);
-        setIsLoaded(true);
-      } catch {
-        if (isMounted) {
-          setProgressMap({});
-          setError("reading-progress-load-failed");
-          setIsLoaded(true);
-        }
+    void loadProgress().then(() => {
+      if (!isMounted) {
+        setProgressMap({});
+        setIsLoaded(false);
       }
-    }
-
-    void loadProgress();
+    });
 
     return () => {
       isMounted = false;
     };
-  }, []);
+  }, [loadProgress]);
 
   const progress = useMemo(() => {
     if (!bookId) {
@@ -120,12 +120,17 @@ export function useReadingProgress(bookId?: string, languageId?: string, volumeI
     }
   }, []);
 
+  const refreshProgress = useCallback(async () => {
+    await loadProgress();
+  }, [loadProgress]);
+
   return {
     error,
     isLoaded,
     latestProgressByBook,
     progress,
     progressMap,
+    refreshProgress,
     resetProgress,
     saveProgress,
   };

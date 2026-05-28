@@ -10,34 +10,34 @@ export function useBookmarks(bookId?: string) {
   const [isLoaded, setIsLoaded] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const loadBookmarks = useCallback(async () => {
+    try {
+      const stored = await AsyncStorage.getItem(STORAGE_KEY);
+
+      setBookmarks(stored ? (JSON.parse(stored) as Bookmark[]) : []);
+      setError(null);
+      setIsLoaded(true);
+    } catch {
+      setBookmarks([]);
+      setError("bookmarks-load-failed");
+      setIsLoaded(true);
+    }
+  }, []);
+
   useEffect(() => {
     let isMounted = true;
 
-    async function loadBookmarks() {
-      try {
-        const stored = await AsyncStorage.getItem(STORAGE_KEY);
-        if (!isMounted) {
-          return;
-        }
-
-        setBookmarks(stored ? (JSON.parse(stored) as Bookmark[]) : []);
-        setError(null);
-        setIsLoaded(true);
-      } catch {
-        if (isMounted) {
-          setBookmarks([]);
-          setError("bookmarks-load-failed");
-          setIsLoaded(true);
-        }
+    void loadBookmarks().then(() => {
+      if (!isMounted) {
+        setBookmarks([]);
+        setIsLoaded(false);
       }
-    }
-
-    void loadBookmarks();
+    });
 
     return () => {
       isMounted = false;
     };
-  }, []);
+  }, [loadBookmarks]);
 
   const filteredBookmarks = useMemo(() => {
     if (!bookId) {
@@ -103,6 +103,10 @@ export function useBookmarks(bookId?: string) {
     [bookmarks],
   );
 
+  const refreshBookmarks = useCallback(async () => {
+    await loadBookmarks();
+  }, [loadBookmarks]);
+
   return {
     error,
     isLoaded,
@@ -110,6 +114,7 @@ export function useBookmarks(bookId?: string) {
     filteredBookmarks,
     addBookmark,
     clearBookmarks,
+    refreshBookmarks,
     removeBookmark,
     getBookmarkForPage,
   };
