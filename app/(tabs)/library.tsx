@@ -399,7 +399,7 @@ function InProgressCard({
           borderRadius: radii.md,
           padding: spacing.card,
           gap: 6,
-          width: 280,
+          width: 260,
         }}
       >
         <Text
@@ -554,12 +554,16 @@ export default function LibraryScreen() {
         </SectionCard>
 
         {additionalInProgressBooks.length > 0 ? (
-          <SectionCard>
-            <CardTitle>In progress</CardTitle>
+          <View style={{ gap: 12 }}>
+            <View style={{ paddingHorizontal: spacing.page }}>
+              <CardTitle>In progress</CardTitle>
+            </View>
             <ScrollView
               horizontal
               showsHorizontalScrollIndicator={false}
-              contentContainerStyle={{ gap: 12, paddingRight: spacing.page }}
+              contentContainerStyle={{ gap: 12, paddingLeft: spacing.page, paddingRight: spacing.page }}
+              snapToInterval={260 + 12}
+              decelerationRate="fast"
             >
               {additionalInProgressBooks.map((book) => {
                 const progress = latestProgressByBook[book.id];
@@ -576,7 +580,7 @@ export default function LibraryScreen() {
                 );
               })}
             </ScrollView>
-          </SectionCard>
+          </View>
         ) : null}
 
         <SectionCard>
