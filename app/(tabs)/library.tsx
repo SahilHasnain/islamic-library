@@ -399,12 +399,19 @@ function InProgressCard({
           borderRadius: radii.md,
           padding: spacing.card,
           gap: 6,
+          width: 280,
         }}
       >
-        <Text style={{ color: colors.text, fontSize: typography.subtitle, fontWeight: "800" }}>
+        <Text
+          style={{ color: colors.text, fontSize: typography.subtitle, fontWeight: "800" }}
+          numberOfLines={2}
+        >
           {title}
         </Text>
-        <Text style={{ color: colors.textMuted, fontSize: typography.bodySmall, lineHeight: 22 }}>
+        <Text
+          style={{ color: colors.textMuted, fontSize: typography.bodySmall, lineHeight: 22 }}
+          numberOfLines={2}
+        >
           {subtitle ?? "Continue from your saved reading position"}
         </Text>
         <MetaText>{getContinueLine(page)}</MetaText>
@@ -549,7 +556,11 @@ export default function LibraryScreen() {
         {additionalInProgressBooks.length > 0 ? (
           <SectionCard>
             <CardTitle>In progress</CardTitle>
-            <View style={{ gap: 12 }}>
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={{ gap: 12, paddingRight: spacing.page }}
+            >
               {additionalInProgressBooks.map((book) => {
                 const progress = latestProgressByBook[book.id];
                 return (
@@ -564,7 +575,7 @@ export default function LibraryScreen() {
                   />
                 );
               })}
-            </View>
+            </ScrollView>
           </SectionCard>
         ) : null}
 
