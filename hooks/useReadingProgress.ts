@@ -11,6 +11,31 @@ function getProgressKey(bookId: string, languageId: string, volumeId: string) {
   return `${bookId}::${languageId}::${volumeId}`;
 }
 
+function areNumberArraysEqual(left?: number[], right?: number[]) {
+  if (left === right) {
+    return true;
+  }
+
+  if (!left || !right || left.length !== right.length) {
+    return false;
+  }
+
+  return left.every((value, index) => value === right[index]);
+}
+
+function areProgressEntriesEqual(left?: ReadingProgress, right?: ReadingProgress) {
+  return (
+    !!left &&
+    !!right &&
+    left.bookId === right.bookId &&
+    left.languageId === right.languageId &&
+    left.volumeId === right.volumeId &&
+    left.page === right.page &&
+    left.sessionCount === right.sessionCount &&
+    areNumberArraysEqual(left.pagesViewed, right.pagesViewed)
+  );
+}
+
 export function useReadingProgress(bookId?: string, languageId?: string, volumeId?: string) {
   const [progressMap, setProgressMap] = useState<ReadingProgressMap>({});
   const [isLoaded, setIsLoaded] = useState(false);
@@ -96,6 +121,11 @@ export function useReadingProgress(bookId?: string, languageId?: string, volumeI
         nextProgress.languageId,
         nextProgress.volumeId,
       );
+
+      if (areProgressEntriesEqual(currentMap[key], nextProgress)) {
+        return currentMap;
+      }
+
       const nextMap = {
         ...currentMap,
         [key]: nextProgress,

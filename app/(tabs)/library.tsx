@@ -18,6 +18,7 @@ import {
   SectionCard,
 } from "../../components/ui";
 import { colors, radii, spacing, typography } from "../../constants/theme";
+import { useBookCompletions } from "../../hooks/useBookCompletions";
 import { useReadingProgress } from "../../hooks/useReadingProgress";
 import { useRemoteBookData } from "../../hooks/useRemoteBookData";
 import { useRemoteCatalog } from "../../hooks/useRemoteCatalog";
@@ -423,6 +424,7 @@ function InProgressCard({
 
 export default function LibraryScreen() {
   const { error, isLoaded, latestProgressByBook, refreshProgress } = useReadingProgress();
+  const { completedBookIds, completionMap, refreshCompletions } = useBookCompletions();
   const {
     catalog,
     error: catalogError,
@@ -435,11 +437,16 @@ export default function LibraryScreen() {
   useFocusEffect(
     useCallback(() => {
       void refreshProgress();
-    }, [refreshProgress]),
+      void refreshCompletions();
+    }, [refreshCompletions, refreshProgress]),
   );
 
   const remoteBooks = catalog?.books ?? [];
-  const inProgressBooks = remoteBooks.filter((book) => latestProgressByBook[book.id]);
+  const completedBookIdSet = new Set(completedBookIds);
+  const completedBooks = remoteBooks.filter((book) => completedBookIdSet.has(book.id));
+  const inProgressBooks = remoteBooks.filter(
+    (book) => latestProgressByBook[book.id] && !completedBookIdSet.has(book.id),
+  );
   const featuredBook = inProgressBooks[0] ?? remoteBooks[0];
   const featuredProgress = featuredBook ? latestProgressByBook[featuredBook.id] : undefined;
   const additionalInProgressBooks = featuredBook
@@ -588,6 +595,39 @@ export default function LibraryScreen() {
               })}
             </ScrollView>
           </View>
+        ) : null}
+
+        {completedBooks.length > 0 ? (
+          <SectionCard backgroundColor={colors.surfaceMuted} gap={spacing.gapXl}>
+            <CardTitle>Completed books</CardTitle>
+            {completedBooks.map((book) => {
+              const completion = Object.values(completionMap)
+                .filter((entry) => entry.bookId === book.id)
+                .sort(
+                  (left, right) =>
+                    new Date(right.completedAt).getTime() -
+                    new Date(left.completedAt).getTime(),
+                )[0];
+
+              return (
+                <LibraryBookCard
+                  key={book.id}
+                  bookId={book.id}
+                  title={book.title}
+                  subtitle={book.subtitle ?? "Completed"}
+                  category={
+                    completion
+                      ? `Completed ${new Date(completion.completedAt).toLocaleDateString()}`
+                      : "Completed"
+                  }
+                  page={completion?.finalPage}
+                  languageId={completion?.languageId}
+                  volumeId={completion?.volumeId}
+                  coverImage={book.coverImage}
+                />
+              );
+            })}
+          </SectionCard>
         ) : null}
 
         <SectionCard>

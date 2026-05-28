@@ -64,6 +64,8 @@ export type ReadingProgress = {
   volumeId: string;
   page: number;
   updatedAt: string;
+  sessionCount?: number;
+  pagesViewed?: number[];
 };
 
 export type Bookmark = {
@@ -83,6 +85,17 @@ export type ActiveReadingPlan = {
   volumeId: string;
   planId: string;
   startedAt: string;
+};
+
+export type BookCompletion = {
+  bookId: string;
+  languageId: string;
+  volumeId: string;
+  completedAt: string;
+  totalPages: number;
+  finalPage: number;
+  totalPagesRead?: number;
+  totalMinutes?: number;
 };
 
 export type PublicCatalogBook = {

@@ -15,8 +15,10 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
+import { BookCompletionModal } from "../../../../../components/book-completion-modal";
 import { SessionCompletionModal } from "../../../../../components/session-completion-modal";
 import { ZoomableReaderImage } from "../../../../../components/zoomable-reader-image";
+import { useBookCompletions } from "../../../../../hooks/useBookCompletions";
 import { useBookmarks } from "../../../../../hooks/useBookmarks";
 import { useReaderPreferences } from "../../../../../hooks/useReaderPreferences";
 import { useReadingProgress } from "../../../../../hooks/useReadingProgress";
@@ -62,6 +64,9 @@ const themeColors = {
     panelText: "#EAF1ED",
   },
 };
+
+const BOOK_COMPLETION_FINAL_PAGE_WINDOW = 3;
+const BOOK_COMPLETION_FINAL_PAGE_MS = 120000;
 
 function ReaderPageSurface({
   manifest,
@@ -161,13 +166,18 @@ export default function ReaderScreen() {
     selectedVolume,
   } = useRemoteBookData(bookId, languageId, volumeId);
   const readingBookId = Array.isArray(bookId) ? bookId[0] : bookId ?? "";
-  const { saveProgress } = useReadingProgress(readingBookId, languageId, volumeId);
+  const { progress, saveProgress } = useReadingProgress(readingBookId, languageId, volumeId);
   const { addBookmark, getBookmarkForPage, removeBookmark } = useBookmarks(readingBookId);
   const { theme, cycleTheme } = useReaderPreferences();
   const colors = themeColors[theme];
   const totalPages = manifest?.totalPages ?? 1;
   const resolvedLanguageId = selectedLanguage?.id ?? languageId;
   const resolvedVolumeId = selectedVolume?.id ?? volumeId;
+  const { isCompleted, markAsCompleted } = useBookCompletions(
+    readingBookId,
+    resolvedLanguageId,
+    resolvedVolumeId,
+  );
   const clampPage = useCallback(
     (value: number) => Math.min(Math.max(value, 1), totalPages),
     [totalPages],
@@ -180,16 +190,19 @@ export default function ReaderScreen() {
   const [pageInput, setPageInput] = useState(String(initialPage));
   const [isZoomed, setIsZoomed] = useState(false);
   const [isPageModalVisible, setIsPageModalVisible] = useState(false);
-  const [showCompletionModal, setShowCompletionModal] = useState(false);
-  const [completionData, setCompletionData] = useState<{
+  const [showSessionCompletionModal, setShowSessionCompletionModal] = useState(false);
+  const [sessionCompletionData, setSessionCompletionData] = useState<{
     pagesRead: number;
     durationMinutes: number;
   } | null>(null);
+  const [showBookCompletionModal, setShowBookCompletionModal] = useState(false);
   const flatListRef = useRef<FlatList<number>>(null);
   const sessionStartTime = useRef(Date.now());
   const sessionMinPage = useRef(initialPage);
   const sessionMaxPage = useRef(initialPage);
   const sessionCompletedRef = useRef(false);
+  const finalPagesEnteredAt = useRef<number | null>(null);
+  const bookCompletionPromptSuppressedRef = useRef(false);
   const pages = useMemo(
     () => Array.from({ length: totalPages }, (_, index) => index + 1),
     [totalPages],
@@ -209,7 +222,13 @@ export default function ReaderScreen() {
     currentPage,
   );
   const bookTitle = metadata?.title ?? catalogBook?.title ?? "Reader";
-  const editionLine = `${selectedLanguage?.title ?? languageId} • ${selectedVolume?.title ?? volumeId} • ${currentSection.title}`;
+  const editionLine = `${selectedLanguage?.title ?? languageId} | ${selectedVolume?.title ?? volumeId} | ${currentSection.title}`;
+
+  const pagesViewed = useMemo(() => {
+    return Array.from(new Set([...(progress?.pagesViewed ?? []), currentPage])).sort(
+      (left, right) => left - right,
+    );
+  }, [currentPage, progress?.pagesViewed]);
 
   useEffect(() => {
     void saveProgress({
@@ -218,8 +237,18 @@ export default function ReaderScreen() {
       volumeId: resolvedVolumeId,
       page: currentPage,
       updatedAt: new Date().toISOString(),
+      sessionCount: Math.max(1, progress?.sessionCount ?? 0),
+      pagesViewed,
     });
-  }, [currentPage, readingBookId, resolvedLanguageId, resolvedVolumeId, saveProgress]);
+  }, [
+    currentPage,
+    pagesViewed,
+    progress?.sessionCount,
+    readingBookId,
+    resolvedLanguageId,
+    resolvedVolumeId,
+    saveProgress,
+  ]);
 
   useEffect(() => {
     if (!manifest) {
@@ -259,6 +288,63 @@ export default function ReaderScreen() {
     sessionMaxPage.current = Math.max(sessionMaxPage.current, currentPage);
   }, [currentPage]);
 
+  useEffect(() => {
+    const isNearBookEnd =
+      currentPage >= Math.max(1, totalPages - BOOK_COMPLETION_FINAL_PAGE_WINDOW + 1);
+
+    if (
+      !isNearBookEnd ||
+      isCompleted ||
+      showBookCompletionModal ||
+      bookCompletionPromptSuppressedRef.current
+    ) {
+      finalPagesEnteredAt.current = null;
+      return;
+    }
+
+    finalPagesEnteredAt.current = finalPagesEnteredAt.current ?? Date.now();
+
+    const interval = setInterval(() => {
+      const enteredAt = finalPagesEnteredAt.current;
+      if (!enteredAt || Date.now() - enteredAt < BOOK_COMPLETION_FINAL_PAGE_MS) {
+        return;
+      }
+
+      setShowBookCompletionModal(true);
+      finalPagesEnteredAt.current = null;
+    }, 1000);
+
+    return () => clearInterval(interval);
+  }, [currentPage, isCompleted, showBookCompletionModal, totalPages]);
+
+  const handleMarkBookCompleted = useCallback(async () => {
+    await markAsCompleted({
+      bookId: readingBookId,
+      languageId: resolvedLanguageId,
+      volumeId: resolvedVolumeId,
+      completedAt: new Date().toISOString(),
+      totalPages,
+      finalPage: currentPage,
+      totalPagesRead: pagesViewed.length,
+      totalMinutes: Math.max(1, Math.round((Date.now() - sessionStartTime.current) / 60000)),
+    });
+    setShowBookCompletionModal(false);
+    bookCompletionPromptSuppressedRef.current = true;
+  }, [
+    currentPage,
+    markAsCompleted,
+    pagesViewed.length,
+    readingBookId,
+    resolvedLanguageId,
+    resolvedVolumeId,
+    totalPages,
+  ]);
+
+  const handleKeepReadingBook = useCallback(() => {
+    setShowBookCompletionModal(false);
+    bookCompletionPromptSuppressedRef.current = true;
+  }, []);
+
   const completeSession = useCallback(async () => {
     if (sessionCompletedRef.current) {
       return false;
@@ -277,11 +363,11 @@ export default function ReaderScreen() {
     if (isMeaningfulSession) {
       sessionCompletedRef.current = true;
 
-      setCompletionData({
+      setSessionCompletionData({
         pagesRead,
         durationMinutes,
       });
-      setShowCompletionModal(true);
+      setShowSessionCompletionModal(true);
       return true;
     }
 
@@ -291,9 +377,14 @@ export default function ReaderScreen() {
 
   useEffect(() => {
     const backHandler = BackHandler.addEventListener("hardwareBackPress", () => {
-      if (showCompletionModal) {
-        setShowCompletionModal(false);
-        setCompletionData(null);
+      if (showBookCompletionModal) {
+        handleKeepReadingBook();
+        return true;
+      }
+
+      if (showSessionCompletionModal) {
+        setShowSessionCompletionModal(false);
+        setSessionCompletionData(null);
         return true;
       }
 
@@ -306,7 +397,13 @@ export default function ReaderScreen() {
     });
 
     return () => backHandler.remove();
-  }, [completeSession, router, showCompletionModal]);
+  }, [
+    completeSession,
+    handleKeepReadingBook,
+    router,
+    showBookCompletionModal,
+    showSessionCompletionModal,
+  ]);
 
   async function toggleBookmark() {
     if (existingBookmark) {
@@ -687,24 +784,41 @@ export default function ReaderScreen() {
         </Pressable>
       </Modal>
 
-      {showCompletionModal && completionData && (
+      <BookCompletionModal
+        visible={showBookCompletionModal}
+        bookTitle={bookTitle}
+        totalPages={totalPages}
+        finalPage={currentPage}
+        panelColor={colors.panel}
+        panelTextColor={colors.panelText}
+        mutedTextColor={theme === "night" ? "#A9B7B0" : "#5F6C65"}
+        primaryActionColor={colors.accent}
+        primaryActionTextColor={theme === "night" ? "#0F1714" : "#173D31"}
+        secondaryActionColor={theme === "night" ? "#21302B" : "#F4ECD9"}
+        onMarkCompleted={() => {
+          void handleMarkBookCompleted();
+        }}
+        onKeepReading={handleKeepReadingBook}
+      />
+
+      {showSessionCompletionModal && sessionCompletionData && (
         <SessionCompletionModal
-          visible={showCompletionModal}
+          visible={showSessionCompletionModal}
           panelColor={colors.panel}
           panelTextColor={colors.panelText}
           mutedTextColor={colors.textMuted}
           primaryActionColor={colors.accent}
           primaryActionTextColor={theme === "night" ? "#0F1714" : "#173D31"}
           secondaryActionColor={theme === "night" ? "#21302B" : "#F4ECD9"}
-          pagesRead={completionData.pagesRead}
-          durationMinutes={completionData.durationMinutes}
+          pagesRead={sessionCompletionData.pagesRead}
+          durationMinutes={sessionCompletionData.durationMinutes}
           onContinue={() => {
-            setShowCompletionModal(false);
-            setCompletionData(null);
+            setShowSessionCompletionModal(false);
+            setSessionCompletionData(null);
           }}
           onGoHome={() => {
-            setShowCompletionModal(false);
-            setCompletionData(null);
+            setShowSessionCompletionModal(false);
+            setSessionCompletionData(null);
             router.replace("/(tabs)/library");
           }}
         />

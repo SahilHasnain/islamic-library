@@ -5,6 +5,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 
 import { ErrorCard } from "../../../components/ui";
 import type { PublicBookPlan, PublicBookSection } from "../../../data/types";
+import { useBookCompletions } from "../../../hooks/useBookCompletions";
 import { useRemoteBookData } from "../../../hooks/useRemoteBookData";
 import { useReadingPlans } from "../../../hooks/useReadingPlans";
 import { useReadingProgress } from "../../../hooks/useReadingProgress";
@@ -183,6 +184,11 @@ export default function BookHomeScreen() {
     selectedLanguage?.volumes?.[0]?.id ??
     metadata?.languages?.[0]?.volumes?.[0]?.id ??
     "volume1";
+  const { isCompleted, markAsCompleted, removeCompletion } = useBookCompletions(
+    readingBookId,
+    resolvedLanguageId,
+    resolvedVolumeId,
+  );
   const editionProgress =
     progress?.languageId === resolvedLanguageId && progress?.volumeId === resolvedVolumeId
       ? progress
@@ -293,6 +299,22 @@ export default function BookHomeScreen() {
   const isBookDataLoading = isCatalogLoading || isMetadataLoading || isManifestLoading;
   const shouldShowInitialSkeleton =
     isBookDataLoading && !metadata && !manifest && !metadataError && !manifestError;
+  const toggleBookCompletion = async () => {
+    if (isCompleted) {
+      await removeCompletion(readingBookId, resolvedLanguageId, resolvedVolumeId);
+      return;
+    }
+
+    await markAsCompleted({
+      bookId: readingBookId,
+      languageId: resolvedLanguageId,
+      volumeId: resolvedVolumeId,
+      completedAt: new Date().toISOString(),
+      totalPages,
+      finalPage: resumePage,
+      totalPagesRead: editionProgress?.pagesViewed?.length,
+    });
+  };
 
   return (
     <>
@@ -569,6 +591,27 @@ export default function BookHomeScreen() {
                   </Text>
                 </Pressable>
               ) : null}
+              <Pressable
+                onPress={() => {
+                  void toggleBookCompletion();
+                }}
+                style={{
+                  borderRadius: 999,
+                  backgroundColor: isCompleted ? "#DCE8DF" : "rgba(255, 249, 234, 0.16)",
+                  paddingHorizontal: 16,
+                  paddingVertical: 12,
+                }}
+              >
+                <Text
+                  style={{
+                    color: isCompleted ? colors.text : "#FFF9EA",
+                    fontSize: 13,
+                    fontWeight: "800",
+                  }}
+                >
+                  {isCompleted ? "Mark Still Reading" : "Mark Completed"}
+                </Text>
+              </Pressable>
             </View>
           </View>
 
