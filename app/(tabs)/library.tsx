@@ -7,7 +7,6 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import {
   BodyText,
   CardTitle,
-  CoverBlock,
   ErrorCard,
   HeroCard,
   LoadingCard,
@@ -272,6 +271,11 @@ function LibraryBookCard({
   const hasMultipleLanguages = totalLanguages > 1;
   const hasMultipleVolumes = totalVolumes > 1;
 
+  // Calculate reading progress percentage
+  const totalPages = manifest?.totalPages ?? 0;
+  const readingProgressPercent = totalPages > 0 ? Math.min(100, Math.round((readerPage / totalPages) * 100)) : 0;
+  const hasProgress = page && page > 1;
+
   const buildEnhancedSubtitle = () => {
     const parts: string[] = [];
 
@@ -301,8 +305,7 @@ function LibraryBookCard({
       style={{
         backgroundColor: colors.surface,
         borderRadius: radii.md,
-        padding: spacing.card,
-        gap: spacing.gapMd,
+        overflow: "hidden",
       }}
     >
       <Link
@@ -310,43 +313,102 @@ function LibraryBookCard({
         asChild
       >
         <Pressable>
-          <View style={{ flexDirection: "row", gap: 14, alignItems: "center" }}>
-            {coverImage ? (
-              <Image
-                source={{ uri: coverImage }}
-                contentFit="cover"
-                transition={120}
-                style={{
-                  width: 54,
-                  height: 72,
-                  backgroundColor: colors.surfaceMuted,
-                }}
-              />
-            ) : (
-              <CoverBlock color={colors.accentStrong} />
-            )}
-            <View style={{ flex: 1, gap: 6 }}>
-              <Text style={{ color: colors.text, fontSize: typography.title, fontWeight: "800" }}>
+          <View style={{ flexDirection: "row", gap: 14, padding: spacing.card }}>
+            {/* Cover Image with Shadow */}
+            <View
+              style={{
+                shadowColor: "#000",
+                shadowOffset: { width: 0, height: 2 },
+                shadowOpacity: 0.15,
+                shadowRadius: 4,
+                elevation: 3,
+              }}
+            >
+              {coverImage ? (
+                <Image
+                  source={{ uri: coverImage }}
+                  contentFit="cover"
+                  transition={120}
+                  style={{
+                    width: 64,
+                    height: 88,
+                    borderRadius: 6,
+                    backgroundColor: colors.surfaceMuted,
+                  }}
+                />
+              ) : (
+                <View
+                  style={{
+                    width: 64,
+                    height: 88,
+                    borderRadius: 6,
+                    backgroundColor: colors.accentStrong,
+                  }}
+                />
+              )}
+            </View>
+
+            {/* Book Info */}
+            <View style={{ flex: 1, gap: 6, justifyContent: "center" }}>
+              <Text
+                style={{ color: colors.text, fontSize: typography.title, fontWeight: "800" }}
+                numberOfLines={2}
+              >
                 {title}
               </Text>
               <Text
                 style={{
                   color: colors.textMuted,
                   fontSize: typography.bodySmall,
-                  lineHeight: 22,
+                  lineHeight: 20,
                 }}
+                numberOfLines={1}
               >
                 {enhancedSubtitle}
               </Text>
-              <MetaText>
-                {category ?? "Library"} | {getContinueLine(page)}
-              </MetaText>
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                <MetaText>{category ?? "Library"}</MetaText>
+                {hasProgress ? (
+                  <>
+                    <Text style={{ color: colors.textMuted, fontSize: typography.caption }}>•</Text>
+                    <MetaText>{readingProgressPercent}% complete</MetaText>
+                  </>
+                ) : null}
+              </View>
             </View>
           </View>
+
+          {/* Progress Bar */}
+          {hasProgress ? (
+            <View
+              style={{
+                height: 4,
+                backgroundColor: colors.surfaceMuted,
+                width: "100%",
+              }}
+            >
+              <View
+                style={{
+                  height: "100%",
+                  width: `${readingProgressPercent}%`,
+                  backgroundColor: colors.accent,
+                }}
+              />
+            </View>
+          ) : null}
         </Pressable>
       </Link>
 
-      <View style={{ flexDirection: "row", gap: 10, flexWrap: "wrap" }}>
+      {/* Action Buttons */}
+      <View
+        style={{
+          flexDirection: "row",
+          gap: 10,
+          paddingHorizontal: spacing.card,
+          paddingBottom: spacing.card,
+          paddingTop: hasProgress ? spacing.gapMd : 0,
+        }}
+      >
         <Link href={`/book/${bookId}` as const} asChild>
           <Pressable
             style={{
