@@ -1,7 +1,7 @@
 import { Image } from "expo-image";
 import { Link, useFocusEffect } from "expo-router";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Pressable, ScrollView, Text, TextInput, View } from "react-native";
+import { FlatList, Pressable, ScrollView, Text, TextInput, View } from "react-native";
 
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import {
@@ -11,11 +11,11 @@ import {
   HeroCard,
   LoadingCard,
   MetaText,
-  PageHeader,
   Screen,
   SectionCard
 } from "../../components/ui";
 import { colors, radii, spacing, typography } from "../../constants/theme";
+import type { PublicCatalogBook } from "../../data/types";
 import { useBookCompletions } from "../../hooks/useBookCompletions";
 import { useReadingProgress } from "../../hooks/useReadingProgress";
 import { useRemoteBookData } from "../../hooks/useRemoteBookData";
@@ -79,6 +79,7 @@ function FeaturedBookHero({
   page,
   languageId,
   volumeId,
+  coverImage,
 }: {
   bookId: string;
   title: string;
@@ -86,6 +87,7 @@ function FeaturedBookHero({
   page?: number;
   languageId?: string;
   volumeId?: string;
+  coverImage?: string;
 }) {
   const { manifest, metadata, selectedLanguage, selectedVolume } = useRemoteBookData(
     bookId,
@@ -125,26 +127,75 @@ function FeaturedBookHero({
         Continue Reading
       </Text>
 
-      <View style={{ gap: spacing.gapMd }}>
-        <Text
+      <View style={{ flexDirection: "row", gap: 16 }}>
+        {/* Cover Thumbnail */}
+        <View
           style={{
-            color: colors.textOnDark,
-            fontSize: typography.sectionTitle,
-            fontWeight: "800",
+            shadowColor: "#000",
+            shadowOffset: { width: 0, height: 4 },
+            shadowOpacity: 0.3,
+            shadowRadius: 8,
+            elevation: 6,
           }}
         >
-          {title}
-        </Text>
-        <BodyText color={colors.textOnDarkMuted}>{subtitle ?? "Reading edition"}</BodyText>
-        <Text
-          style={{
-            color: colors.textOnDarkSubtle,
-            fontSize: typography.bodySmall,
-            lineHeight: 22,
-          }}
-        >
-          {getContinueLine(page)}
-        </Text>
+          {coverImage ? (
+            <Image
+              source={{ uri: coverImage }}
+              contentFit="cover"
+              transition={120}
+              style={{
+                width: 90,
+                height: 126,
+                borderRadius: 8,
+                backgroundColor: colors.surfaceMuted,
+              }}
+            />
+          ) : (
+            <View
+              style={{
+                width: 90,
+                height: 126,
+                borderRadius: 8,
+                backgroundColor: colors.accent,
+              }}
+            />
+          )}
+        </View>
+
+        {/* Book Info */}
+        <View style={{ flex: 1, gap: spacing.gapMd, justifyContent: "center" }}>
+          <View style={{ gap: 8 }}>
+            <Text
+              style={{
+                color: colors.textOnDark,
+                fontSize: typography.title,
+                fontWeight: "800",
+              }}
+              numberOfLines={2}
+            >
+              {title}
+            </Text>
+            <Text
+              style={{
+                color: colors.textOnDarkMuted,
+                fontSize: typography.body,
+                lineHeight: 22,
+              }}
+              numberOfLines={1}
+            >
+              {subtitle ?? "Reading edition"}
+            </Text>
+            <Text
+              style={{
+                color: colors.textOnDarkSubtle,
+                fontSize: typography.bodySmall,
+                lineHeight: 22,
+              }}
+            >
+              {getContinueLine(page)}
+            </Text>
+          </View>
+        </View>
       </View>
 
       <View style={{ flexDirection: "row", gap: 12, flexWrap: "wrap" }}>
@@ -242,20 +293,12 @@ function LibraryBookCard({
   volumeId?: string;
   coverImage?: string;
 }) {
-  const { manifest, metadata, selectedLanguage, selectedVolume } = useRemoteBookData(
+  const { metadata, selectedLanguage, selectedVolume } = useRemoteBookData(
     bookId,
     languageId,
     volumeId,
   );
-  const { canDownload, downloadAll, isDownloading, isFullyDownloaded, progressPercent, removeDownload } =
-    useVolumeDownload(manifest);
 
-  const downloadButtonLabel = getDownloadButtonLabel({
-    canDownload,
-    isDownloading,
-    isFullyDownloaded,
-    progressPercent,
-  });
   const readerLanguageId =
     selectedLanguage?.id ?? languageId ?? metadata?.languages[0]?.id ?? "english";
   const readerVolumeId =
@@ -270,11 +313,6 @@ function LibraryBookCard({
   const totalVolumes = selectedLanguage?.volumes?.length ?? 0;
   const hasMultipleLanguages = totalLanguages > 1;
   const hasMultipleVolumes = totalVolumes > 1;
-
-  // Calculate reading progress percentage
-  const totalPages = manifest?.totalPages ?? 0;
-  const readingProgressPercent = totalPages > 0 ? Math.min(100, Math.round((readerPage / totalPages) * 100)) : 0;
-  const hasProgress = page && page > 1;
 
   const buildEnhancedSubtitle = () => {
     const parts: string[] = [];
@@ -306,146 +344,91 @@ function LibraryBookCard({
         backgroundColor: colors.surface,
         borderRadius: radii.md,
         overflow: "hidden",
+        padding: spacing.card,
+        alignItems: "center",
+        gap: 12,
       }}
     >
-      <Link
-        href={`/reader/${bookId}/${readerLanguageId}/${readerVolumeId}/${readerPage}` as const}
-        asChild
-      >
-        <Pressable>
-          <View style={{ flexDirection: "row", gap: 14, padding: spacing.card }}>
-            {/* Cover Image with Shadow */}
-            <View
-              style={{
-                shadowColor: "#000",
-                shadowOffset: { width: 0, height: 2 },
-                shadowOpacity: 0.15,
-                shadowRadius: 4,
-                elevation: 3,
-              }}
-            >
-              {coverImage ? (
-                <Image
-                  source={{ uri: coverImage }}
-                  contentFit="cover"
-                  transition={120}
-                  style={{
-                    width: 64,
-                    height: 88,
-                    borderRadius: 6,
-                    backgroundColor: colors.surfaceMuted,
-                  }}
-                />
-              ) : (
-                <View
-                  style={{
-                    width: 64,
-                    height: 88,
-                    borderRadius: 6,
-                    backgroundColor: colors.accentStrong,
-                  }}
-                />
-              )}
-            </View>
-
-            {/* Book Info */}
-            <View style={{ flex: 1, gap: 6, justifyContent: "center" }}>
-              <Text
-                style={{ color: colors.text, fontSize: typography.title, fontWeight: "800" }}
-                numberOfLines={2}
-              >
-                {title}
-              </Text>
-              <Text
-                style={{
-                  color: colors.textMuted,
-                  fontSize: typography.bodySmall,
-                  lineHeight: 20,
-                }}
-                numberOfLines={1}
-              >
-                {enhancedSubtitle}
-              </Text>
-              <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-                <MetaText>{category ?? "Library"}</MetaText>
-                {hasProgress ? (
-                  <>
-                    <Text style={{ color: colors.textMuted, fontSize: typography.caption }}>•</Text>
-                    <MetaText>{readingProgressPercent}% complete</MetaText>
-                  </>
-                ) : null}
-              </View>
-            </View>
-          </View>
-
-          {/* Progress Bar */}
-          {hasProgress ? (
-            <View
-              style={{
-                height: 4,
-                backgroundColor: colors.surfaceMuted,
-                width: "100%",
-              }}
-            >
-              <View
-                style={{
-                  height: "100%",
-                  width: `${readingProgressPercent}%`,
-                  backgroundColor: colors.accent,
-                }}
-              />
-            </View>
-          ) : null}
-        </Pressable>
-      </Link>
-
-      {/* Action Buttons */}
+      {/* Cover Image with Shadow */}
       <View
         style={{
-          flexDirection: "row",
-          gap: 10,
-          paddingHorizontal: spacing.card,
-          paddingBottom: spacing.card,
-          paddingTop: hasProgress ? spacing.gapMd : 0,
+          shadowColor: "#000",
+          shadowOffset: { width: 0, height: 3 },
+          shadowOpacity: 0.2,
+          shadowRadius: 6,
+          elevation: 4,
         }}
       >
-        <Link href={`/book/${bookId}` as const} asChild>
-          <Pressable
+        {coverImage ? (
+          <Image
+            source={{ uri: coverImage }}
+            contentFit="cover"
+            transition={120}
             style={{
-              alignSelf: "flex-start",
-              borderRadius: radii.pill,
-              borderWidth: 1,
-              borderColor: colors.textMuted,
-              paddingHorizontal: 14,
-              paddingVertical: 10,
+              width: 100,
+              height: 140,
+              borderRadius: 8,
+              backgroundColor: colors.surfaceMuted,
             }}
-          >
-            <Text style={{ color: colors.text, fontSize: typography.control, fontWeight: "800" }}>
-              View Book
-            </Text>
-          </Pressable>
-        </Link>
-
-        {canDownload ? (
-          <Pressable
-            onPress={() => {
-              void (isFullyDownloaded ? removeDownload() : downloadAll());
-            }}
+          />
+        ) : (
+          <View
             style={{
-              alignSelf: "flex-start",
-              borderRadius: radii.pill,
-              borderWidth: 1,
-              borderColor: colors.accent,
-              paddingHorizontal: 14,
-              paddingVertical: 10,
+              width: 100,
+              height: 140,
+              borderRadius: 8,
+              backgroundColor: colors.accentStrong,
             }}
-          >
-            <Text style={{ color: colors.text, fontSize: typography.control, fontWeight: "800" }}>
-              {downloadButtonLabel}
-            </Text>
-          </Pressable>
-        ) : null}
+          />
+        )}
       </View>
+
+      {/* Book Info */}
+      <View style={{ gap: 6, alignItems: "center", width: "100%" }}>
+        <Text
+          style={{
+            color: colors.text,
+            fontSize: typography.subtitle,
+            fontWeight: "800",
+            textAlign: "center",
+          }}
+          numberOfLines={2}
+        >
+          {title}
+        </Text>
+        <View style={{ height: 36, justifyContent: "center" }}>
+          <Text
+            style={{
+              color: colors.textMuted,
+              fontSize: typography.caption,
+              lineHeight: 18,
+              textAlign: "center",
+            }}
+            numberOfLines={2}
+          >
+            {enhancedSubtitle}
+          </Text>
+        </View>
+      </View>
+
+      {/* Action Button */}
+      <Link href={`/book/${bookId}` as const} asChild>
+        <Pressable
+          style={{
+            borderRadius: radii.pill,
+            borderWidth: 1,
+            borderColor: colors.accent,
+            paddingHorizontal: 20,
+            paddingVertical: 10,
+            width: "100%",
+            alignItems: "center",
+          }}
+        >
+          <Text style={{ color: colors.text, fontSize: typography.control, fontWeight: "800" }}>
+            View
+          </Text>
+        </Pressable>
+      </Link>
     </View>
   );
 }
@@ -696,11 +679,6 @@ export default function LibraryScreen() {
           />
         ) : null}
 
-        <PageHeader
-          title="Library"
-          subtitle="Continue with steadiness. Let the library keep the next step ready for you."
-        />
-
         {!isLoaded ? (
           <LoadingCard
             title="Loading library"
@@ -740,6 +718,7 @@ export default function LibraryScreen() {
             page={featuredProgress?.page}
             languageId={featuredProgress?.languageId}
             volumeId={featuredProgress?.volumeId}
+            coverImage={featuredBook.coverImage}
           />
         ) : null}
 
@@ -995,62 +974,91 @@ export default function LibraryScreen() {
           })}
         </ScrollView>
 
-        <SectionCard backgroundColor={colors.surfaceMuted} gap={spacing.gapXl}>
-          {filteredAndSortedBooks.length > 0 ? (
-            filteredAndSortedBooks.map((book) => (
-              <LibraryBookCard
-                key={book.id}
-                bookId={book.id}
-                title={book.title}
-                subtitle={book.subtitle}
-                category={getCategoryDisplayLabel({
-                  category: book.category,
-                  categoryLabel: book.categoryLabel,
-                })}
-                page={latestProgressByBook[book.id]?.page}
-                languageId={latestProgressByBook[book.id]?.languageId}
-                volumeId={latestProgressByBook[book.id]?.volumeId}
-                coverImage={book.coverImage}
-              />
-            ))
-          ) : (
-            <View style={{ alignItems: "center", paddingVertical: spacing.gapXl }}>
-              <MetaText>No books found in this category.</MetaText>
-            </View>
-          )}
-        </SectionCard>
-
-        {completedBooks.length > 0 ? (
-          <SectionCard backgroundColor={colors.surfaceMuted} gap={spacing.gapXl}>
-            <CardTitle>Completed books</CardTitle>
-            {completedBooks.map((book) => {
-              const completion = Object.values(completionMap)
-                .filter((entry) => entry.bookId === book.id)
-                .sort(
-                  (left, right) =>
-                    new Date(right.completedAt).getTime() -
-                    new Date(left.completedAt).getTime(),
-                )[0];
-
-              return (
+        <View style={{ gap: spacing.gapXl }}>
+          <FlatList
+            data={filteredAndSortedBooks}
+            keyExtractor={(book: PublicCatalogBook) => book.id}
+            numColumns={2}
+            scrollEnabled={false}
+            columnWrapperStyle={{
+              gap: 12,
+              paddingHorizontal: spacing.page,
+            }}
+            contentContainerStyle={{
+              gap: 12,
+            }}
+            ListEmptyComponent={
+              <View style={{ alignItems: "center", paddingVertical: spacing.gapXl }}>
+                <MetaText>No books found in this category.</MetaText>
+              </View>
+            }
+            renderItem={({ item: book }: { item: PublicCatalogBook }) => (
+              <View style={{ flex: 1 }}>
                 <LibraryBookCard
-                  key={book.id}
                   bookId={book.id}
                   title={book.title}
-                  subtitle={book.subtitle ?? "Completed"}
-                  category={
-                    completion
-                      ? `Completed ${new Date(completion.completedAt).toLocaleDateString()}`
-                      : "Completed"
-                  }
-                  page={completion?.finalPage}
-                  languageId={completion?.languageId}
-                  volumeId={completion?.volumeId}
+                  subtitle={book.subtitle}
+                  category={getCategoryDisplayLabel({
+                    category: book.category,
+                    categoryLabel: book.categoryLabel,
+                  })}
+                  page={latestProgressByBook[book.id]?.page}
+                  languageId={latestProgressByBook[book.id]?.languageId}
+                  volumeId={latestProgressByBook[book.id]?.volumeId}
                   coverImage={book.coverImage}
                 />
-              );
-            })}
-          </SectionCard>
+              </View>
+            )}
+          />
+        </View>
+
+        {completedBooks.length > 0 ? (
+          <View style={{ gap: spacing.gapXl }}>
+            <View style={{ paddingHorizontal: spacing.page }}>
+              <CardTitle>Completed books</CardTitle>
+            </View>
+            <FlatList
+              data={completedBooks}
+              keyExtractor={(book: PublicCatalogBook) => book.id}
+              numColumns={2}
+              scrollEnabled={false}
+              columnWrapperStyle={{
+                gap: 12,
+                paddingHorizontal: spacing.page,
+              }}
+              contentContainerStyle={{
+                gap: 12,
+              }}
+              renderItem={({ item: book }: { item: PublicCatalogBook }) => {
+                const completion = Object.values(completionMap)
+                  .filter((entry) => entry.bookId === book.id)
+                  .sort(
+                    (left, right) =>
+                      new Date(right.completedAt).getTime() -
+                      new Date(left.completedAt).getTime(),
+                  )[0];
+
+                return (
+                  <View style={{ flex: 1 }}>
+                    <LibraryBookCard
+                      bookId={book.id}
+                      title={book.title}
+                      subtitle={book.subtitle ?? "Completed"}
+                      category={
+                        completion
+                          ? `Completed ${new Date(completion.completedAt).toLocaleDateString()}`
+                          : "Completed"
+                      }
+                      page={completion?.finalPage}
+                      languageId={completion?.languageId}
+                      volumeId={completion?.volumeId}
+                      coverImage={book.coverImage}
+                    />
+                  </View>
+                );
+              }}
+            />
+          </View>
         ) : null}
 
         <SectionCard>
