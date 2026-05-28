@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "islamic-library",
+    "name": "AlNoor Library",
     "slug": "islamic-library",
     "version": "1.0.0",
     "orientation": "portrait",
@@ -18,7 +18,7 @@
       "edgeToEdgeEnabled": true,
       "predictiveBackGestureEnabled": false,
       "package": "com.islamiclib",
-      "versionCode": 4
+      "versionCode": 5
     },
     "web": {
       "output": "static",
