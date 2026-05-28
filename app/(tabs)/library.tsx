@@ -462,6 +462,8 @@ export default function LibraryScreen() {
   } = useRemoteCatalog();
   const insets = useSafeAreaInsets();
   const [selectedCategory, setSelectedCategory] = useState<string>("all");
+  const [selectedLanguage, setSelectedLanguage] = useState<string>("all");
+  const [sortBy, setSortBy] = useState<"catalog" | "alpha" | "recent">("catalog");
 
   useFocusEffect(
     useCallback(() => {
@@ -495,19 +497,59 @@ export default function LibraryScreen() {
     return Array.from(categories).sort();
   }, [remoteBooks]);
 
-  // Filter books by selected category
-  const filteredBooks = useMemo(() => {
-    if (selectedCategory === "all") {
-      return remoteBooks;
-    }
-    return remoteBooks.filter((book) => {
-      const bookCategory = getCategoryDisplayLabel({
-        category: book.category,
-        categoryLabel: book.categoryLabel,
-      });
-      return bookCategory === selectedCategory;
+  // Extract unique languages from all books
+  const uniqueLanguages = useMemo(() => {
+    const languages = new Set<string>();
+    remoteBooks.forEach((book) => {
+      // We'll need to fetch metadata to get languages, but for now we can use a placeholder
+      // In a real implementation, you'd need to load metadata for all books
+      // For now, let's use common languages
+      languages.add("English");
+      languages.add("Urdu");
+      languages.add("Roman Urdu");
     });
-  }, [remoteBooks, selectedCategory]);
+    return Array.from(languages).sort();
+  }, [remoteBooks]);
+
+  // Filter and sort books
+  const filteredAndSortedBooks = useMemo(() => {
+    let books = remoteBooks;
+
+    // Category filter
+    if (selectedCategory !== "all") {
+      books = books.filter((book) => {
+        const bookCategory = getCategoryDisplayLabel({
+          category: book.category,
+          categoryLabel: book.categoryLabel,
+        });
+        return bookCategory === selectedCategory;
+      });
+    }
+
+    // Language filter (placeholder - would need metadata loading)
+    // For now, we'll skip language filtering until metadata is loaded
+    // if (selectedLanguage !== "all") {
+    //   books = books.filter(book => book has selectedLanguage);
+    // }
+
+    // Sort
+    if (sortBy === "alpha") {
+      books = [...books].sort((a, b) => a.title.localeCompare(b.title));
+    } else if (sortBy === "recent") {
+      // Sort by most recently read
+      books = [...books].sort((a, b) => {
+        const aProgress = latestProgressByBook[a.id];
+        const bProgress = latestProgressByBook[b.id];
+        if (!aProgress && !bProgress) return 0;
+        if (!aProgress) return 1;
+        if (!bProgress) return -1;
+        return new Date(bProgress.updatedAt).getTime() - new Date(aProgress.updatedAt).getTime();
+      });
+    }
+    // "catalog" keeps original order
+
+    return books;
+  }, [remoteBooks, selectedCategory, selectedLanguage, sortBy, latestProgressByBook]);
 
   return (
     <Screen>
@@ -627,9 +669,31 @@ export default function LibraryScreen() {
           </View>
         ) : null}
 
-        <View style={{ gap: 12 }}>
+        <View style={{ gap: 16 }}>
           <View style={{ paddingHorizontal: spacing.page }}>
-            <CardTitle>Browse by category</CardTitle>
+            <CardTitle>Browse library</CardTitle>
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 12, marginTop: 8 }}>
+              <MetaText>{filteredAndSortedBooks.length} books</MetaText>
+              <Text style={{ color: colors.textMuted, fontSize: typography.meta }}>•</Text>
+              <Pressable
+                onPress={() => {
+                  const sortOptions: Array<"catalog" | "alpha" | "recent"> = ["catalog", "alpha", "recent"];
+                  const currentIndex = sortOptions.indexOf(sortBy);
+                  const nextIndex = (currentIndex + 1) % sortOptions.length;
+                  setSortBy(sortOptions[nextIndex]);
+                }}
+                style={{
+                  flexDirection: "row",
+                  alignItems: "center",
+                  gap: 4,
+                }}
+              >
+                <MetaText>
+                  Sort: {sortBy === "catalog" ? "Default" : sortBy === "alpha" ? "A-Z" : "Recent"}
+                </MetaText>
+                <Text style={{ color: colors.textMuted, fontSize: typography.meta }}>▾</Text>
+              </Pressable>
+            </View>
           </View>
           <ScrollView
             horizontal
@@ -652,7 +716,7 @@ export default function LibraryScreen() {
                   fontWeight: "800",
                 }}
               >
-                All ({remoteBooks.length})
+                All
               </Text>
             </Pressable>
             {uniqueCategories.map((category) => {
@@ -682,7 +746,7 @@ export default function LibraryScreen() {
                       fontWeight: "800",
                     }}
                   >
-                    {category} ({count})
+                    {category}
                   </Text>
                 </Pressable>
               );
@@ -691,18 +755,8 @@ export default function LibraryScreen() {
         </View>
 
         <SectionCard backgroundColor={colors.surfaceMuted} gap={spacing.gapXl}>
-          <CardTitle>
-            {selectedCategory === "all"
-              ? "All books"
-              : `${selectedCategory} (${filteredBooks.length})`}
-          </CardTitle>
-          <BodyText>
-            {selectedCategory === "all"
-              ? "Move at your own pace. Each title should open into a calm, guided reading flow."
-              : `Browse ${filteredBooks.length} ${selectedCategory.toLowerCase()} ${filteredBooks.length === 1 ? "book" : "books"}.`}
-          </BodyText>
-          {filteredBooks.length > 0 ? (
-            filteredBooks.map((book) => (
+          {filteredAndSortedBooks.length > 0 ? (
+            filteredAndSortedBooks.map((book) => (
               <LibraryBookCard
                 key={book.id}
                 bookId={book.id}
@@ -719,7 +773,9 @@ export default function LibraryScreen() {
               />
             ))
           ) : (
-            <MetaText>No books found in this category.</MetaText>
+            <View style={{ alignItems: "center", paddingVertical: spacing.gapXl }}>
+              <MetaText>No books found in this category.</MetaText>
+            </View>
           )}
         </SectionCard>
 
