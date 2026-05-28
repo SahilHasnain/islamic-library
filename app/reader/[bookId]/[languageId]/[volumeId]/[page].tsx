@@ -268,21 +268,24 @@ export default function ReaderScreen() {
     const durationMs = endTime - sessionStartTime.current;
     const durationMinutes = Math.max(1, Math.round(durationMs / 60000));
     const pagesRead = sessionMaxPage.current - sessionMinPage.current + 1;
-    const shouldShowModal = durationMs >= 180000 || pagesRead >= 5;
 
-    if (durationMs >= 30000) {
+    // Only consider it a meaningful session if:
+    // - At least 2 minutes of reading AND
+    // - At least 2 pages read
+    const isMeaningfulSession = durationMs >= 120000 && pagesRead >= 2;
+
+    if (isMeaningfulSession) {
       sessionCompletedRef.current = true;
 
-      if (shouldShowModal) {
-        setCompletionData({
-          pagesRead,
-          durationMinutes,
-        });
-        setShowCompletionModal(true);
-        return true;
-      }
+      setCompletionData({
+        pagesRead,
+        durationMinutes,
+      });
+      setShowCompletionModal(true);
+      return true;
     }
 
+    // For short sessions, just exit without modal
     return false;
   }, []);
 
