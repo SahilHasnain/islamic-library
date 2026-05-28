@@ -172,9 +172,12 @@ export default function ReaderScreen() {
     (value: number) => Math.min(Math.max(value, 1), totalPages),
     [totalPages],
   );
-  const routePage = clampPage(Number(page ?? 1) || 1);
-  const [currentPage, setCurrentPage] = useState(routePage);
-  const [pageInput, setPageInput] = useState(String(routePage));
+  const initialPage = useMemo(() => {
+    const pageNum = Number(page ?? 1) || 1;
+    return Math.min(Math.max(pageNum, 1), totalPages);
+  }, [page, totalPages]);
+  const [currentPage, setCurrentPage] = useState(initialPage);
+  const [pageInput, setPageInput] = useState(String(initialPage));
   const [isZoomed, setIsZoomed] = useState(false);
   const [isPageModalVisible, setIsPageModalVisible] = useState(false);
   const [showCompletionModal, setShowCompletionModal] = useState(false);
@@ -184,8 +187,8 @@ export default function ReaderScreen() {
   } | null>(null);
   const flatListRef = useRef<FlatList<number>>(null);
   const sessionStartTime = useRef(Date.now());
-  const sessionMinPage = useRef(routePage);
-  const sessionMaxPage = useRef(routePage);
+  const sessionMinPage = useRef(initialPage);
+  const sessionMaxPage = useRef(initialPage);
   const sessionCompletedRef = useRef(false);
   const pages = useMemo(
     () => Array.from({ length: totalPages }, (_, index) => index + 1),
@@ -231,18 +234,21 @@ export default function ReaderScreen() {
   }, [currentPage, manifest]);
 
   useEffect(() => {
+    const pageNum = Number(page ?? 1) || 1;
+    const targetPage = Math.min(Math.max(pageNum, 1), totalPages);
+
     setCurrentPage((previousPage) => {
-      if (previousPage === routePage) {
+      if (previousPage === targetPage) {
         return previousPage;
       }
 
       flatListRef.current?.scrollToIndex({
-        index: routePage - 1,
+        index: targetPage - 1,
         animated: false,
       });
-      return routePage;
+      return targetPage;
     });
-  }, [routePage]);
+  }, [page, totalPages]);
 
   useEffect(() => {
     setPageInput(String(currentPage));
@@ -414,7 +420,7 @@ export default function ReaderScreen() {
           pagingEnabled
           scrollEnabled={!isZoomed}
           showsHorizontalScrollIndicator={false}
-          initialScrollIndex={routePage - 1}
+          initialScrollIndex={initialPage - 1}
           getItemLayout={(_, index) => ({
             length: screenWidth,
             offset: screenWidth * index,
@@ -609,7 +615,7 @@ export default function ReaderScreen() {
           }}
         >
           <Pressable
-            onPress={() => {}}
+            onPress={() => { }}
             style={{
               width: "100%",
               maxWidth: 360,
@@ -696,7 +702,7 @@ export default function ReaderScreen() {
           onGoHome={() => {
             setShowCompletionModal(false);
             setCompletionData(null);
-            router.replace("/(tabs)/" as any);
+            router.replace("/(tabs)/library");
           }}
         />
       )}
