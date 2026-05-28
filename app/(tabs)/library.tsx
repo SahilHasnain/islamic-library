@@ -1,13 +1,12 @@
 import { Image } from "expo-image";
 import { Link, useFocusEffect } from "expo-router";
-import { useCallback } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { Pressable, ScrollView, Text, View } from "react-native";
 
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import {
   BodyText,
   CardTitle,
-  Chip,
   CoverBlock,
   ErrorCard,
   HeroCard,
@@ -15,7 +14,7 @@ import {
   MetaText,
   PageHeader,
   Screen,
-  SectionCard,
+  SectionCard
 } from "../../components/ui";
 import { colors, radii, spacing, typography } from "../../constants/theme";
 import { useBookCompletions } from "../../hooks/useBookCompletions";
@@ -268,6 +267,35 @@ function LibraryBookCard({
     "volume1";
   const readerPage = page ?? 1;
 
+  const totalLanguages = metadata?.languages?.length ?? 0;
+  const totalVolumes = selectedLanguage?.volumes?.length ?? 0;
+  const hasMultipleLanguages = totalLanguages > 1;
+  const hasMultipleVolumes = totalVolumes > 1;
+
+  const buildEnhancedSubtitle = () => {
+    const parts: string[] = [];
+
+    if (hasMultipleLanguages && selectedLanguage) {
+      const langTitle = selectedLanguage.nativeTitle || selectedLanguage.title;
+      parts.push(`${langTitle} (${totalLanguages} languages)`);
+    } else if (selectedLanguage) {
+      parts.push(selectedLanguage.nativeTitle || selectedLanguage.title);
+    }
+
+    if (hasMultipleVolumes && selectedVolume) {
+      const volumeLabel = selectedVolume.subtitle?.trim() || selectedVolume.title;
+      parts.push(`${volumeLabel} of ${totalVolumes}`);
+    }
+
+    if (parts.length > 0) {
+      return parts.join(" • ");
+    }
+
+    return subtitle ?? "Ready for reading";
+  };
+
+  const enhancedSubtitle = buildEnhancedSubtitle();
+
   return (
     <View
       style={{
@@ -308,7 +336,7 @@ function LibraryBookCard({
                   lineHeight: 22,
                 }}
               >
-                {subtitle ?? "Ready for reading"}
+                {enhancedSubtitle}
               </Text>
               <MetaText>
                 {category ?? "Library"} | {getContinueLine(page)}
@@ -433,6 +461,7 @@ export default function LibraryScreen() {
     isLoading: isCatalogLoading,
   } = useRemoteCatalog();
   const insets = useSafeAreaInsets();
+  const [selectedCategory, setSelectedCategory] = useState<string>("all");
 
   useFocusEffect(
     useCallback(() => {
@@ -452,32 +481,33 @@ export default function LibraryScreen() {
   const additionalInProgressBooks = featuredBook
     ? inProgressBooks.filter((book) => book.id !== featuredBook.id)
     : [];
-  const categoryGroups = remoteBooks.reduce(
-    (groups, book) => {
-      const categoryKey = (book.category?.trim().toLowerCase() || "uncategorized").trim();
-      const categoryLabel = getCategoryDisplayLabel({
+
+  // Extract unique categories
+  const uniqueCategories = useMemo(() => {
+    const categories = new Set<string>();
+    remoteBooks.forEach((book) => {
+      const category = getCategoryDisplayLabel({
         category: book.category,
         categoryLabel: book.categoryLabel,
       });
-      const existingGroup = groups.find((group) => group.key === categoryKey);
+      categories.add(category);
+    });
+    return Array.from(categories).sort();
+  }, [remoteBooks]);
 
-      if (existingGroup) {
-        existingGroup.books.push(book);
-        return groups;
-      }
-
-      groups.push({
-        key: categoryKey,
-        label: categoryLabel,
-        books: [book],
+  // Filter books by selected category
+  const filteredBooks = useMemo(() => {
+    if (selectedCategory === "all") {
+      return remoteBooks;
+    }
+    return remoteBooks.filter((book) => {
+      const bookCategory = getCategoryDisplayLabel({
+        category: book.category,
+        categoryLabel: book.categoryLabel,
       });
-      return groups;
-    },
-    [] as { key: string; label: string; books: typeof remoteBooks }[],
-  );
-  const orderedCategoryGroups = categoryGroups.sort((left, right) =>
-    right.books.length - left.books.length || left.label.localeCompare(right.label),
-  );
+      return bookCategory === selectedCategory;
+    });
+  }, [remoteBooks, selectedCategory]);
 
   return (
     <Screen>
@@ -597,6 +627,102 @@ export default function LibraryScreen() {
           </View>
         ) : null}
 
+        <View style={{ gap: 12 }}>
+          <View style={{ paddingHorizontal: spacing.page }}>
+            <CardTitle>Browse by category</CardTitle>
+          </View>
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={{ gap: 10, paddingLeft: spacing.page, paddingRight: spacing.page }}
+          >
+            <Pressable
+              onPress={() => setSelectedCategory("all")}
+              style={{
+                borderRadius: radii.pill,
+                backgroundColor: selectedCategory === "all" ? colors.accent : colors.surfaceMuted,
+                paddingHorizontal: 16,
+                paddingVertical: 10,
+              }}
+            >
+              <Text
+                style={{
+                  color: selectedCategory === "all" ? colors.text : colors.textMuted,
+                  fontSize: typography.control,
+                  fontWeight: "800",
+                }}
+              >
+                All ({remoteBooks.length})
+              </Text>
+            </Pressable>
+            {uniqueCategories.map((category) => {
+              const count = remoteBooks.filter((book) => {
+                const bookCategory = getCategoryDisplayLabel({
+                  category: book.category,
+                  categoryLabel: book.categoryLabel,
+                });
+                return bookCategory === category;
+              }).length;
+              return (
+                <Pressable
+                  key={category}
+                  onPress={() => setSelectedCategory(category)}
+                  style={{
+                    borderRadius: radii.pill,
+                    backgroundColor:
+                      selectedCategory === category ? colors.accent : colors.surfaceMuted,
+                    paddingHorizontal: 16,
+                    paddingVertical: 10,
+                  }}
+                >
+                  <Text
+                    style={{
+                      color: selectedCategory === category ? colors.text : colors.textMuted,
+                      fontSize: typography.control,
+                      fontWeight: "800",
+                    }}
+                  >
+                    {category} ({count})
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </ScrollView>
+        </View>
+
+        <SectionCard backgroundColor={colors.surfaceMuted} gap={spacing.gapXl}>
+          <CardTitle>
+            {selectedCategory === "all"
+              ? "All books"
+              : `${selectedCategory} (${filteredBooks.length})`}
+          </CardTitle>
+          <BodyText>
+            {selectedCategory === "all"
+              ? "Move at your own pace. Each title should open into a calm, guided reading flow."
+              : `Browse ${filteredBooks.length} ${selectedCategory.toLowerCase()} ${filteredBooks.length === 1 ? "book" : "books"}.`}
+          </BodyText>
+          {filteredBooks.length > 0 ? (
+            filteredBooks.map((book) => (
+              <LibraryBookCard
+                key={book.id}
+                bookId={book.id}
+                title={book.title}
+                subtitle={book.subtitle}
+                category={getCategoryDisplayLabel({
+                  category: book.category,
+                  categoryLabel: book.categoryLabel,
+                })}
+                page={latestProgressByBook[book.id]?.page}
+                languageId={latestProgressByBook[book.id]?.languageId}
+                volumeId={latestProgressByBook[book.id]?.volumeId}
+                coverImage={book.coverImage}
+              />
+            ))
+          ) : (
+            <MetaText>No books found in this category.</MetaText>
+          )}
+        </SectionCard>
+
         {completedBooks.length > 0 ? (
           <SectionCard backgroundColor={colors.surfaceMuted} gap={spacing.gapXl}>
             <CardTitle>Completed books</CardTitle>
@@ -629,48 +755,6 @@ export default function LibraryScreen() {
             })}
           </SectionCard>
         ) : null}
-
-        <SectionCard>
-          <CardTitle>Featured categories</CardTitle>
-          <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10 }}>
-            {orderedCategoryGroups.map((group) => (
-              <Chip key={group.key} label={group.label} />
-            ))}
-            {orderedCategoryGroups.length === 0 ? <MetaText>No categories yet.</MetaText> : null}
-          </View>
-        </SectionCard>
-
-        <SectionCard backgroundColor={colors.surfaceMuted} gap={spacing.gapXl}>
-          <CardTitle>Library collection</CardTitle>
-          <BodyText>
-            Move at your own pace. Each title should open into a calm, guided reading flow.
-          </BodyText>
-          {orderedCategoryGroups.length > 0 ? (
-            orderedCategoryGroups.map((group) => (
-              <View key={group.key} style={{ gap: spacing.gapMd }}>
-                <MetaText>{group.label}</MetaText>
-                {group.books.map((book) => (
-                  <LibraryBookCard
-                    key={book.id}
-                    bookId={book.id}
-                    title={book.title}
-                    subtitle={book.subtitle}
-                    category={getCategoryDisplayLabel({
-                      category: book.category,
-                      categoryLabel: book.categoryLabel,
-                    })}
-                    page={latestProgressByBook[book.id]?.page}
-                    languageId={latestProgressByBook[book.id]?.languageId}
-                    volumeId={latestProgressByBook[book.id]?.volumeId}
-                    coverImage={book.coverImage}
-                  />
-                ))}
-              </View>
-            ))
-          ) : (
-            <MetaText>No books found.</MetaText>
-          )}
-        </SectionCard>
 
         <SectionCard>
           <Text
