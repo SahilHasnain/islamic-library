@@ -79,38 +79,62 @@ export default function JourneyScreen() {
           </Text>
           {activePlans.length === 0 ? (
             <Text style={{ color: colors.textMuted, fontSize: 16, lineHeight: 23 }}>
-              No active plans yet. Choose one from a book to start tracking daily progress.
+              No active plans yet. Reading plans help you stay consistent with daily goals.
             </Text>
           ) : (
-            activePlans.map(({ plan, title, subtitle }) => (
-              <View key={`${plan.bookId}-${plan.languageId}-${plan.volumeId}`} style={{ gap: 8 }}>
-                <Text style={{ color: colors.text, fontSize: 18, fontWeight: "800" }}>
-                  {title}
-                </Text>
-                <Text style={{ color: colors.textMuted, fontSize: 15, lineHeight: 22 }}>
-                  {[subtitle, plan.languageId, plan.volumeId].filter(Boolean).join(" | ")}
-                </Text>
-                <Text style={{ color: colors.textMuted, fontSize: 15, lineHeight: 22 }}>
-                  {plan.planId} | Started {new Date(plan.startedAt).toLocaleDateString()}
-                </Text>
-                <View
-                  style={{
-                    height: 8,
-                    borderRadius: 999,
-                    backgroundColor: "#E8DDC0",
-                    overflow: "hidden",
-                  }}
-                >
+            <View style={{ gap: 16 }}>
+              {activePlans.map(({ plan, title, subtitle }) => {
+                const progress = latestProgressByBook[plan.bookId];
+                const startDate = new Date(plan.startedAt);
+                const daysActive = Math.floor(
+                  (Date.now() - startDate.getTime()) / (1000 * 60 * 60 * 24)
+                );
+
+                return (
                   <View
+                    key={`${plan.bookId}-${plan.languageId}-${plan.volumeId}`}
                     style={{
-                      width: "100%",
-                      height: "100%",
-                      backgroundColor: colors.accent,
+                      backgroundColor: "#F4ECD9",
+                      borderRadius: 16,
+                      padding: 16,
+                      gap: 10,
                     }}
-                  />
-                </View>
-              </View>
-            ))
+                  >
+                    <View style={{ gap: 4 }}>
+                      <Text style={{ color: colors.text, fontSize: 18, fontWeight: "800" }}>
+                        {title}
+                      </Text>
+                      {subtitle ? (
+                        <Text style={{ color: colors.textMuted, fontSize: 14, lineHeight: 20 }}>
+                          {subtitle}
+                        </Text>
+                      ) : null}
+                    </View>
+
+                    <View
+                      style={{
+                        flexDirection: "row",
+                        justifyContent: "space-between",
+                        alignItems: "center",
+                      }}
+                    >
+                      <Text style={{ color: colors.textMuted, fontSize: 14 }}>
+                        {daysActive === 0
+                          ? "Started today"
+                          : daysActive === 1
+                            ? "1 day active"
+                            : `${daysActive} days active`}
+                      </Text>
+                      {progress?.page ? (
+                        <Text style={{ color: colors.text, fontSize: 14, fontWeight: "700" }}>
+                          Page {progress.page}
+                        </Text>
+                      ) : null}
+                    </View>
+                  </View>
+                );
+              })}
+            </View>
           )}
         </View>
       </ScrollView>
