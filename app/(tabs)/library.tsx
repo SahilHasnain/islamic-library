@@ -464,6 +464,8 @@ export default function LibraryScreen() {
   const [selectedCategory, setSelectedCategory] = useState<string>("all");
   const [selectedLanguage, setSelectedLanguage] = useState<string>("all");
   const [sortBy, setSortBy] = useState<"catalog" | "alpha" | "recent">("catalog");
+  const [searchQuery, setSearchQuery] = useState<string>("");
+  const [bookMetadataMap, setBookMetadataMap] = useState<Record<string, { languages: string[] }>>({});
 
   useFocusEffect(
     useCallback(() => {
@@ -484,6 +486,38 @@ export default function LibraryScreen() {
     ? inProgressBooks.filter((book) => book.id !== featuredBook.id)
     : [];
 
+  // Load metadata for all books to get language information
+  useEffect(() => {
+    const loadAllMetadata = async () => {
+      const metadataPromises = remoteBooks.map(async (book) => {
+        if (!book.metadataUrl) return null;
+        try {
+          const response = await fetch(book.metadataUrl);
+          const metadata = await response.json();
+          return {
+            bookId: book.id,
+            languages: metadata.languages?.map((lang: { id: string; title: string }) => lang.title) || [],
+          };
+        } catch {
+          return null;
+        }
+      });
+
+      const results = await Promise.all(metadataPromises);
+      const metadataMap: Record<string, { languages: string[] }> = {};
+      results.forEach((result) => {
+        if (result) {
+          metadataMap[result.bookId] = { languages: result.languages };
+        }
+      });
+      setBookMetadataMap(metadataMap);
+    };
+
+    if (remoteBooks.length > 0) {
+      void loadAllMetadata();
+    }
+  }, [remoteBooks]);
+
   // Extract unique categories
   const uniqueCategories = useMemo(() => {
     const categories = new Set<string>();
@@ -497,23 +531,36 @@ export default function LibraryScreen() {
     return Array.from(categories).sort();
   }, [remoteBooks]);
 
-  // Extract unique languages from all books
+  // Extract unique languages from loaded metadata
   const uniqueLanguages = useMemo(() => {
     const languages = new Set<string>();
-    remoteBooks.forEach((book) => {
-      // We'll need to fetch metadata to get languages, but for now we can use a placeholder
-      // In a real implementation, you'd need to load metadata for all books
-      // For now, let's use common languages
-      languages.add("English");
-      languages.add("Urdu");
-      languages.add("Roman Urdu");
+    Object.values(bookMetadataMap).forEach((metadata) => {
+      metadata.languages.forEach((lang) => languages.add(lang));
     });
     return Array.from(languages).sort();
-  }, [remoteBooks]);
+  }, [bookMetadataMap]);
 
   // Filter and sort books
   const filteredAndSortedBooks = useMemo(() => {
     let books = remoteBooks;
+
+    // Search filter
+    if (searchQuery.trim()) {
+      const query = searchQuery.toLowerCase();
+      books = books.filter((book) => {
+        return (
+          book.title.toLowerCase().includes(query) ||
+          book.subtitle?.toLowerCase().includes(query) ||
+          book.author?.toLowerCase().includes(query) ||
+          getCategoryDisplayLabel({
+            category: book.category,
+            categoryLabel: book.categoryLabel,
+          })
+            .toLowerCase()
+            .includes(query)
+        );
+      });
+    }
 
     // Category filter
     if (selectedCategory !== "all") {
@@ -526,11 +573,13 @@ export default function LibraryScreen() {
       });
     }
 
-    // Language filter (placeholder - would need metadata loading)
-    // For now, we'll skip language filtering until metadata is loaded
-    // if (selectedLanguage !== "all") {
-    //   books = books.filter(book => book has selectedLanguage);
-    // }
+    // Language filter
+    if (selectedLanguage !== "all") {
+      books = books.filter((book) => {
+        const metadata = bookMetadataMap[book.id];
+        return metadata?.languages.includes(selectedLanguage);
+      });
+    }
 
     // Sort
     if (sortBy === "alpha") {
@@ -549,7 +598,15 @@ export default function LibraryScreen() {
     // "catalog" keeps original order
 
     return books;
-  }, [remoteBooks, selectedCategory, selectedLanguage, sortBy, latestProgressByBook]);
+  }, [
+    remoteBooks,
+    searchQuery,
+    selectedCategory,
+    selectedLanguage,
+    sortBy,
+    latestProgressByBook,
+    bookMetadataMap,
+  ]);
 
   return (
     <Screen>
@@ -669,90 +726,144 @@ export default function LibraryScreen() {
           </View>
         ) : null}
 
-        <View style={{ gap: 16 }}>
-          <View style={{ paddingHorizontal: spacing.page }}>
-            <CardTitle>Browse library</CardTitle>
-            <View style={{ flexDirection: "row", alignItems: "center", gap: 12, marginTop: 8 }}>
-              <MetaText>{filteredAndSortedBooks.length} books</MetaText>
-              <Text style={{ color: colors.textMuted, fontSize: typography.meta }}>•</Text>
-              <Pressable
-                onPress={() => {
-                  const sortOptions: Array<"catalog" | "alpha" | "recent"> = ["catalog", "alpha", "recent"];
-                  const currentIndex = sortOptions.indexOf(sortBy);
-                  const nextIndex = (currentIndex + 1) % sortOptions.length;
-                  setSortBy(sortOptions[nextIndex]);
-                }}
-                style={{
-                  flexDirection: "row",
-                  alignItems: "center",
-                  gap: 4,
-                }}
-              >
-                <MetaText>
-                  Sort: {sortBy === "catalog" ? "Default" : sortBy === "alpha" ? "A-Z" : "Recent"}
-                </MetaText>
-                <Text style={{ color: colors.textMuted, fontSize: typography.meta }}>▾</Text>
-              </Pressable>
-            </View>
-          </View>
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={{ gap: 10, paddingLeft: spacing.page, paddingRight: spacing.page }}
+        <View style={{ gap: 16, paddingHorizontal: spacing.page }}>
+          <CardTitle>Browse library</CardTitle>
+
+          {/* Search Bar */}
+          <View
+            style={{
+              backgroundColor: colors.surface,
+              borderRadius: radii.md,
+              paddingHorizontal: 16,
+              paddingVertical: 12,
+              flexDirection: "row",
+              alignItems: "center",
+              gap: 10,
+            }}
           >
-            <Pressable
-              onPress={() => setSelectedCategory("all")}
+            <Text style={{ color: colors.textMuted, fontSize: typography.body }}>🔍</Text>
+            <TextInput
+              value={searchQuery}
+              onChangeText={setSearchQuery}
+              placeholder="Search books, authors, categories..."
+              placeholderTextColor={colors.textMuted}
               style={{
-                borderRadius: radii.pill,
-                backgroundColor: selectedCategory === "all" ? colors.accent : colors.surfaceMuted,
-                paddingHorizontal: 16,
-                paddingVertical: 10,
+                flex: 1,
+                color: colors.text,
+                fontSize: typography.body,
+                padding: 0,
+              }}
+            />
+            {searchQuery.length > 0 ? (
+              <Pressable onPress={() => setSearchQuery("")}>
+                <Text style={{ color: colors.textMuted, fontSize: typography.body }}>✕</Text>
+              </Pressable>
+            ) : null}
+          </View>
+
+          {/* Filters and Sort */}
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+            <MetaText>{filteredAndSortedBooks.length} books</MetaText>
+            <Text style={{ color: colors.textMuted, fontSize: typography.meta }}>•</Text>
+            <Pressable
+              onPress={() => {
+                const sortOptions: Array<"catalog" | "alpha" | "recent"> = [
+                  "catalog",
+                  "alpha",
+                  "recent",
+                ];
+                const currentIndex = sortOptions.indexOf(sortBy);
+                const nextIndex = (currentIndex + 1) % sortOptions.length;
+                setSortBy(sortOptions[nextIndex]);
+              }}
+              style={{
+                flexDirection: "row",
+                alignItems: "center",
+                gap: 4,
               }}
             >
-              <Text
-                style={{
-                  color: selectedCategory === "all" ? colors.text : colors.textMuted,
-                  fontSize: typography.control,
-                  fontWeight: "800",
-                }}
-              >
-                All
-              </Text>
+              <MetaText>
+                Sort: {sortBy === "catalog" ? "Default" : sortBy === "alpha" ? "A-Z" : "Recent"}
+              </MetaText>
+              <Text style={{ color: colors.textMuted, fontSize: typography.meta }}>▾</Text>
             </Pressable>
-            {uniqueCategories.map((category) => {
-              const count = remoteBooks.filter((book) => {
-                const bookCategory = getCategoryDisplayLabel({
-                  category: book.category,
-                  categoryLabel: book.categoryLabel,
-                });
-                return bookCategory === category;
-              }).length;
-              return (
+            {uniqueLanguages.length > 0 ? (
+              <>
+                <Text style={{ color: colors.textMuted, fontSize: typography.meta }}>•</Text>
                 <Pressable
-                  key={category}
-                  onPress={() => setSelectedCategory(category)}
+                  onPress={() => {
+                    const allLanguages = ["all", ...uniqueLanguages];
+                    const currentIndex = allLanguages.indexOf(selectedLanguage);
+                    const nextIndex = (currentIndex + 1) % allLanguages.length;
+                    setSelectedLanguage(allLanguages[nextIndex]);
+                  }}
                   style={{
-                    borderRadius: radii.pill,
-                    backgroundColor:
-                      selectedCategory === category ? colors.accent : colors.surfaceMuted,
-                    paddingHorizontal: 16,
-                    paddingVertical: 10,
+                    flexDirection: "row",
+                    alignItems: "center",
+                    gap: 4,
                   }}
                 >
-                  <Text
-                    style={{
-                      color: selectedCategory === category ? colors.text : colors.textMuted,
-                      fontSize: typography.control,
-                      fontWeight: "800",
-                    }}
-                  >
-                    {category}
-                  </Text>
+                  <MetaText>
+                    Language: {selectedLanguage === "all" ? "All" : selectedLanguage}
+                  </MetaText>
+                  <Text style={{ color: colors.textMuted, fontSize: typography.meta }}>▾</Text>
                 </Pressable>
-              );
-            })}
-          </ScrollView>
+              </>
+            ) : null}
+          </View>
         </View>
+
+        {/* Category Filter Chips */}
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={{ gap: 10, paddingLeft: spacing.page, paddingRight: spacing.page }}
+        >
+          <Pressable
+            onPress={() => setSelectedCategory("all")}
+            style={{
+              borderRadius: radii.pill,
+              backgroundColor: selectedCategory === "all" ? colors.accent : colors.surfaceMuted,
+              paddingHorizontal: 16,
+              paddingVertical: 10,
+            }}
+          >
+            <Text
+              style={{
+                color: selectedCategory === "all" ? colors.text : colors.textMuted,
+                fontSize: typography.control,
+                fontWeight: "800",
+              }}
+            >
+              All
+            </Text>
+          </Pressable>
+          {uniqueCategories.map((category) => {
+            return (
+              <Pressable
+                key={category}
+                onPress={() => setSelectedCategory(category)}
+                style={{
+                  borderRadius: radii.pill,
+                  backgroundColor:
+                    selectedCategory === category ? colors.accent : colors.surfaceMuted,
+                  paddingHorizontal: 16,
+                  paddingVertical: 10,
+                }}
+              >
+                <Text
+                  style={{
+                    color: selectedCategory === category ? colors.text : colors.textMuted,
+                    fontSize: typography.control,
+                    fontWeight: "800",
+                  }}
+                >
+                  {category}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </ScrollView>
 
         <SectionCard backgroundColor={colors.surfaceMuted} gap={spacing.gapXl}>
           {filteredAndSortedBooks.length > 0 ? (
