@@ -65,7 +65,11 @@ async function ensurePushRemote() {
   }
 
   if (!githubToken) {
-    throw new Error("GIT_PUSH_ENABLED=true requires GITHUB_TOKEN.");
+    return {
+      pushConfigured: false,
+      remoteName: gitRemoteName,
+      error: "GIT_PUSH_ENABLED=true requires GITHUB_TOKEN.",
+    };
   }
 
   const remoteUrl =
@@ -76,14 +80,35 @@ async function ensurePushRemote() {
     `https://x-access-token:${githubToken}@`,
   );
 
-  await runGit(["remote", "set-url", gitRemoteName, authenticatedRemoteUrl]).catch(async () => {
-    await runGit(["remote", "add", gitRemoteName, authenticatedRemoteUrl]);
-  });
+  try {
+    await runGit(["remote", "set-url", gitRemoteName, authenticatedRemoteUrl]).catch(async () => {
+      await runGit(["remote", "add", gitRemoteName, authenticatedRemoteUrl]);
+    });
 
+    return {
+      pushConfigured: true,
+      remoteName: gitRemoteName,
+      remoteUrl: maskToken(authenticatedRemoteUrl),
+    };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return {
+      pushConfigured: false,
+      remoteName: gitRemoteName,
+      remoteUrl: maskToken(authenticatedRemoteUrl),
+      error: maskToken(message),
+    };
+  }
+}
+
+function buildPushResult(pushConfigured, remoteName, remoteUrl, pushStatus, pushError, pushSummary) {
   return {
-    pushConfigured: true,
-    remoteName: gitRemoteName,
-    remoteUrl: maskToken(authenticatedRemoteUrl),
+    pushConfigured: Boolean(pushConfigured),
+    remoteName,
+    remoteUrl,
+    pushStatus,
+    pushError: pushError ? maskToken(String(pushError)) : "",
+    pushSummary: pushSummary || "",
   };
 }
 
@@ -256,11 +281,27 @@ export async function publishWorkspace({
     await runGit(["rev-parse", "HEAD"])
   ).stdout.trim();
   const pushRemote = await ensurePushRemote();
-  let pushSummary = "Push skipped in local-only mode.";
+  let pushStatus = gitPushEnabled ? "pending" : "skipped";
+  let pushError = null;
+  let pushSummary = gitPushEnabled ? "" : "Push skipped in local-only mode.";
 
   if (gitPushEnabled) {
-    const push = await runGit(["push", gitRemoteName, assetsRepoBranch]);
-    pushSummary = [push.stdout.trim(), push.stderr.trim()].filter(Boolean).join("\n");
+    if (!pushRemote.pushConfigured) {
+      pushStatus = "failed";
+      pushError = pushRemote.error || "Git push remote is not configured.";
+      pushSummary = maskToken(String(pushError || ""));
+    } else {
+      try {
+        const push = await runGit(["push", gitRemoteName, assetsRepoBranch]);
+        pushStatus = "succeeded";
+        pushSummary = [push.stdout.trim(), push.stderr.trim()].filter(Boolean).join("\n");
+      } catch (error) {
+        pushStatus = "failed";
+        pushError = error instanceof Error ? error.message : String(error);
+        pushSummary = maskToken(String(pushError || ""));
+        console.error("Git push failed (non-fatal):", pushSummary);
+      }
+    }
   }
 
   return {
@@ -273,10 +314,14 @@ export async function publishWorkspace({
     manifestUrl: jsdelivrUrl(manifestRelativePath),
     coverImageUrl: jsdelivrUrl(coverRelativePath),
     commitSummary: commit.stdout.trim() || commit.stderr.trim(),
-    pushSummary,
-    pushConfigured: pushRemote.pushConfigured,
-    remoteName: pushRemote.remoteName,
-    remoteUrl: pushRemote.remoteUrl,
+    ...buildPushResult(
+      pushRemote.pushConfigured,
+      pushRemote.remoteName,
+      pushRemote.remoteUrl,
+      pushStatus,
+      pushError,
+      pushSummary,
+    ),
   };
 }
 
@@ -417,11 +462,27 @@ export async function republishBookMetadata({
   );
   const sha = (await runGit(["rev-parse", "HEAD"])).stdout.trim();
   const pushRemote = await ensurePushRemote();
-  let pushSummary = "Push skipped in local-only mode.";
+  let pushStatus = gitPushEnabled ? "pending" : "skipped";
+  let pushError = null;
+  let pushSummary = gitPushEnabled ? "" : "Push skipped in local-only mode.";
 
   if (gitPushEnabled) {
-    const push = await runGit(["push", gitRemoteName, assetsRepoBranch]);
-    pushSummary = [push.stdout.trim(), push.stderr.trim()].filter(Boolean).join("\n");
+    if (!pushRemote.pushConfigured) {
+      pushStatus = "failed";
+      pushError = pushRemote.error || "Git push remote is not configured.";
+      pushSummary = maskToken(String(pushError || ""));
+    } else {
+      try {
+        const push = await runGit(["push", gitRemoteName, assetsRepoBranch]);
+        pushStatus = "succeeded";
+        pushSummary = [push.stdout.trim(), push.stderr.trim()].filter(Boolean).join("\n");
+      } catch (error) {
+        pushStatus = "failed";
+        pushError = error instanceof Error ? error.message : String(error);
+        pushSummary = maskToken(String(pushError || ""));
+        console.error("Git push failed (non-fatal):", pushSummary);
+      }
+    }
   }
 
   return {
@@ -432,9 +493,64 @@ export async function republishBookMetadata({
     manifestUrl: jsdelivrUrl(manifestRelativePath),
     coverImageUrl: publishedMetadata.coverImage,
     commitSummary: commit.stdout.trim() || commit.stderr.trim(),
-    pushSummary,
-    pushConfigured: pushRemote.pushConfigured,
-    remoteName: pushRemote.remoteName,
-    remoteUrl: pushRemote.remoteUrl,
+    ...buildPushResult(
+      pushRemote.pushConfigured,
+      pushRemote.remoteName,
+      pushRemote.remoteUrl,
+      pushStatus,
+      pushError,
+      pushSummary,
+    ),
   };
+}
+
+export async function retryPushOnly() {
+  const pushRemote = await ensurePushRemote();
+  if (!gitPushEnabled) {
+    return buildPushResult(
+      pushRemote.pushConfigured,
+      pushRemote.remoteName,
+      pushRemote.remoteUrl,
+      "skipped",
+      "",
+      "Push skipped in local-only mode.",
+    );
+  }
+
+  if (!pushRemote.pushConfigured) {
+    const message = pushRemote.error || "Git push remote is not configured.";
+    return buildPushResult(
+      pushRemote.pushConfigured,
+      pushRemote.remoteName,
+      pushRemote.remoteUrl,
+      "failed",
+      message,
+      message,
+    );
+  }
+
+  try {
+    const push = await runGit(["push", gitRemoteName, assetsRepoBranch]);
+    const pushSummary = [push.stdout.trim(), push.stderr.trim()].filter(Boolean).join("\n");
+    return buildPushResult(
+      pushRemote.pushConfigured,
+      pushRemote.remoteName,
+      pushRemote.remoteUrl,
+      "succeeded",
+      "",
+      pushSummary,
+    );
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    const masked = maskToken(String(message || ""));
+    console.error("Git push failed (non-fatal):", masked);
+    return buildPushResult(
+      pushRemote.pushConfigured,
+      pushRemote.remoteName,
+      pushRemote.remoteUrl,
+      "failed",
+      masked,
+      masked,
+    );
+  }
 }

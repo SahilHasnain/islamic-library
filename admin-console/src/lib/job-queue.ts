@@ -19,7 +19,7 @@ type QueueStatus = {
 };
 
 // In-memory queue status (could be moved to Redis for multi-instance deployments)
-let queueStatus: QueueStatus = {
+const queueStatus: QueueStatus = {
   isProcessing: false,
   queuedCount: 0,
 };

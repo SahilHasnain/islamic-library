@@ -117,7 +117,7 @@ export async function POST(request: Request) {
 
     if (existingBook) {
       // For existing books, only update fields that are provided
-      const updateData: Record<string, any> = {
+      const updateData: Record<string, unknown> = {
         languageId,
         volumeId,
         sourceFileId,

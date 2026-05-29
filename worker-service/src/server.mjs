@@ -21,6 +21,7 @@ import {
   getPublicAssetUrl,
   publishWorkspace,
   republishBookMetadata,
+  retryPushOnly,
 } from "./publish.mjs";
 import { validateRenderedWorkspace } from "./validate.mjs";
 import { createJobWorkspace, writeWorkspaceSummary } from "./workspace.mjs";
@@ -267,6 +268,13 @@ async function handleIngest(request, response) {
       status: "published",
       pageCount: renderResult.totalPages,
       outputVersion: version,
+      pushStatus: publishResult.pushStatus,
+      pushError: publishResult.pushError || "",
+      pushAttempts:
+        Number(jobDocument.pushAttempts || 0) +
+        (publishResult.pushStatus === "skipped" ? 0 : 1),
+      lastPushAttempt:
+        publishResult.pushStatus === "skipped" ? "" : new Date().toISOString(),
       finishedAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     });
@@ -420,6 +428,59 @@ async function handleMetadataRepublish(request, response) {
   }
 }
 
+async function handleRetryPush(request, response) {
+  if (!isAuthorized(request)) {
+    sendJson(response, 401, { error: "Unauthorized" });
+    return;
+  }
+
+  const payload = await readJsonBody(request);
+  const { jobId } = payload || {};
+
+  if (!jobId) {
+    sendJson(response, 400, { error: "Missing required field: jobId" });
+    return;
+  }
+
+  const jobDocument = await findJobDocument(jobId);
+  if (!jobDocument) {
+    sendJson(response, 404, { error: "Job document not found in Appwrite." });
+    return;
+  }
+
+  if (jobDocument.status !== "published") {
+    sendJson(response, 409, { error: "Only published jobs can retry push." });
+    return;
+  }
+
+  if (jobDocument.pushStatus !== "failed") {
+    sendJson(response, 409, { error: "Retry push is only allowed when pushStatus is failed." });
+    return;
+  }
+
+  const now = new Date().toISOString();
+  const pushResult = await retryPushOnly();
+
+  await updateJobDocument(jobDocument.$id, {
+    pushStatus: pushResult.pushStatus,
+    pushError: pushResult.pushError || "",
+    pushAttempts:
+      Number(jobDocument.pushAttempts || 0) + (pushResult.pushStatus === "skipped" ? 0 : 1),
+    lastPushAttempt: pushResult.pushStatus === "skipped" ? "" : now,
+    updatedAt: now,
+  }).catch(() => {});
+
+  sendJson(response, 200, {
+    ok: true,
+    jobId,
+    pushStatus: pushResult.pushStatus,
+    pushError: pushResult.pushError || "",
+    pushConfigured: pushResult.pushConfigured,
+    remoteName: pushResult.remoteName,
+    remoteUrl: pushResult.remoteUrl,
+  });
+}
+
 const server = http.createServer(async (request, response) => {
   try {
     if (request.method === "GET" && request.url === "/health") {
@@ -434,6 +495,11 @@ const server = http.createServer(async (request, response) => {
 
     if (request.method === "POST" && request.url === "/books/republish-metadata") {
       await handleMetadataRepublish(request, response);
+      return;
+    }
+
+    if (request.method === "POST" && request.url === "/jobs/retry-push") {
+      await handleRetryPush(request, response);
       return;
     }
 

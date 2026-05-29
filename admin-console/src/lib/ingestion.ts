@@ -105,6 +105,10 @@ export type JobRecord = {
   errorMessage?: string;
   outputVersion?: string;
   pageCount?: number;
+  pushStatus?: "pending" | "succeeded" | "failed" | "skipped";
+  pushError?: string;
+  pushAttempts?: number;
+  lastPushAttempt?: string;
   startedAt?: string;
   finishedAt?: string;
   createdAt: string;
@@ -173,6 +177,9 @@ export type MonitoringSummary = {
   activeJobs: number;
   failedJobs: number;
   publishedJobs: number;
+  pushedJobs: number;
+  pushFailedJobs: number;
+  pushPendingJobs: number;
   totalBooks: number;
   publishedBooks: number;
   latestPublishedAt?: string;
@@ -245,6 +252,12 @@ export async function getMonitoringSnapshot(limit = 12): Promise<MonitoringSnaps
   const allJobs = jobsResponse.documents as unknown as JobRecord[];
   const allBooks = booksResponse.documents as unknown as BookRecord[];
   const latestPublishedAt = events.find((event) => event.status === "published")?.createdAt;
+  const publishedJobs = allJobs.filter((job) => job.status === "published");
+  const pushedJobs = publishedJobs.filter((job) => job.pushStatus === "succeeded").length;
+  const pushFailedJobs = publishedJobs.filter((job) => job.pushStatus === "failed").length;
+  const pushPendingJobs = publishedJobs.filter(
+    (job) => !job.pushStatus || job.pushStatus === "pending",
+  ).length;
 
   return {
     jobs,
@@ -260,6 +273,9 @@ export async function getMonitoringSnapshot(limit = 12): Promise<MonitoringSnaps
       ).length,
       failedJobs: allJobs.filter((job) => job.status === "failed").length,
       publishedJobs: allJobs.filter((job) => job.status === "published").length,
+      pushedJobs,
+      pushFailedJobs,
+      pushPendingJobs,
       totalBooks: allBooks.length,
       publishedBooks: allBooks.filter((book) => book.status === "published").length,
       latestPublishedAt,
