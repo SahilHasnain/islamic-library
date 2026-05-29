@@ -980,55 +980,6 @@ export default function LibraryScreen() {
             )}
           />
         </View>
-
-        {completedBooks.length > 0 ? (
-          <View style={{ gap: spacing.gapXl }}>
-            <View style={{ paddingHorizontal: spacing.page }}>
-              <CardTitle>Completed books</CardTitle>
-            </View>
-            <FlatList
-              data={completedBooks}
-              keyExtractor={(book: PublicCatalogBook) => book.id}
-              numColumns={2}
-              scrollEnabled={false}
-              columnWrapperStyle={{
-                gap: 12,
-                paddingHorizontal: spacing.page,
-              }}
-              contentContainerStyle={{
-                gap: 12,
-              }}
-              renderItem={({ item: book }: { item: PublicCatalogBook }) => {
-                const completion = Object.values(completionMap)
-                  .filter((entry) => entry.bookId === book.id)
-                  .sort(
-                    (left, right) =>
-                      new Date(right.completedAt).getTime() -
-                      new Date(left.completedAt).getTime(),
-                  )[0];
-
-                return (
-                  <View style={{ flex: 1 }}>
-                    <LibraryBookCard
-                      bookId={book.id}
-                      title={book.title}
-                      subtitle={book.subtitle ?? "Completed"}
-                      category={
-                        completion
-                          ? `Completed ${new Date(completion.completedAt).toLocaleDateString()}`
-                          : "Completed"
-                      }
-                      page={completion?.finalPage}
-                      languageId={completion?.languageId}
-                      volumeId={completion?.volumeId}
-                      coverImage={book.coverImage}
-                    />
-                  </View>
-                );
-              }}
-            />
-          </View>
-        ) : null}
       </ScrollView>
     </Screen>
   );

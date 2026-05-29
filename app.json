@@ -18,7 +18,7 @@
       "edgeToEdgeEnabled": true,
       "predictiveBackGestureEnabled": false,
       "package": "com.islamiclib",
-      "versionCode": 6
+      "versionCode": 7
     },
     "web": {
       "output": "static",
