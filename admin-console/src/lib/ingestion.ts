@@ -128,6 +128,7 @@ export type WorkerJobPayload = {
   sourceFileId: string;
   requestedBy: string;
   publishMode: "public";
+  dispatchToken?: string;
 };
 
 export type MetadataRepublishPayload = {
@@ -406,6 +407,10 @@ export async function dispatchJobToWorker(jobId: string) {
   const { job, payload } = await getDispatchPayload(jobId);
   const now = new Date().toISOString();
 
+  // Prevent accidental double-dispatch (queue + manual, or multiple requests).
+  // The worker will enforce this token as an idempotency lock.
+  const dispatchToken = `dispatch_${Date.now()}_${Math.random().toString(16).slice(2)}`;
+
   await appwriteDatabases.updateDocument(
     APPWRITE_IDS.databaseId,
     APPWRITE_IDS.jobsCollectionId,
@@ -414,6 +419,7 @@ export async function dispatchJobToWorker(jobId: string) {
       status: "processing",
       workerId: "vps-worker",
       workerVersion: "v1",
+      workerDispatchToken: dispatchToken,
       startedAt: now,
       updatedAt: now,
       errorCode: "",
@@ -427,7 +433,7 @@ export async function dispatchJobToWorker(jobId: string) {
       "Content-Type": "application/json",
       Authorization: `Bearer ${workerApiToken}`,
     },
-    body: JSON.stringify(payload),
+    body: JSON.stringify({ ...payload, dispatchToken }),
   });
 
   if (!response.ok) {

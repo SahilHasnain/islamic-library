@@ -1,11 +1,11 @@
+import { Ionicons } from "@expo/vector-icons";
 import { Image } from "expo-image";
 import { Link, useFocusEffect } from "expo-router";
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { FlatList, Pressable, ScrollView, Text, TextInput, View } from "react-native";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Animated, FlatList, Pressable, ScrollView, Text, TextInput, View } from "react-native";
 
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import {
-  CardTitle,
   ErrorCard,
   HeroCard,
   LoadingCard,
@@ -13,7 +13,7 @@ import {
   Screen
 } from "../../components/ui";
 import { colors, radii, spacing, typography } from "../../constants/theme";
-import type { PublicCatalogBook } from "../../data/types";
+import type { PublicCatalogBook, ReadingProgress } from "../../data/types";
 import { useBookCompletions } from "../../hooks/useBookCompletions";
 import { useReadingProgress } from "../../hooks/useReadingProgress";
 import { useRemoteBookData } from "../../hooks/useRemoteBookData";
@@ -70,27 +70,30 @@ function getDownloadButtonLabel({
   return "Save Offline";
 }
 
-function FeaturedBookHero({
-  bookId,
-  title,
-  subtitle,
-  page,
-  languageId,
-  volumeId,
-  coverImage,
+function ResumeReadingHero({
+  candidates,
+  index,
+  onChangeIndex,
+  latestProgressByBook,
 }: {
-  bookId: string;
-  title: string;
-  subtitle?: string;
-  page?: number;
-  languageId?: string;
-  volumeId?: string;
-  coverImage?: string;
+  candidates: PublicCatalogBook[];
+  index: number;
+  onChangeIndex: (nextIndex: number) => void;
+  latestProgressByBook: Record<string, ReadingProgress | undefined>;
 }) {
+  const activeBook = candidates[index];
+  const activeProgress = activeBook ? latestProgressByBook[activeBook.id] : undefined;
+
+  const [contentWidth, setContentWidth] = useState(0);
+  const translateX = useRef(new Animated.Value(0)).current;
+  const isAnimatingRef = useRef(false);
+
+  const canAdvance = candidates.length > 1;
+
   const { manifest, metadata, selectedLanguage, selectedVolume } = useRemoteBookData(
-    bookId,
-    languageId,
-    volumeId,
+    activeBook?.id ?? "",
+    activeProgress?.languageId,
+    activeProgress?.volumeId,
   );
   const { canDownload, downloadAll, isDownloading, isFullyDownloaded, progressPercent, removeDownload } =
     useVolumeDownload(manifest);
@@ -102,14 +105,53 @@ function FeaturedBookHero({
     progressPercent,
   });
   const readerLanguageId =
-    selectedLanguage?.id ?? languageId ?? metadata?.languages[0]?.id ?? "english";
+    selectedLanguage?.id ?? activeProgress?.languageId ?? metadata?.languages[0]?.id ?? "english";
   const readerVolumeId =
     selectedVolume?.id ??
-    volumeId ??
+    activeProgress?.volumeId ??
     selectedLanguage?.volumes[0]?.id ??
     metadata?.languages[0]?.volumes[0]?.id ??
     "volume1";
-  const readerPage = page ?? 1;
+  const readerPage = activeProgress?.page ?? 1;
+
+  const advance = useCallback(() => {
+    if (!canAdvance) {
+      return;
+    }
+
+    if (isAnimatingRef.current) {
+      return;
+    }
+
+    const nextIndex = (index + 1) % candidates.length;
+
+    // If we can't measure width yet, fall back to a non-animated advance.
+    if (contentWidth <= 0) {
+      onChangeIndex(nextIndex);
+      return;
+    }
+
+    isAnimatingRef.current = true;
+    const slideDistance = contentWidth + 24;
+
+    Animated.timing(translateX, {
+      toValue: -slideDistance,
+      duration: 180,
+      useNativeDriver: true,
+    }).start(() => {
+      translateX.setValue(slideDistance);
+      onChangeIndex(nextIndex);
+      requestAnimationFrame(() => {
+        Animated.timing(translateX, {
+          toValue: 0,
+          duration: 180,
+          useNativeDriver: true,
+        }).start(() => {
+          isAnimatingRef.current = false;
+        });
+      });
+    });
+  }, [canAdvance, candidates.length, contentWidth, index, onChangeIndex, translateX]);
 
   return (
     <HeroCard>
@@ -125,80 +167,119 @@ function FeaturedBookHero({
         Continue Reading
       </Text>
 
-      <View style={{ flexDirection: "row", gap: 16 }}>
-        {/* Cover Thumbnail */}
+      <View style={{ position: "relative" }}>
         <View
-          style={{
-            shadowColor: "#000",
-            shadowOffset: { width: 0, height: 4 },
-            shadowOpacity: 0.3,
-            shadowRadius: 8,
-            elevation: 6,
+          onLayout={(event) => {
+            setContentWidth(event.nativeEvent.layout.width);
           }}
+          style={{ overflow: "hidden" }}
         >
-          {coverImage ? (
-            <Image
-              source={{ uri: coverImage }}
-              contentFit="cover"
-              transition={120}
-              style={{
-                width: 90,
-                height: 126,
-                borderRadius: 8,
-                backgroundColor: colors.surfaceMuted,
-              }}
-            />
-          ) : (
-            <View
-              style={{
-                width: 90,
-                height: 126,
-                borderRadius: 8,
-                backgroundColor: colors.accent,
-              }}
-            />
-          )}
+          <Animated.View style={{ transform: [{ translateX }] }}>
+            <View style={{ flexDirection: "row", gap: 16 }}>
+              {/* Cover Thumbnail */}
+              <View
+                style={{
+                  shadowColor: "#000",
+                  shadowOffset: { width: 0, height: 4 },
+                  shadowOpacity: 0.3,
+                  shadowRadius: 8,
+                  elevation: 6,
+                }}
+              >
+                {activeBook?.coverImage ? (
+                  <Image
+                    source={{ uri: activeBook.coverImage }}
+                    contentFit="cover"
+                    transition={120}
+                    style={{
+                      width: 90,
+                      height: 126,
+                      borderRadius: 8,
+                      backgroundColor: colors.surfaceMuted,
+                    }}
+                  />
+                ) : (
+                  <View
+                    style={{
+                      width: 90,
+                      height: 126,
+                      borderRadius: 8,
+                      backgroundColor: colors.accent,
+                    }}
+                  />
+                )}
+              </View>
+
+              {/* Book Info */}
+              <View style={{ flex: 1, gap: spacing.gapMd, justifyContent: "center" }}>
+                <View style={{ gap: 8 }}>
+                  <Text
+                    style={{
+                      color: colors.textOnDark,
+                      fontSize: typography.title,
+                      fontWeight: "800",
+                    }}
+                    numberOfLines={2}
+                  >
+                    {activeBook?.title ?? ""}
+                  </Text>
+                  <Text
+                    style={{
+                      color: colors.textOnDarkMuted,
+                      fontSize: typography.body,
+                      lineHeight: 22,
+                    }}
+                    numberOfLines={1}
+                  >
+                    {activeBook?.subtitle ?? "Reading edition"}
+                  </Text>
+                  <Text
+                    style={{
+                      color: colors.textOnDarkSubtle,
+                      fontSize: typography.bodySmall,
+                      lineHeight: 22,
+                    }}
+                  >
+                    {getContinueLine(activeProgress?.page)}
+                  </Text>
+                </View>
+              </View>
+            </View>
+          </Animated.View>
         </View>
 
-        {/* Book Info */}
-        <View style={{ flex: 1, gap: spacing.gapMd, justifyContent: "center" }}>
-          <View style={{ gap: 8 }}>
-            <Text
-              style={{
-                color: colors.textOnDark,
-                fontSize: typography.title,
-                fontWeight: "800",
-              }}
-              numberOfLines={2}
-            >
-              {title}
-            </Text>
-            <Text
-              style={{
-                color: colors.textOnDarkMuted,
-                fontSize: typography.body,
-                lineHeight: 22,
-              }}
-              numberOfLines={1}
-            >
-              {subtitle ?? "Reading edition"}
-            </Text>
-            <Text
-              style={{
-                color: colors.textOnDarkSubtle,
-                fontSize: typography.bodySmall,
-                lineHeight: 22,
-              }}
-            >
-              {getContinueLine(page)}
-            </Text>
-          </View>
-        </View>
+        {canAdvance ? (
+          <Pressable
+            onPress={advance}
+            hitSlop={10}
+            style={{
+              position: "absolute",
+              right: -8,
+              top: 44,
+              width: 40,
+              height: 40,
+              borderRadius: 20,
+              alignItems: "center",
+              justifyContent: "center",
+              backgroundColor: "rgba(255, 255, 255, 0.14)",
+              borderWidth: 1,
+              borderColor: "rgba(255, 255, 255, 0.2)",
+            }}
+            accessibilityRole="button"
+            accessibilityLabel="Next in-progress book"
+          >
+            <Ionicons name="chevron-forward" size={22} color={colors.textOnDark} />
+          </Pressable>
+        ) : null}
       </View>
 
       <View style={{ flexDirection: "row", gap: 12, flexWrap: "wrap" }}>
         <Link
-          href={`/reader/${bookId}/${readerLanguageId}/${readerVolumeId}/${readerPage}` as const}
+          href={
+            activeBook
+              ? (`/reader/${activeBook.id}/${readerLanguageId}/${readerVolumeId}/${readerPage}` as const)
+              : ("/" as const)
+          }
           asChild
         >
           <Pressable
@@ -216,12 +297,15 @@ function FeaturedBookHero({
                 fontWeight: "800",
               }}
             >
-              {page ? "Resume Reading" : "Start Reading"}
+              {activeProgress?.page ? "Resume Reading" : "Start Reading"}
             </Text>
           </Pressable>
         </Link>
 
-        <Link href={`/book/${bookId}` as const} asChild>
+        <Link
+          href={activeBook ? (`/book/${activeBook.id}` as const) : ("/" as const)}
+          asChild
+        >
           <Pressable
             style={{
               borderRadius: radii.pill,
@@ -296,16 +380,6 @@ function LibraryBookCard({
     languageId,
     volumeId,
   );
-
-  const readerLanguageId =
-    selectedLanguage?.id ?? languageId ?? metadata?.languages[0]?.id ?? "english";
-  const readerVolumeId =
-    selectedVolume?.id ??
-    volumeId ??
-    selectedLanguage?.volumes[0]?.id ??
-    metadata?.languages[0]?.volumes[0]?.id ??
-    "volume1";
-  const readerPage = page ?? 1;
 
   const totalLanguages = metadata?.languages?.length ?? 0;
   const totalVolumes = selectedLanguage?.volumes?.length ?? 0;
@@ -431,71 +505,9 @@ function LibraryBookCard({
   );
 }
 
-function InProgressCard({
-  bookId,
-  title,
-  subtitle,
-  page,
-  languageId,
-  volumeId,
-}: {
-  bookId: string;
-  title: string;
-  subtitle?: string;
-  page?: number;
-  languageId?: string;
-  volumeId?: string;
-}) {
-  const { metadata, selectedLanguage, selectedVolume } = useRemoteBookData(
-    bookId,
-    languageId,
-    volumeId,
-  );
-  const readerLanguageId =
-    selectedLanguage?.id ?? languageId ?? metadata?.languages[0]?.id ?? "english";
-  const readerVolumeId =
-    selectedVolume?.id ??
-    volumeId ??
-    selectedLanguage?.volumes[0]?.id ??
-    metadata?.languages[0]?.volumes[0]?.id ??
-    "volume1";
-  const readerPage = page ?? 1;
-
-  return (
-    <Link
-      href={`/reader/${bookId}/${readerLanguageId}/${readerVolumeId}/${readerPage}` as const}
-      asChild
-    >
-      <Pressable
-        style={{
-          backgroundColor: colors.surfaceMuted,
-          borderRadius: radii.md,
-          padding: spacing.card,
-          gap: 6,
-          width: 260,
-        }}
-      >
-        <Text
-          style={{ color: colors.text, fontSize: typography.subtitle, fontWeight: "800" }}
-          numberOfLines={2}
-        >
-          {title}
-        </Text>
-        <Text
-          style={{ color: colors.textMuted, fontSize: typography.bodySmall, lineHeight: 22 }}
-          numberOfLines={2}
-        >
-          {subtitle ?? "Continue from your saved reading position"}
-        </Text>
-        <MetaText>{getContinueLine(page)}</MetaText>
-      </Pressable>
-    </Link>
-  );
-}
-
 export default function LibraryScreen() {
   const { error, isLoaded, latestProgressByBook, refreshProgress } = useReadingProgress();
-  const { completedBookIds, completionMap, refreshCompletions } = useBookCompletions();
+  const { completedBookIds, refreshCompletions } = useBookCompletions();
   const {
     catalog,
     error: catalogError,
@@ -510,6 +522,7 @@ export default function LibraryScreen() {
   const [searchQuery, setSearchQuery] = useState<string>("");
   const [showLanguageMenu, setShowLanguageMenu] = useState<boolean>(false);
   const [bookMetadataMap, setBookMetadataMap] = useState<Record<string, { languages: string[] }>>({});
+  const [resumeIndex, setResumeIndex] = useState(0);
 
   useFocusEffect(
     useCallback(() => {
@@ -518,17 +531,33 @@ export default function LibraryScreen() {
     }, [refreshCompletions, refreshProgress]),
   );
 
-  const remoteBooks = catalog?.books ?? [];
+  const remoteBooks = useMemo(() => catalog?.books ?? [], [catalog?.books]);
   const completedBookIdSet = new Set(completedBookIds);
-  const completedBooks = remoteBooks.filter((book) => completedBookIdSet.has(book.id));
   const inProgressBooks = remoteBooks.filter(
     (book) => latestProgressByBook[book.id] && !completedBookIdSet.has(book.id),
   );
-  const featuredBook = inProgressBooks[0] ?? remoteBooks[0];
-  const featuredProgress = featuredBook ? latestProgressByBook[featuredBook.id] : undefined;
-  const additionalInProgressBooks = featuredBook
-    ? inProgressBooks.filter((book) => book.id !== featuredBook.id)
-    : [];
+
+  const sortedInProgressBooks = useMemo(() => {
+    return [...inProgressBooks].sort((a, b) => {
+      const aProgress = latestProgressByBook[a.id];
+      const bProgress = latestProgressByBook[b.id];
+      if (!aProgress && !bProgress) return 0;
+      if (!aProgress) return 1;
+      if (!bProgress) return -1;
+      return new Date(bProgress.updatedAt).getTime() - new Date(aProgress.updatedAt).getTime();
+    });
+  }, [inProgressBooks, latestProgressByBook]);
+
+  const resumeCandidates = sortedInProgressBooks.length > 0 ? sortedInProgressBooks : remoteBooks;
+
+  useEffect(() => {
+    // Keep index valid when the candidate list changes (e.g. after progress refresh).
+    if (resumeIndex >= resumeCandidates.length) {
+      setResumeIndex(0);
+    }
+  }, [resumeCandidates.length, resumeIndex]);
+
+  // In-progress content is surfaced via the resume hero carousel.
 
   // Load metadata for all books to get language information
   useEffect(() => {
@@ -708,48 +737,15 @@ export default function LibraryScreen() {
           <ErrorCard title="No books yet" message="The library does not contain any books yet." />
         ) : null}
 
-        {featuredBook ? (
-          <FeaturedBookHero
-            bookId={featuredBook.id}
-            title={featuredBook.title}
-            subtitle={featuredBook.subtitle}
-            page={featuredProgress?.page}
-            languageId={featuredProgress?.languageId}
-            volumeId={featuredProgress?.volumeId}
-            coverImage={featuredBook.coverImage}
+        {resumeCandidates.length > 0 ? (
+          <ResumeReadingHero
+            candidates={resumeCandidates}
+            index={resumeIndex}
+            onChangeIndex={setResumeIndex}
+            latestProgressByBook={latestProgressByBook}
           />
         ) : null}
 
-
-        {additionalInProgressBooks.length > 0 ? (
-          <View style={{ gap: 12 }}>
-            <View style={{ paddingHorizontal: spacing.page }}>
-              <CardTitle>In progress</CardTitle>
-            </View>
-            <ScrollView
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              contentContainerStyle={{ gap: 12, paddingLeft: spacing.page, paddingRight: spacing.page }}
-              snapToInterval={260 + 12}
-              decelerationRate="fast"
-            >
-              {additionalInProgressBooks.map((book) => {
-                const progress = latestProgressByBook[book.id];
-                return (
-                  <InProgressCard
-                    key={book.id}
-                    bookId={book.id}
-                    title={book.title}
-                    subtitle={book.subtitle}
-                    page={progress?.page}
-                    languageId={progress?.languageId}
-                    volumeId={progress?.volumeId}
-                  />
-                );
-              })}
-            </ScrollView>
-          </View>
-        ) : null}
 
         <View style={{ gap: 14, paddingHorizontal: spacing.page }}>
           {/* Search Bar */}

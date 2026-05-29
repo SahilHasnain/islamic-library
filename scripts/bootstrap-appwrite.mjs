@@ -234,6 +234,7 @@ async function setupJobsCollection() {
   await ensureStringAttribute(APPWRITE_IDS.jobsCollectionId, "sourceFileId", 128, true);
   await ensureStringAttribute(APPWRITE_IDS.jobsCollectionId, "languageId", 64, true);
   await ensureStringAttribute(APPWRITE_IDS.jobsCollectionId, "volumeId", 64, true);
+  await ensureStringAttribute(APPWRITE_IDS.jobsCollectionId, "workerDispatchToken", 128, false);
   await ensureStringAttribute(APPWRITE_IDS.jobsCollectionId, "pushStatus", 24, false);
   await ensureStringAttribute(APPWRITE_IDS.jobsCollectionId, "pushError", 5000, false);
   await ensureIntegerAttribute(APPWRITE_IDS.jobsCollectionId, "pushAttempts", false, 0, 100000, 0);

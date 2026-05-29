@@ -101,6 +101,7 @@ async function handleIngest(request, response) {
     category,
     requestedBy,
     publishMode,
+    dispatchToken,
   } = payload || {};
 
   if (!jobId || !bookSlug || !sourceFileId || !languageId || !volumeId || !title) {
@@ -119,6 +120,27 @@ async function handleIngest(request, response) {
   const now = new Date().toISOString();
 
   try {
+    // Idempotency lock: only proceed if dispatchToken matches the job document.
+    // This prevents double dispatch (queue + manual, retries, multi-instance).
+    if (!dispatchToken) {
+      sendJson(response, 400, { error: "Missing dispatchToken." });
+      return;
+    }
+
+    if (jobDocument.workerDispatchToken && jobDocument.workerDispatchToken !== dispatchToken) {
+      sendJson(response, 409, {
+        error: "Job was already dispatched with a different token.",
+        status: jobDocument.status,
+      });
+      return;
+    }
+
+    // Ensure the token is stored even if caller didn't persist it.
+    await updateJobDocument(jobDocument.$id, {
+      workerDispatchToken: dispatchToken,
+      updatedAt: now,
+    }).catch(() => {});
+
     await updateJobDocument(jobDocument.$id, {
       status: "processing",
       workerId,

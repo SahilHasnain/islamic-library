@@ -77,6 +77,8 @@ async function dispatchSingleJob(job: JobRecord): Promise<void> {
 
   const now = new Date().toISOString();
 
+  const dispatchToken = `dispatch_${Date.now()}_${Math.random().toString(16).slice(2)}`;
+
   // Update job status to processing
   await appwriteDatabases.updateDocument(
     APPWRITE_IDS.databaseId,
@@ -86,6 +88,7 @@ async function dispatchSingleJob(job: JobRecord): Promise<void> {
       status: "processing",
       workerId: "vps-worker",
       workerVersion: "v1",
+      workerDispatchToken: dispatchToken,
       startedAt: now,
       updatedAt: now,
       errorCode: "",
@@ -106,6 +109,7 @@ async function dispatchSingleJob(job: JobRecord): Promise<void> {
     sourceFileId: job.sourceFileId,
     requestedBy: book.createdBy,
     publishMode: "public",
+    dispatchToken,
   };
 
   const response = await fetch(`${workerApiUrl.replace(/\/$/, "")}/jobs/ingest`, {
