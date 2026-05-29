@@ -1,6 +1,6 @@
+import { spawn } from "node:child_process";
 import fs from "node:fs/promises";
 import path from "node:path";
-import { spawn } from "node:child_process";
 
 function requireEnv(name, fallback) {
   const value = process.env[name] || fallback;
@@ -142,24 +142,71 @@ export async function publishWorkspace({
     pages: pageCopies,
   };
 
+  // Read existing metadata to preserve other languages/volumes
+  let existingMetadata = {};
+  try {
+    const existingMetadataPath = path.join(bookRoot, "metadata.json");
+    const existingContent = await fs.readFile(existingMetadataPath, "utf8");
+    existingMetadata = JSON.parse(existingContent);
+  } catch (error) {
+    // File doesn't exist yet, that's okay
+  }
+
+  // Merge languages: preserve existing languages and add/update the current one
+  const existingLanguages = existingMetadata.languages || [];
+  const currentLanguageIndex = existingLanguages.findIndex(lang => lang.id === languageId);
+  
+  let updatedLanguages;
+  if (currentLanguageIndex >= 0) {
+    // Language exists, merge volumes
+    const existingLanguage = existingLanguages[currentLanguageIndex];
+    const existingVolumes = existingLanguage.volumes || [];
+    const currentVolumeIndex = existingVolumes.findIndex(vol => vol.id === volumeId);
+    
+    let updatedVolumes;
+    if (currentVolumeIndex >= 0) {
+      // Volume exists, update it
+      updatedVolumes = [...existingVolumes];
+      updatedVolumes[currentVolumeIndex] = {
+        ...existingVolumes[currentVolumeIndex],
+        ...(metadata.languages?.find(l => l.id === languageId)?.volumes?.find(v => v.id === volumeId) || {}),
+        manifestUrl: jsdelivrUrl(manifestRelativePath),
+      };
+    } else {
+      // Volume doesn't exist, add it
+      const newVolume = {
+        ...(metadata.languages?.find(l => l.id === languageId)?.volumes?.find(v => v.id === volumeId) || {}),
+        id: volumeId,
+        manifestUrl: jsdelivrUrl(manifestRelativePath),
+      };
+      updatedVolumes = [...existingVolumes, newVolume];
+    }
+    
+    updatedLanguages = [...existingLanguages];
+    updatedLanguages[currentLanguageIndex] = {
+      ...existingLanguage,
+      ...(metadata.languages?.find(l => l.id === languageId) || {}),
+      volumes: updatedVolumes,
+    };
+  } else {
+    // Language doesn't exist, add it
+    const newLanguage = {
+      ...(metadata.languages?.find(l => l.id === languageId) || {}),
+      id: languageId,
+      volumes: [{
+        ...(metadata.languages?.find(l => l.id === languageId)?.volumes?.find(v => v.id === volumeId) || {}),
+        id: volumeId,
+        manifestUrl: jsdelivrUrl(manifestRelativePath),
+      }],
+    };
+    updatedLanguages = [...existingLanguages, newLanguage];
+  }
+
   const publishedMetadata = {
+    ...existingMetadata,
     ...metadata,
     coverImage: jsdelivrUrl(coverRelativePath),
-    languages: metadata.languages.map((language) =>
-      language.id === languageId
-        ? {
-            ...language,
-            volumes: language.volumes.map((volume) =>
-              volume.id === volumeId
-                ? {
-                    ...volume,
-                    manifestUrl: jsdelivrUrl(manifestRelativePath),
-                  }
-                : volume,
-            ),
-          }
-        : language,
-    ),
+    languages: updatedLanguages,
   };
 
   await fs.writeFile(

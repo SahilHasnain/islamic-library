@@ -6,6 +6,7 @@ import {
     appwriteDatabases,
     ID,
 } from "@/lib/appwrite";
+import { triggerQueueProcessing } from "@/lib/job-queue";
 
 const ALLOWED_CATEGORIES = [
   "Seerah",
@@ -55,9 +56,10 @@ export async function POST(request: Request) {
     const explicitSlug = String(payload.slug || "").trim();
     const sourceFileId = String(payload.sourceFileId || "").trim();
 
-    if (!title || !languageId || !volumeId) {
+    // Required fields
+    if (!languageId || !volumeId) {
       return NextResponse.json(
-        { error: "Title, language, and volume are required." },
+        { error: "Language and volume are required." },
         { status: 400 },
       );
     }
@@ -66,13 +68,14 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "A source PDF upload is required." }, { status: 400 });
     }
 
-    if (category && !ALLOWED_CATEGORIES.includes(category as (typeof ALLOWED_CATEGORIES)[number])) {
-      return NextResponse.json({ error: "Invalid category." }, { status: 400 });
+    // Determine slug - either explicit or from title
+    const slug = explicitSlug ? slugify(explicitSlug) : (title ? slugify(title) : "");
+    if (!slug) {
+      return NextResponse.json({ error: "Either a book slug or title is required." }, { status: 400 });
     }
 
-    const slug = slugify(explicitSlug || title);
-    if (!slug) {
-      return NextResponse.json({ error: "Could not generate a valid slug." }, { status: 400 });
+    if (category && !ALLOWED_CATEGORIES.includes(category as (typeof ALLOWED_CATEGORIES)[number])) {
+      return NextResponse.json({ error: "Invalid category." }, { status: 400 });
     }
 
     const timestamp = isoNow();
@@ -113,26 +116,39 @@ export async function POST(request: Request) {
     }
 
     if (existingBook) {
+      // For existing books, only update fields that are provided
+      const updateData: Record<string, any> = {
+        languageId,
+        volumeId,
+        sourceFileId,
+        defaultLanguageId: existingBook.defaultLanguageId || languageId,
+        defaultVolumeId: existingBook.defaultVolumeId || volumeId,
+        status: "queued",
+        updatedAt: timestamp,
+      };
+
+      // Only update metadata fields if they're provided
+      if (title) updateData.title = title;
+      if (subtitle) updateData.subtitle = subtitle;
+      if (author) updateData.author = author;
+      if (description) updateData.description = description;
+      if (category) updateData.category = category;
+
       await appwriteDatabases.updateDocument(
         APPWRITE_IDS.databaseId,
         APPWRITE_IDS.booksCollectionId,
         existingBook.$id,
-        {
-          title,
-          subtitle: subtitle || undefined,
-          author: author || undefined,
-          description: description || undefined,
-          category: category || undefined,
-          languageId,
-          volumeId,
-          sourceFileId,
-          defaultLanguageId: existingBook.defaultLanguageId || languageId,
-          defaultVolumeId: existingBook.defaultVolumeId || volumeId,
-          status: "queued",
-          updatedAt: timestamp,
-        },
+        updateData,
       );
     } else {
+      // For new books, title is required
+      if (!title) {
+        return NextResponse.json(
+          { error: "Title is required when creating a new book." },
+          { status: 400 },
+        );
+      }
+
       await appwriteDatabases.createDocument(
         APPWRITE_IDS.databaseId,
         APPWRITE_IDS.booksCollectionId,

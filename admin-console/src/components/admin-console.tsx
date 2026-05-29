@@ -2,6 +2,7 @@
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
 
+import { uploadPdfWithProgress } from "@/lib/appwrite-client";
 import type {
   JobListItem,
   MonitoringSnapshot,
@@ -239,16 +240,16 @@ function normalizePlans(value: unknown[] | undefined): PlanEditorItem[] {
       totalDays: item.totalDays == null ? "" : String(item.totalDays),
       items: rawItems.length
         ? rawItems.map((dayItem) => {
-            const day = dayItem as Record<string, unknown>;
-            return {
-              day: day.day == null ? "" : String(day.day),
-              label: String(day.label || ""),
-              startPage: day.startPage == null ? "" : String(day.startPage),
-              endPage: day.endPage == null ? "" : String(day.endPage),
-              estimatedMinutes:
-                day.estimatedMinutes == null ? "" : String(day.estimatedMinutes),
-            };
-          })
+          const day = dayItem as Record<string, unknown>;
+          return {
+            day: day.day == null ? "" : String(day.day),
+            label: String(day.label || ""),
+            startPage: day.startPage == null ? "" : String(day.startPage),
+            endPage: day.endPage == null ? "" : String(day.endPage),
+            estimatedMinutes:
+              day.estimatedMinutes == null ? "" : String(day.estimatedMinutes),
+          };
+        })
         : [createEmptyPlanDay()],
     };
   });
@@ -299,16 +300,16 @@ function normalizeLanguages(
     volumes:
       language.volumes?.length
         ? language.volumes.map((volume, volumeIndex) => ({
-            id: String(volume.id || ""),
-            title: String(volume.title || volume.id || ""),
-            subtitle: String(volume.subtitle || ""),
-            order: volume.order == null ? String(volumeIndex + 1) : String(volume.order),
-            manifestUrl: String(volume.manifestUrl || ""),
-            introNote: String(volume.introNote || ""),
-            todayTarget: String(volume.todayTarget || ""),
-            sections: normalizeSections(volume.sections),
-            plans: normalizePlans((volume as { plans?: unknown[] }).plans),
-          }))
+          id: String(volume.id || ""),
+          title: String(volume.title || volume.id || ""),
+          subtitle: String(volume.subtitle || ""),
+          order: volume.order == null ? String(volumeIndex + 1) : String(volume.order),
+          manifestUrl: String(volume.manifestUrl || ""),
+          introNote: String(volume.introNote || ""),
+          todayTarget: String(volume.todayTarget || ""),
+          sections: normalizeSections(volume.sections),
+          plans: normalizePlans((volume as { plans?: unknown[] }).plans),
+        }))
         : [createEmptyVolume()],
   }));
 }
@@ -528,34 +529,17 @@ export function AdminConsole({ initialSnapshot }: { initialSnapshot: MonitoringS
     languages: [],
   });
 
-  async function uploadPdfDirect(file: File) {
-    const { endpoint, projectId, sourcePdfsBucketId } = publicAppwriteConfig;
-    if (!endpoint || !projectId || !sourcePdfsBucketId) {
-      throw new Error("Missing public Appwrite upload configuration.");
+  async function uploadPdfDirect(file: File, onProgress?: (progress: number) => void) {
+    try {
+      const fileId = await uploadPdfWithProgress(file, (progressInfo) => {
+        const percentage = Math.round((progressInfo.chunksUploaded / progressInfo.chunksTotal) * 100);
+        onProgress?.(percentage);
+      });
+      return fileId;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "PDF upload failed.";
+      throw new Error(message);
     }
-
-    const fileId = crypto.randomUUID();
-    const formData = new FormData();
-    formData.append("fileId", fileId);
-    formData.append("file", file);
-
-    const response = await fetch(
-      `${endpoint.replace(/\/+$/, "")}/storage/buckets/${sourcePdfsBucketId}/files`,
-      {
-        method: "POST",
-        headers: {
-          "X-Appwrite-Project": projectId,
-        },
-        body: formData,
-      },
-    );
-
-    const payload = (await response.json().catch(() => ({}))) as { message?: string };
-    if (!response.ok) {
-      throw new Error(payload.message || "PDF upload failed.");
-    }
-
-    return fileId;
   }
 
   const filteredJobs = useMemo(() => {
@@ -716,7 +700,9 @@ export function AdminConsole({ initialSnapshot }: { initialSnapshot: MonitoringS
       }
 
       setState({ message: "Uploading source PDF..." });
-      const sourceFileId = await uploadPdfDirect(pdf);
+      const sourceFileId = await uploadPdfDirect(pdf, (progress) => {
+        setState({ message: `Uploading source PDF... ${progress}%`, uploadProgress: progress });
+      });
 
       const requestBody = {
         title: String(formData.get("title") || ""),
@@ -863,8 +849,7 @@ export function AdminConsole({ initialSnapshot }: { initialSnapshot: MonitoringS
           </h1>
           <p className="mt-3 max-w-2xl text-sm leading-6 text-stone-300">
             This admin console uploads the original PDF to Appwrite and queues one
-            language/volume ingestion job. Reuse the same slug when you are adding a new
-            edition to an existing book.
+            language/volume ingestion job. <strong className="text-amber-300">For new books:</strong> provide title and other metadata. <strong className="text-amber-300">For existing books:</strong> just provide the slug, language, volume, and PDF.
           </p>
         </div>
 
@@ -873,16 +858,16 @@ export function AdminConsole({ initialSnapshot }: { initialSnapshot: MonitoringS
             <form className="space-y-6" onSubmit={handleSubmit}>
               <div className="grid gap-5 md:grid-cols-2">
                 <label className="space-y-2">
-                  <span className="text-sm text-stone-200">Title</span>
-                  <input required name="title" className="w-full rounded-2xl border border-stone-700 bg-stone-950 px-4 py-3 text-sm outline-none transition focus:border-amber-300" placeholder="Light of the Prophet" />
+                  <span className="text-sm text-stone-200">Title <span className="text-stone-500">(required for new books)</span></span>
+                  <input name="title" className="w-full rounded-2xl border border-stone-700 bg-stone-950 px-4 py-3 text-sm outline-none transition focus:border-amber-300" placeholder="Light of the Prophet" />
                 </label>
                 <label className="space-y-2">
-                  <span className="text-sm text-stone-200">Book slug</span>
+                  <span className="text-sm text-stone-200">Book slug <span className="text-amber-300">(required for existing books)</span></span>
                   <input
                     name="slug"
                     list="known-book-slugs"
                     className="w-full rounded-2xl border border-stone-700 bg-stone-950 px-4 py-3 text-sm outline-none transition focus:border-amber-300"
-                    placeholder="Reuse an existing slug to attach a new edition"
+                    placeholder="seerat-e-mustafa"
                   />
                   <datalist id="known-book-slugs">
                     {knownBooks.map((book) => (
@@ -891,16 +876,17 @@ export function AdminConsole({ initialSnapshot }: { initialSnapshot: MonitoringS
                   </datalist>
                 </label>
                 <label className="space-y-2">
-                  <span className="text-sm text-stone-200">Subtitle</span>
+                  <span className="text-sm text-stone-200">Subtitle <span className="text-stone-500">(optional)</span></span>
                   <input name="subtitle" className="w-full rounded-2xl border border-stone-700 bg-stone-950 px-4 py-3 text-sm outline-none transition focus:border-amber-300" placeholder="A gentle seerah reading journey" />
                 </label>
                 <label className="space-y-2">
-                  <span className="text-sm text-stone-200">Author</span>
+                  <span className="text-sm text-stone-200">Author <span className="text-stone-500">(optional)</span></span>
                   <input name="author" className="w-full rounded-2xl border border-stone-700 bg-stone-950 px-4 py-3 text-sm outline-none transition focus:border-amber-300" placeholder="Editorial Edition" />
                 </label>
                 <label className="space-y-2">
-                  <span className="text-sm text-stone-200">Category</span>
-                  <select name="category" defaultValue="Seerah" className="w-full rounded-2xl border border-stone-700 bg-stone-950 px-4 py-3 text-sm outline-none transition focus:border-amber-300">
+                  <span className="text-sm text-stone-200">Category <span className="text-stone-500">(optional)</span></span>
+                  <select name="category" defaultValue="" className="w-full rounded-2xl border border-stone-700 bg-stone-950 px-4 py-3 text-sm outline-none transition focus:border-amber-300">
+                    <option value="">-- Select Category --</option>
                     {categories.map((category) => (
                       <option key={category} value={category}>
                         {category}
@@ -913,22 +899,22 @@ export function AdminConsole({ initialSnapshot }: { initialSnapshot: MonitoringS
                   <input name="createdBy" defaultValue="admin-console" className="w-full rounded-2xl border border-stone-700 bg-stone-950 px-4 py-3 text-sm outline-none transition focus:border-amber-300" />
                 </label>
                 <label className="space-y-2">
-                  <span className="text-sm text-stone-200">Language ID</span>
-                  <input required name="languageId" defaultValue="english" className="w-full rounded-2xl border border-stone-700 bg-stone-950 px-4 py-3 text-sm outline-none transition focus:border-amber-300" />
+                  <span className="text-sm text-stone-200">Language ID <span className="text-rose-300">*</span></span>
+                  <input required name="languageId" defaultValue="english" className="w-full rounded-2xl border border-stone-700 bg-stone-950 px-4 py-3 text-sm outline-none transition focus:border-amber-300" placeholder="english, urdu, hindi" />
                 </label>
                 <label className="space-y-2">
-                  <span className="text-sm text-stone-200">Volume ID</span>
-                  <input required name="volumeId" defaultValue="volume1" className="w-full rounded-2xl border border-stone-700 bg-stone-950 px-4 py-3 text-sm outline-none transition focus:border-amber-300" />
+                  <span className="text-sm text-stone-200">Volume ID <span className="text-rose-300">*</span></span>
+                  <input required name="volumeId" defaultValue="volume1" className="w-full rounded-2xl border border-stone-700 bg-stone-950 px-4 py-3 text-sm outline-none transition focus:border-amber-300" placeholder="volume1, volume2" />
                 </label>
               </div>
 
               <label className="block space-y-2">
-                <span className="text-sm text-stone-200">Description</span>
+                <span className="text-sm text-stone-200">Description <span className="text-stone-500">(optional)</span></span>
                 <textarea name="description" rows={5} className="w-full rounded-3xl border border-stone-700 bg-stone-950 px-4 py-3 text-sm leading-6 outline-none transition focus:border-amber-300" placeholder="Short public-facing description for the book card and metadata." />
               </label>
 
               <label className="block space-y-2">
-                <span className="text-sm text-stone-200">Source PDF</span>
+                <span className="text-sm text-stone-200">Source PDF <span className="text-rose-300">*</span></span>
                 <input required type="file" name="pdf" accept="application/pdf" className="block w-full rounded-2xl border border-dashed border-stone-700 bg-stone-950 px-4 py-4 text-sm text-stone-300 file:mr-4 file:rounded-full file:border-0 file:bg-amber-300 file:px-4 file:py-2 file:text-sm file:font-medium file:text-stone-950" />
               </label>
 
@@ -949,16 +935,25 @@ export function AdminConsole({ initialSnapshot }: { initialSnapshot: MonitoringS
               </ul>
             </div>
 
+            <div className="rounded-2xl border border-amber-900/30 bg-amber-950/20 p-4 mt-4">
+              <p className="text-xs uppercase tracking-[0.24em] text-amber-400">Quick Guide</p>
+              <ul className="mt-3 space-y-2 text-xs leading-5 text-amber-200/80">
+                <li><strong>New Book:</strong> Fill in title + metadata fields</li>
+                <li><strong>New Edition:</strong> Just provide slug + language + volume + PDF</li>
+                <li><strong>Fields marked with <span className="text-rose-300">*</span> are always required</strong></li>
+              </ul>
+            </div>
+
             <div className="rounded-2xl border border-stone-800 bg-stone-950/70 p-4">
               <p className="text-xs uppercase tracking-[0.24em] text-stone-400">Submission</p>
               {state.error ? (
                 <p className="mt-3 text-sm leading-6 text-rose-300">{state.error}</p>
               ) : state.message ? (
                 <div className="mt-3 space-y-2 text-sm leading-6 text-emerald-300">
-                <p>{state.message}</p>
-                <p>Job ID: {state.jobId}</p>
-                <p>Book slug: {state.slug}</p>
-              </div>
+                  <p>{state.message}</p>
+                  <p>Job ID: {state.jobId}</p>
+                  <p>Book slug: {state.slug}</p>
+                </div>
               ) : (
                 <p className="mt-3 text-sm leading-6 text-stone-400">
                   No upload yet. Successful submissions will show the queued job details here.
@@ -1311,9 +1306,9 @@ export function AdminConsole({ initialSnapshot }: { initialSnapshot: MonitoringS
                                     languages: current.languages.map((item, currentIndex) =>
                                       currentIndex === languageIndex
                                         ? {
-                                            ...item,
-                                            volumes: item.volumes.filter((_, currentVolumeIndex) => currentVolumeIndex !== volumeIndex),
-                                          }
+                                          ...item,
+                                          volumes: item.volumes.filter((_, currentVolumeIndex) => currentVolumeIndex !== volumeIndex),
+                                        }
                                         : item,
                                     ),
                                   }));
@@ -1336,13 +1331,13 @@ export function AdminConsole({ initialSnapshot }: { initialSnapshot: MonitoringS
                                       languages: current.languages.map((item, currentIndex) =>
                                         currentIndex === languageIndex
                                           ? {
-                                              ...item,
-                                              volumes: item.volumes.map((currentVolume, currentVolumeIndex) =>
-                                                currentVolumeIndex === volumeIndex
-                                                  ? { ...currentVolume, id: value }
-                                                  : currentVolume,
-                                              ),
-                                            }
+                                            ...item,
+                                            volumes: item.volumes.map((currentVolume, currentVolumeIndex) =>
+                                              currentVolumeIndex === volumeIndex
+                                                ? { ...currentVolume, id: value }
+                                                : currentVolume,
+                                            ),
+                                          }
                                           : item,
                                       ),
                                     }));
@@ -1362,13 +1357,13 @@ export function AdminConsole({ initialSnapshot }: { initialSnapshot: MonitoringS
                                       languages: current.languages.map((item, currentIndex) =>
                                         currentIndex === languageIndex
                                           ? {
-                                              ...item,
-                                              volumes: item.volumes.map((currentVolume, currentVolumeIndex) =>
-                                                currentVolumeIndex === volumeIndex
-                                                  ? { ...currentVolume, title: value }
-                                                  : currentVolume,
-                                              ),
-                                            }
+                                            ...item,
+                                            volumes: item.volumes.map((currentVolume, currentVolumeIndex) =>
+                                              currentVolumeIndex === volumeIndex
+                                                ? { ...currentVolume, title: value }
+                                                : currentVolume,
+                                            ),
+                                          }
                                           : item,
                                       ),
                                     }));
@@ -1388,13 +1383,13 @@ export function AdminConsole({ initialSnapshot }: { initialSnapshot: MonitoringS
                                       languages: current.languages.map((item, currentIndex) =>
                                         currentIndex === languageIndex
                                           ? {
-                                              ...item,
-                                              volumes: item.volumes.map((currentVolume, currentVolumeIndex) =>
-                                                currentVolumeIndex === volumeIndex
-                                                  ? { ...currentVolume, subtitle: value }
-                                                  : currentVolume,
-                                              ),
-                                            }
+                                            ...item,
+                                            volumes: item.volumes.map((currentVolume, currentVolumeIndex) =>
+                                              currentVolumeIndex === volumeIndex
+                                                ? { ...currentVolume, subtitle: value }
+                                                : currentVolume,
+                                            ),
+                                          }
                                           : item,
                                       ),
                                     }));
@@ -1415,13 +1410,13 @@ export function AdminConsole({ initialSnapshot }: { initialSnapshot: MonitoringS
                                       languages: current.languages.map((item, currentIndex) =>
                                         currentIndex === languageIndex
                                           ? {
-                                              ...item,
-                                              volumes: item.volumes.map((currentVolume, currentVolumeIndex) =>
-                                                currentVolumeIndex === volumeIndex
-                                                  ? { ...currentVolume, order: value }
-                                                  : currentVolume,
-                                              ),
-                                            }
+                                            ...item,
+                                            volumes: item.volumes.map((currentVolume, currentVolumeIndex) =>
+                                              currentVolumeIndex === volumeIndex
+                                                ? { ...currentVolume, order: value }
+                                                : currentVolume,
+                                            ),
+                                          }
                                           : item,
                                       ),
                                     }));
@@ -1440,13 +1435,13 @@ export function AdminConsole({ initialSnapshot }: { initialSnapshot: MonitoringS
                                       languages: current.languages.map((item, currentIndex) =>
                                         currentIndex === languageIndex
                                           ? {
-                                              ...item,
-                                              volumes: item.volumes.map((currentVolume, currentVolumeIndex) =>
-                                                currentVolumeIndex === volumeIndex
-                                                  ? { ...currentVolume, manifestUrl: value }
-                                                  : currentVolume,
-                                              ),
-                                            }
+                                            ...item,
+                                            volumes: item.volumes.map((currentVolume, currentVolumeIndex) =>
+                                              currentVolumeIndex === volumeIndex
+                                                ? { ...currentVolume, manifestUrl: value }
+                                                : currentVolume,
+                                            ),
+                                          }
                                           : item,
                                       ),
                                     }));
@@ -1466,13 +1461,13 @@ export function AdminConsole({ initialSnapshot }: { initialSnapshot: MonitoringS
                                       languages: current.languages.map((item, currentIndex) =>
                                         currentIndex === languageIndex
                                           ? {
-                                              ...item,
-                                              volumes: item.volumes.map((currentVolume, currentVolumeIndex) =>
-                                                currentVolumeIndex === volumeIndex
-                                                  ? { ...currentVolume, introNote: value }
-                                                  : currentVolume,
-                                              ),
-                                            }
+                                            ...item,
+                                            volumes: item.volumes.map((currentVolume, currentVolumeIndex) =>
+                                              currentVolumeIndex === volumeIndex
+                                                ? { ...currentVolume, introNote: value }
+                                                : currentVolume,
+                                            ),
+                                          }
                                           : item,
                                       ),
                                     }));
@@ -1491,13 +1486,13 @@ export function AdminConsole({ initialSnapshot }: { initialSnapshot: MonitoringS
                                       languages: current.languages.map((item, currentIndex) =>
                                         currentIndex === languageIndex
                                           ? {
-                                              ...item,
-                                              volumes: item.volumes.map((currentVolume, currentVolumeIndex) =>
-                                                currentVolumeIndex === volumeIndex
-                                                  ? { ...currentVolume, todayTarget: value }
-                                                  : currentVolume,
-                                              ),
-                                            }
+                                            ...item,
+                                            volumes: item.volumes.map((currentVolume, currentVolumeIndex) =>
+                                              currentVolumeIndex === volumeIndex
+                                                ? { ...currentVolume, todayTarget: value }
+                                                : currentVolume,
+                                            ),
+                                          }
                                           : item,
                                       ),
                                     }));
@@ -1523,16 +1518,16 @@ export function AdminConsole({ initialSnapshot }: { initialSnapshot: MonitoringS
                                       languages: current.languages.map((item, currentIndex) =>
                                         currentIndex === languageIndex
                                           ? {
-                                              ...item,
-                                              volumes: item.volumes.map((currentVolume, currentVolumeIndex) =>
-                                                currentVolumeIndex === volumeIndex
-                                                  ? {
-                                                      ...currentVolume,
-                                                      sections: [...currentVolume.sections, createEmptySection()],
-                                                    }
-                                                  : currentVolume,
-                                              ),
-                                            }
+                                            ...item,
+                                            volumes: item.volumes.map((currentVolume, currentVolumeIndex) =>
+                                              currentVolumeIndex === volumeIndex
+                                                ? {
+                                                  ...currentVolume,
+                                                  sections: [...currentVolume.sections, createEmptySection()],
+                                                }
+                                                : currentVolume,
+                                            ),
+                                          }
                                           : item,
                                       ),
                                     }));
@@ -1567,16 +1562,16 @@ export function AdminConsole({ initialSnapshot }: { initialSnapshot: MonitoringS
                                               languages: current.languages.map((item, currentIndex) =>
                                                 currentIndex === languageIndex
                                                   ? {
-                                                      ...item,
-                                                      volumes: item.volumes.map((currentVolume, currentVolumeIndex) =>
-                                                        currentVolumeIndex === volumeIndex
-                                                          ? {
-                                                              ...currentVolume,
-                                                              sections: currentVolume.sections.filter((_, currentSectionIndex) => currentSectionIndex !== sectionIndex),
-                                                            }
-                                                          : currentVolume,
-                                                      ),
-                                                    }
+                                                    ...item,
+                                                    volumes: item.volumes.map((currentVolume, currentVolumeIndex) =>
+                                                      currentVolumeIndex === volumeIndex
+                                                        ? {
+                                                          ...currentVolume,
+                                                          sections: currentVolume.sections.filter((_, currentSectionIndex) => currentSectionIndex !== sectionIndex),
+                                                        }
+                                                        : currentVolume,
+                                                    ),
+                                                  }
                                                   : item,
                                               ),
                                             }));
@@ -1598,18 +1593,18 @@ export function AdminConsole({ initialSnapshot }: { initialSnapshot: MonitoringS
                                                 languages: current.languages.map((item, currentIndex) =>
                                                   currentIndex === languageIndex
                                                     ? {
-                                                        ...item,
-                                                        volumes: item.volumes.map((currentVolume, currentVolumeIndex) =>
-                                                          currentVolumeIndex === volumeIndex
-                                                            ? {
-                                                                ...currentVolume,
-                                                                sections: currentVolume.sections.map((currentSection, currentSectionIndex) =>
-                                                                  currentSectionIndex === sectionIndex ? { ...currentSection, id: value } : currentSection,
-                                                                ),
-                                                              }
-                                                            : currentVolume,
-                                                        ),
-                                                      }
+                                                      ...item,
+                                                      volumes: item.volumes.map((currentVolume, currentVolumeIndex) =>
+                                                        currentVolumeIndex === volumeIndex
+                                                          ? {
+                                                            ...currentVolume,
+                                                            sections: currentVolume.sections.map((currentSection, currentSectionIndex) =>
+                                                              currentSectionIndex === sectionIndex ? { ...currentSection, id: value } : currentSection,
+                                                            ),
+                                                          }
+                                                          : currentVolume,
+                                                      ),
+                                                    }
                                                     : item,
                                                 ),
                                               }));
@@ -1628,18 +1623,18 @@ export function AdminConsole({ initialSnapshot }: { initialSnapshot: MonitoringS
                                                 languages: current.languages.map((item, currentIndex) =>
                                                   currentIndex === languageIndex
                                                     ? {
-                                                        ...item,
-                                                        volumes: item.volumes.map((currentVolume, currentVolumeIndex) =>
-                                                          currentVolumeIndex === volumeIndex
-                                                            ? {
-                                                                ...currentVolume,
-                                                                sections: currentVolume.sections.map((currentSection, currentSectionIndex) =>
-                                                                  currentSectionIndex === sectionIndex ? { ...currentSection, title: value } : currentSection,
-                                                                ),
-                                                              }
-                                                            : currentVolume,
-                                                        ),
-                                                      }
+                                                      ...item,
+                                                      volumes: item.volumes.map((currentVolume, currentVolumeIndex) =>
+                                                        currentVolumeIndex === volumeIndex
+                                                          ? {
+                                                            ...currentVolume,
+                                                            sections: currentVolume.sections.map((currentSection, currentSectionIndex) =>
+                                                              currentSectionIndex === sectionIndex ? { ...currentSection, title: value } : currentSection,
+                                                            ),
+                                                          }
+                                                          : currentVolume,
+                                                      ),
+                                                    }
                                                     : item,
                                                 ),
                                               }));
@@ -1659,18 +1654,18 @@ export function AdminConsole({ initialSnapshot }: { initialSnapshot: MonitoringS
                                                 languages: current.languages.map((item, currentIndex) =>
                                                   currentIndex === languageIndex
                                                     ? {
-                                                        ...item,
-                                                        volumes: item.volumes.map((currentVolume, currentVolumeIndex) =>
-                                                          currentVolumeIndex === volumeIndex
-                                                            ? {
-                                                                ...currentVolume,
-                                                                sections: currentVolume.sections.map((currentSection, currentSectionIndex) =>
-                                                                  currentSectionIndex === sectionIndex ? { ...currentSection, startPage: value } : currentSection,
-                                                                ),
-                                                              }
-                                                            : currentVolume,
-                                                        ),
-                                                      }
+                                                      ...item,
+                                                      volumes: item.volumes.map((currentVolume, currentVolumeIndex) =>
+                                                        currentVolumeIndex === volumeIndex
+                                                          ? {
+                                                            ...currentVolume,
+                                                            sections: currentVolume.sections.map((currentSection, currentSectionIndex) =>
+                                                              currentSectionIndex === sectionIndex ? { ...currentSection, startPage: value } : currentSection,
+                                                            ),
+                                                          }
+                                                          : currentVolume,
+                                                      ),
+                                                    }
                                                     : item,
                                                 ),
                                               }));
@@ -1690,18 +1685,18 @@ export function AdminConsole({ initialSnapshot }: { initialSnapshot: MonitoringS
                                                 languages: current.languages.map((item, currentIndex) =>
                                                   currentIndex === languageIndex
                                                     ? {
-                                                        ...item,
-                                                        volumes: item.volumes.map((currentVolume, currentVolumeIndex) =>
-                                                          currentVolumeIndex === volumeIndex
-                                                            ? {
-                                                                ...currentVolume,
-                                                                sections: currentVolume.sections.map((currentSection, currentSectionIndex) =>
-                                                                  currentSectionIndex === sectionIndex ? { ...currentSection, endPage: value } : currentSection,
-                                                                ),
-                                                              }
-                                                            : currentVolume,
-                                                        ),
-                                                      }
+                                                      ...item,
+                                                      volumes: item.volumes.map((currentVolume, currentVolumeIndex) =>
+                                                        currentVolumeIndex === volumeIndex
+                                                          ? {
+                                                            ...currentVolume,
+                                                            sections: currentVolume.sections.map((currentSection, currentSectionIndex) =>
+                                                              currentSectionIndex === sectionIndex ? { ...currentSection, endPage: value } : currentSection,
+                                                            ),
+                                                          }
+                                                          : currentVolume,
+                                                      ),
+                                                    }
                                                     : item,
                                                 ),
                                               }));
@@ -1732,16 +1727,16 @@ export function AdminConsole({ initialSnapshot }: { initialSnapshot: MonitoringS
                                       languages: current.languages.map((item, currentIndex) =>
                                         currentIndex === languageIndex
                                           ? {
-                                              ...item,
-                                              volumes: item.volumes.map((currentVolume, currentVolumeIndex) =>
-                                                currentVolumeIndex === volumeIndex
-                                                  ? {
-                                                      ...currentVolume,
-                                                      plans: [...currentVolume.plans, createEmptyPlan()],
-                                                    }
-                                                  : currentVolume,
-                                              ),
-                                            }
+                                            ...item,
+                                            volumes: item.volumes.map((currentVolume, currentVolumeIndex) =>
+                                              currentVolumeIndex === volumeIndex
+                                                ? {
+                                                  ...currentVolume,
+                                                  plans: [...currentVolume.plans, createEmptyPlan()],
+                                                }
+                                                : currentVolume,
+                                            ),
+                                          }
                                           : item,
                                       ),
                                     }));
@@ -1776,16 +1771,16 @@ export function AdminConsole({ initialSnapshot }: { initialSnapshot: MonitoringS
                                               languages: current.languages.map((item, currentIndex) =>
                                                 currentIndex === languageIndex
                                                   ? {
-                                                      ...item,
-                                                      volumes: item.volumes.map((currentVolume, currentVolumeIndex) =>
-                                                        currentVolumeIndex === volumeIndex
-                                                          ? {
-                                                              ...currentVolume,
-                                                              plans: currentVolume.plans.filter((_, currentPlanIndex) => currentPlanIndex !== planIndex),
-                                                            }
-                                                          : currentVolume,
-                                                      ),
-                                                    }
+                                                    ...item,
+                                                    volumes: item.volumes.map((currentVolume, currentVolumeIndex) =>
+                                                      currentVolumeIndex === volumeIndex
+                                                        ? {
+                                                          ...currentVolume,
+                                                          plans: currentVolume.plans.filter((_, currentPlanIndex) => currentPlanIndex !== planIndex),
+                                                        }
+                                                        : currentVolume,
+                                                    ),
+                                                  }
                                                   : item,
                                               ),
                                             }));
@@ -1808,18 +1803,18 @@ export function AdminConsole({ initialSnapshot }: { initialSnapshot: MonitoringS
                                                 languages: current.languages.map((item, currentIndex) =>
                                                   currentIndex === languageIndex
                                                     ? {
-                                                        ...item,
-                                                        volumes: item.volumes.map((currentVolume, currentVolumeIndex) =>
-                                                          currentVolumeIndex === volumeIndex
-                                                            ? {
-                                                                ...currentVolume,
-                                                                plans: currentVolume.plans.map((currentPlan, currentPlanIndex) =>
-                                                                  currentPlanIndex === planIndex ? { ...currentPlan, id: value } : currentPlan,
-                                                                ),
-                                                              }
-                                                            : currentVolume,
-                                                        ),
-                                                      }
+                                                      ...item,
+                                                      volumes: item.volumes.map((currentVolume, currentVolumeIndex) =>
+                                                        currentVolumeIndex === volumeIndex
+                                                          ? {
+                                                            ...currentVolume,
+                                                            plans: currentVolume.plans.map((currentPlan, currentPlanIndex) =>
+                                                              currentPlanIndex === planIndex ? { ...currentPlan, id: value } : currentPlan,
+                                                            ),
+                                                          }
+                                                          : currentVolume,
+                                                      ),
+                                                    }
                                                     : item,
                                                 ),
                                               }));
@@ -1838,18 +1833,18 @@ export function AdminConsole({ initialSnapshot }: { initialSnapshot: MonitoringS
                                                 languages: current.languages.map((item, currentIndex) =>
                                                   currentIndex === languageIndex
                                                     ? {
-                                                        ...item,
-                                                        volumes: item.volumes.map((currentVolume, currentVolumeIndex) =>
-                                                          currentVolumeIndex === volumeIndex
-                                                            ? {
-                                                                ...currentVolume,
-                                                                plans: currentVolume.plans.map((currentPlan, currentPlanIndex) =>
-                                                                  currentPlanIndex === planIndex ? { ...currentPlan, title: value } : currentPlan,
-                                                                ),
-                                                              }
-                                                            : currentVolume,
-                                                        ),
-                                                      }
+                                                      ...item,
+                                                      volumes: item.volumes.map((currentVolume, currentVolumeIndex) =>
+                                                        currentVolumeIndex === volumeIndex
+                                                          ? {
+                                                            ...currentVolume,
+                                                            plans: currentVolume.plans.map((currentPlan, currentPlanIndex) =>
+                                                              currentPlanIndex === planIndex ? { ...currentPlan, title: value } : currentPlan,
+                                                            ),
+                                                          }
+                                                          : currentVolume,
+                                                      ),
+                                                    }
                                                     : item,
                                                 ),
                                               }));
@@ -1869,18 +1864,18 @@ export function AdminConsole({ initialSnapshot }: { initialSnapshot: MonitoringS
                                                 languages: current.languages.map((item, currentIndex) =>
                                                   currentIndex === languageIndex
                                                     ? {
-                                                        ...item,
-                                                        volumes: item.volumes.map((currentVolume, currentVolumeIndex) =>
-                                                          currentVolumeIndex === volumeIndex
-                                                            ? {
-                                                                ...currentVolume,
-                                                                plans: currentVolume.plans.map((currentPlan, currentPlanIndex) =>
-                                                                  currentPlanIndex === planIndex ? { ...currentPlan, totalDays: value } : currentPlan,
-                                                                ),
-                                                              }
-                                                            : currentVolume,
-                                                        ),
-                                                      }
+                                                      ...item,
+                                                      volumes: item.volumes.map((currentVolume, currentVolumeIndex) =>
+                                                        currentVolumeIndex === volumeIndex
+                                                          ? {
+                                                            ...currentVolume,
+                                                            plans: currentVolume.plans.map((currentPlan, currentPlanIndex) =>
+                                                              currentPlanIndex === planIndex ? { ...currentPlan, totalDays: value } : currentPlan,
+                                                            ),
+                                                          }
+                                                          : currentVolume,
+                                                      ),
+                                                    }
                                                     : item,
                                                 ),
                                               }));
@@ -1900,18 +1895,18 @@ export function AdminConsole({ initialSnapshot }: { initialSnapshot: MonitoringS
                                                 languages: current.languages.map((item, currentIndex) =>
                                                   currentIndex === languageIndex
                                                     ? {
-                                                        ...item,
-                                                        volumes: item.volumes.map((currentVolume, currentVolumeIndex) =>
-                                                          currentVolumeIndex === volumeIndex
-                                                            ? {
-                                                                ...currentVolume,
-                                                                plans: currentVolume.plans.map((currentPlan, currentPlanIndex) =>
-                                                                  currentPlanIndex === planIndex ? { ...currentPlan, description: value } : currentPlan,
-                                                                ),
-                                                              }
-                                                            : currentVolume,
-                                                        ),
-                                                      }
+                                                      ...item,
+                                                      volumes: item.volumes.map((currentVolume, currentVolumeIndex) =>
+                                                        currentVolumeIndex === volumeIndex
+                                                          ? {
+                                                            ...currentVolume,
+                                                            plans: currentVolume.plans.map((currentPlan, currentPlanIndex) =>
+                                                              currentPlanIndex === planIndex ? { ...currentPlan, description: value } : currentPlan,
+                                                            ),
+                                                          }
+                                                          : currentVolume,
+                                                      ),
+                                                    }
                                                     : item,
                                                 ),
                                               }));
@@ -1932,20 +1927,20 @@ export function AdminConsole({ initialSnapshot }: { initialSnapshot: MonitoringS
                                                 languages: current.languages.map((item, currentIndex) =>
                                                   currentIndex === languageIndex
                                                     ? {
-                                                        ...item,
-                                                        volumes: item.volumes.map((currentVolume, currentVolumeIndex) =>
-                                                          currentVolumeIndex === volumeIndex
-                                                            ? {
-                                                                ...currentVolume,
-                                                                plans: currentVolume.plans.map((currentPlan, currentPlanIndex) =>
-                                                                  currentPlanIndex === planIndex
-                                                                    ? { ...currentPlan, items: [...currentPlan.items, createEmptyPlanDay()] }
-                                                                    : currentPlan,
-                                                                ),
-                                                              }
-                                                            : currentVolume,
-                                                        ),
-                                                      }
+                                                      ...item,
+                                                      volumes: item.volumes.map((currentVolume, currentVolumeIndex) =>
+                                                        currentVolumeIndex === volumeIndex
+                                                          ? {
+                                                            ...currentVolume,
+                                                            plans: currentVolume.plans.map((currentPlan, currentPlanIndex) =>
+                                                              currentPlanIndex === planIndex
+                                                                ? { ...currentPlan, items: [...currentPlan.items, createEmptyPlanDay()] }
+                                                                : currentPlan,
+                                                            ),
+                                                          }
+                                                          : currentVolume,
+                                                      ),
+                                                    }
                                                     : item,
                                                 ),
                                               }));
@@ -1973,23 +1968,23 @@ export function AdminConsole({ initialSnapshot }: { initialSnapshot: MonitoringS
                                                     languages: current.languages.map((item, currentIndex) =>
                                                       currentIndex === languageIndex
                                                         ? {
-                                                            ...item,
-                                                            volumes: item.volumes.map((currentVolume, currentVolumeIndex) =>
-                                                              currentVolumeIndex === volumeIndex
-                                                                ? {
-                                                                    ...currentVolume,
-                                                                    plans: currentVolume.plans.map((currentPlan, currentPlanIndex) =>
-                                                                      currentPlanIndex === planIndex
-                                                                        ? {
-                                                                            ...currentPlan,
-                                                                            items: currentPlan.items.filter((_, currentItemIndex) => currentItemIndex !== itemIndex),
-                                                                          }
-                                                                        : currentPlan,
-                                                                    ),
-                                                                  }
-                                                                : currentVolume,
-                                                            ),
-                                                          }
+                                                          ...item,
+                                                          volumes: item.volumes.map((currentVolume, currentVolumeIndex) =>
+                                                            currentVolumeIndex === volumeIndex
+                                                              ? {
+                                                                ...currentVolume,
+                                                                plans: currentVolume.plans.map((currentPlan, currentPlanIndex) =>
+                                                                  currentPlanIndex === planIndex
+                                                                    ? {
+                                                                      ...currentPlan,
+                                                                      items: currentPlan.items.filter((_, currentItemIndex) => currentItemIndex !== itemIndex),
+                                                                    }
+                                                                    : currentPlan,
+                                                                ),
+                                                              }
+                                                              : currentVolume,
+                                                          ),
+                                                        }
                                                         : item,
                                                     ),
                                                   }));
@@ -2235,11 +2230,10 @@ export function AdminConsole({ initialSnapshot }: { initialSnapshot: MonitoringS
                   onClick={() => {
                     setJobFilter(filter.value);
                   }}
-                  className={`rounded-full border px-4 py-2 text-xs font-medium transition ${
-                    jobFilter === filter.value
-                      ? "border-amber-300 bg-amber-300 text-stone-950"
-                      : "border-stone-700 text-stone-300 hover:border-amber-300 hover:text-amber-200"
-                  }`}
+                  className={`rounded-full border px-4 py-2 text-xs font-medium transition ${jobFilter === filter.value
+                    ? "border-amber-300 bg-amber-300 text-stone-950"
+                    : "border-stone-700 text-stone-300 hover:border-amber-300 hover:text-amber-200"
+                    }`}
                 >
                   {filter.label}
                 </button>
@@ -2318,8 +2312,8 @@ export function AdminConsole({ initialSnapshot }: { initialSnapshot: MonitoringS
                       </button>
                     ) : null}
                     {job.status === "processing" ||
-                    job.status === "validating" ||
-                    job.status === "publishing" ? (
+                      job.status === "validating" ||
+                      job.status === "publishing" ? (
                       <button
                         type="button"
                         disabled={recoveringJobId === job.jobId}
