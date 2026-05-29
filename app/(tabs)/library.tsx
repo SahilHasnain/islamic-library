@@ -5,14 +5,12 @@ import { FlatList, Pressable, ScrollView, Text, TextInput, View } from "react-na
 
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import {
-  BodyText,
   CardTitle,
   ErrorCard,
   HeroCard,
   LoadingCard,
   MetaText,
-  Screen,
-  SectionCard
+  Screen
 } from "../../components/ui";
 import { colors, radii, spacing, typography } from "../../constants/theme";
 import type { PublicCatalogBook } from "../../data/types";
@@ -722,35 +720,6 @@ export default function LibraryScreen() {
           />
         ) : null}
 
-        <SectionCard backgroundColor={colors.surfaceMuted} gap={spacing.gapXl}>
-          <CardTitle>Today&apos;s gentle target</CardTitle>
-          <BodyText color={colors.text}>
-            {featuredBook
-              ? `Read 2 pages from ${featuredBook.title}. The goal is continuity, not speed.`
-              : "Choose one book and read for 5 steady minutes."}
-          </BodyText>
-          {featuredBook ? (
-            <Link
-              href={`/reader/${featuredBook.id}/${featuredProgress?.languageId ?? "english"}/${featuredProgress?.volumeId ?? "volume1"}/${featuredProgress?.page ?? 1}` as const}
-              asChild
-            >
-              <Pressable
-                style={{
-                  alignSelf: "flex-start",
-                  borderRadius: radii.pill,
-                  borderWidth: 1.5,
-                  borderColor: colors.accent,
-                  paddingHorizontal: 18,
-                  paddingVertical: 11,
-                }}
-              >
-                <Text style={{ color: colors.text, fontSize: typography.body, fontWeight: "800" }}>
-                  Read for 5 minutes
-                </Text>
-              </Pressable>
-            </Link>
-          ) : null}
-        </SectionCard>
 
         {additionalInProgressBooks.length > 0 ? (
           <View style={{ gap: 12 }}>
@@ -782,26 +751,26 @@ export default function LibraryScreen() {
           </View>
         ) : null}
 
-        <View style={{ gap: 16, paddingHorizontal: spacing.page }}>
-          <CardTitle>Browse library</CardTitle>
-
+        <View style={{ gap: 14, paddingHorizontal: spacing.page }}>
           {/* Search Bar */}
           <View
             style={{
               backgroundColor: colors.surface,
-              borderRadius: radii.md,
-              paddingHorizontal: 16,
-              paddingVertical: 12,
+              borderRadius: radii.lg,
+              paddingHorizontal: 18,
+              paddingVertical: 14,
               flexDirection: "row",
               alignItems: "center",
-              gap: 10,
+              gap: 12,
+              borderWidth: 1,
+              borderColor: colors.surfaceMuted,
             }}
           >
-            <Text style={{ color: colors.textMuted, fontSize: typography.body }}>🔍</Text>
+            <Text style={{ color: colors.textMuted, fontSize: 18 }}>🔍</Text>
             <TextInput
               value={searchQuery}
               onChangeText={setSearchQuery}
-              placeholder="Search books, authors, categories..."
+              placeholder="Search books..."
               placeholderTextColor={colors.textMuted}
               style={{
                 flex: 1,
@@ -1060,21 +1029,6 @@ export default function LibraryScreen() {
             />
           </View>
         ) : null}
-
-        <SectionCard>
-          <Text
-            style={{
-              color: colors.textMuted,
-              fontSize: typography.subtitle,
-              lineHeight: 28,
-              fontWeight: "600",
-              textAlign: "center",
-            }}
-          >
-            Begin with calm. Continue with steadiness. Let the app remove friction so the reading
-            itself remains the focus.
-          </Text>
-        </SectionCard>
       </ScrollView>
     </Screen>
   );
