@@ -110,6 +110,7 @@ export function buildPublicMetadata({
   author,
   description,
   category,
+  nextRecommendedBookId,
   languageId,
   volumeId,
 }) {
@@ -120,6 +121,7 @@ export function buildPublicMetadata({
     author: author || undefined,
     description: description || undefined,
     category: category || undefined,
+    nextRecommendedBookId: nextRecommendedBookId || undefined,
     coverImage: "cover.png",
     languages: [
       {

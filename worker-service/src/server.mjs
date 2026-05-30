@@ -99,6 +99,7 @@ async function handleIngest(request, response) {
     author,
     description,
     category,
+    nextRecommendedBookId,
     requestedBy,
     publishMode,
     dispatchToken,
@@ -181,6 +182,7 @@ async function handleIngest(request, response) {
       author,
       description,
       category,
+      nextRecommendedBookId,
       languageId,
       volumeId,
     });
@@ -219,6 +221,7 @@ async function handleIngest(request, response) {
       author: author || null,
       description: description || null,
       category: category || null,
+      nextRecommendedBookId: nextRecommendedBookId || null,
       languageId,
       volumeId,
       sourceFileId,
@@ -369,6 +372,7 @@ async function handleMetadataRepublish(request, response) {
     author,
     description,
     category,
+    nextRecommendedBookId,
     defaultLanguageId,
     requestedBy,
     languages,
@@ -395,6 +399,7 @@ async function handleMetadataRepublish(request, response) {
       author,
       description,
       category,
+      nextRecommendedBookId,
       defaultLanguageId,
       languageId: bookDocument.languageId,
       volumeId: bookDocument.volumeId,
@@ -408,6 +413,7 @@ async function handleMetadataRepublish(request, response) {
       author: author || "",
       description: description || "",
       category: category || "",
+      nextRecommendedBookId: nextRecommendedBookId || "",
       defaultLanguageId: defaultLanguageId || "",
       defaultVolumeId:
         (Array.isArray(languages)

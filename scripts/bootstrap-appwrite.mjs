@@ -74,6 +74,31 @@ async function safeJson(response) {
   return text ? JSON.parse(text) : {};
 }
 
+const attributeCache = new Map();
+
+function clearAttributeCache(collectionId) {
+  attributeCache.delete(collectionId);
+}
+
+async function listAttributes(collectionId) {
+  if (attributeCache.has(collectionId)) {
+    return attributeCache.get(collectionId);
+  }
+
+  const result = await appwriteRequest(
+    "GET",
+    `/databases/${APPWRITE_IDS.databaseId}/collections/${collectionId}/attributes`,
+  );
+  const attributes = result.data.attributes || [];
+  attributeCache.set(collectionId, attributes);
+  return attributes;
+}
+
+async function hasAttribute(collectionId, key) {
+  const attributes = await listAttributes(collectionId);
+  return attributes.some((attribute) => attribute.key === key);
+}
+
 async function ensureDatabase() {
   const result = await appwriteRequest("POST", "/databases", {
     databaseId: APPWRITE_IDS.databaseId,
@@ -99,6 +124,11 @@ async function ensureCollection(collectionId, name, permissions = []) {
 }
 
 async function ensureStringAttribute(collectionId, key, size, required, array = false, defaultValue) {
+  if (await hasAttribute(collectionId, key)) {
+    logResult(`attribute ${collectionId}.${key}`, "string", true);
+    return;
+  }
+
   const payload = {
     key,
     size,
@@ -115,10 +145,16 @@ async function ensureStringAttribute(collectionId, key, size, required, array = 
     `/databases/${APPWRITE_IDS.databaseId}/collections/${collectionId}/attributes/string`,
     payload,
   );
+  clearAttributeCache(collectionId);
   logResult(`attribute ${collectionId}.${key}`, "string", result.conflict);
 }
 
 async function ensureIntegerAttribute(collectionId, key, required, min, max, defaultValue) {
+  if (await hasAttribute(collectionId, key)) {
+    logResult(`attribute ${collectionId}.${key}`, "integer", true);
+    return;
+  }
+
   const payload = {
     key,
     required,
@@ -136,10 +172,16 @@ async function ensureIntegerAttribute(collectionId, key, required, min, max, def
     `/databases/${APPWRITE_IDS.databaseId}/collections/${collectionId}/attributes/integer`,
     payload,
   );
+  clearAttributeCache(collectionId);
   logResult(`attribute ${collectionId}.${key}`, "integer", result.conflict);
 }
 
 async function ensureDatetimeAttribute(collectionId, key, required, defaultValue) {
+  if (await hasAttribute(collectionId, key)) {
+    logResult(`attribute ${collectionId}.${key}`, "datetime", true);
+    return;
+  }
+
   const payload = {
     key,
     required,
@@ -155,10 +197,16 @@ async function ensureDatetimeAttribute(collectionId, key, required, defaultValue
     `/databases/${APPWRITE_IDS.databaseId}/collections/${collectionId}/attributes/datetime`,
     payload,
   );
+  clearAttributeCache(collectionId);
   logResult(`attribute ${collectionId}.${key}`, "datetime", result.conflict);
 }
 
 async function ensureEnumAttribute(collectionId, key, elements, required, defaultValue) {
+  if (await hasAttribute(collectionId, key)) {
+    logResult(`attribute ${collectionId}.${key}`, "enum", true);
+    return;
+  }
+
   const payload = {
     key,
     elements,
@@ -175,6 +223,7 @@ async function ensureEnumAttribute(collectionId, key, elements, required, defaul
     `/databases/${APPWRITE_IDS.databaseId}/collections/${collectionId}/attributes/enum`,
     payload,
   );
+  clearAttributeCache(collectionId);
   logResult(`attribute ${collectionId}.${key}`, "enum", result.conflict);
 }
 
@@ -210,7 +259,6 @@ async function setupBooksCollection() {
   await ensureStringAttribute(APPWRITE_IDS.booksCollectionId, "languageId", 64, true);
   await ensureStringAttribute(APPWRITE_IDS.booksCollectionId, "volumeId", 64, true);
   await ensureStringAttribute(APPWRITE_IDS.booksCollectionId, "sourceFileId", 128, true);
-  await ensureStringAttribute(APPWRITE_IDS.booksCollectionId, "coverFileId", 128, false);
   await ensureEnumAttribute(
     APPWRITE_IDS.booksCollectionId,
     "status",
@@ -221,6 +269,7 @@ async function setupBooksCollection() {
   await ensureStringAttribute(APPWRITE_IDS.booksCollectionId, "publishedVersion", 64, false);
   await ensureStringAttribute(APPWRITE_IDS.booksCollectionId, "manifestUrl", 2048, false);
   await ensureStringAttribute(APPWRITE_IDS.booksCollectionId, "metadataUrl", 2048, false);
+  await ensureStringAttribute(APPWRITE_IDS.booksCollectionId, "nextRecommendedBookId", 128, false);
   await ensureIntegerAttribute(APPWRITE_IDS.booksCollectionId, "totalPages", false, 1, 100000, undefined);
   await ensureStringAttribute(APPWRITE_IDS.booksCollectionId, "createdBy", 128, true);
   await ensureDatetimeAttribute(APPWRITE_IDS.booksCollectionId, "createdAt", true, undefined);

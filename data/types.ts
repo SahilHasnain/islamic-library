@@ -109,6 +109,7 @@ export type PublicCatalogBook = {
   coverImage?: string;
   status: "published";
   metadataUrl: string;
+  nextRecommendedBookId?: string;
 };
 
 export type PublicCatalog = {

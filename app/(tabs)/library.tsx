@@ -15,6 +15,7 @@ import {
 import { colors, radii, spacing, typography } from "../../constants/theme";
 import type { PublicCatalogBook, ReadingProgress } from "../../data/types";
 import { useBookCompletions } from "../../hooks/useBookCompletions";
+import { useReadingPlans } from "../../hooks/useReadingPlans";
 import { useReadingProgress } from "../../hooks/useReadingProgress";
 import { useRemoteBookData } from "../../hooks/useRemoteBookData";
 import { useRemoteCatalog } from "../../hooks/useRemoteCatalog";
@@ -42,6 +43,146 @@ function getCategoryDisplayLabel({
   }
 
   return normalizeCategoryLabel(category);
+}
+
+type LibrarySortMode = "forYou" | "recent" | "alpha";
+
+const librarySortLabels: Record<LibrarySortMode, string> = {
+  forYou: "For You",
+  recent: "Recent",
+  alpha: "A-Z",
+};
+
+function getNextLibrarySortMode(sortMode: LibrarySortMode): LibrarySortMode {
+  if (sortMode === "forYou") return "recent";
+  if (sortMode === "recent") return "alpha";
+  return "forYou";
+}
+
+function getTimeValue(value?: string) {
+  if (!value) {
+    return 0;
+  }
+
+  const time = new Date(value).getTime();
+  return Number.isFinite(time) ? time : 0;
+}
+
+function getSharedSignalScore(book: PublicCatalogBook, anchorBook?: PublicCatalogBook) {
+  if (!anchorBook) {
+    return 0;
+  }
+
+  let score = 0;
+  if (book.category && anchorBook.category && book.category === anchorBook.category) {
+    score += 2;
+  }
+
+  const anchorTags = new Set(anchorBook.tags ?? []);
+  if ((book.tags ?? []).some((tag) => anchorTags.has(tag))) {
+    score += 1;
+  }
+
+  return score;
+}
+
+function sortBooksByTitle(books: PublicCatalogBook[]) {
+  return [...books].sort((a, b) => a.title.localeCompare(b.title));
+}
+
+function sortBooksByRecentProgress(
+  books: PublicCatalogBook[],
+  latestProgressByBook: Record<string, ReadingProgress | undefined>,
+) {
+  return [...books].sort((a, b) => {
+    const aProgress = latestProgressByBook[a.id];
+    const bProgress = latestProgressByBook[b.id];
+    if (!aProgress && !bProgress) return a.title.localeCompare(b.title);
+    if (!aProgress) return 1;
+    if (!bProgress) return -1;
+    return getTimeValue(bProgress.updatedAt) - getTimeValue(aProgress.updatedAt);
+  });
+}
+
+function sortBooksForYou({
+  books,
+  remoteBooks,
+  latestProgressByBook,
+  completionMap,
+  completedBookIdSet,
+  activePlanBookIds,
+}: {
+  books: PublicCatalogBook[];
+  remoteBooks: PublicCatalogBook[];
+  latestProgressByBook: Record<string, ReadingProgress | undefined>;
+  completionMap: Record<string, { bookId: string; completedAt: string }>;
+  completedBookIdSet: Set<string>;
+  activePlanBookIds: Set<string>;
+}) {
+  const visibleBookIds = new Set(books.map((book) => book.id));
+  const booksById = new Map(remoteBooks.map((book) => [book.id, book]));
+  const shownBookIds = new Set<string>();
+
+  const inProgressBooks = sortBooksByRecentProgress(
+    books.filter((book) => latestProgressByBook[book.id] && !completedBookIdSet.has(book.id)),
+    latestProgressByBook,
+  );
+
+  const anchorBook =
+    inProgressBooks[0] ??
+    Object.values(completionMap)
+      .sort((a, b) => getTimeValue(b.completedAt) - getTimeValue(a.completedAt))
+      .map((completion) => booksById.get(completion.bookId))
+      .find(Boolean);
+
+  const orderedBooks: PublicCatalogBook[] = [];
+  const pushBook = (book?: PublicCatalogBook) => {
+    if (!book || shownBookIds.has(book.id) || !visibleBookIds.has(book.id)) {
+      return;
+    }
+
+    shownBookIds.add(book.id);
+    orderedBooks.push(book);
+  };
+
+  inProgressBooks.forEach(pushBook);
+
+  const visitedChainIds = new Set<string>();
+  let currentBook = anchorBook;
+  for (let index = 0; index < 10; index += 1) {
+    const nextBookId = currentBook?.nextRecommendedBookId;
+    if (!nextBookId || visitedChainIds.has(nextBookId)) {
+      break;
+    }
+
+    visitedChainIds.add(nextBookId);
+    const nextBook = booksById.get(nextBookId);
+    if (!nextBook) {
+      break;
+    }
+
+    pushBook(nextBook);
+    currentBook = nextBook;
+  }
+
+  const remainingBooks = books
+    .filter((book) => !shownBookIds.has(book.id))
+    .sort((a, b) => {
+      const aCompleted = completedBookIdSet.has(a.id) ? 1 : 0;
+      const bCompleted = completedBookIdSet.has(b.id) ? 1 : 0;
+      if (aCompleted !== bCompleted) return aCompleted - bCompleted;
+
+      const aPlan = activePlanBookIds.has(a.id) ? 1 : 0;
+      const bPlan = activePlanBookIds.has(b.id) ? 1 : 0;
+      if (aPlan !== bPlan) return bPlan - aPlan;
+
+      const sharedSignal = getSharedSignalScore(b, anchorBook) - getSharedSignalScore(a, anchorBook);
+      if (sharedSignal !== 0) return sharedSignal;
+
+      return a.title.localeCompare(b.title);
+    });
+
+  return [...orderedBooks, ...remainingBooks];
 }
 
 function getDownloadButtonLabel({
@@ -448,7 +589,8 @@ function LibraryBookCard({
 
 export default function LibraryScreen() {
   const { error, isLoaded, latestProgressByBook, refreshProgress } = useReadingProgress();
-  const { completedBookIds, refreshCompletions } = useBookCompletions();
+  const { completedBookIds, completionMap, refreshCompletions } = useBookCompletions();
+  const { activePlanMap, refreshPlans } = useReadingPlans();
   const {
     catalog,
     error: catalogError,
@@ -459,7 +601,7 @@ export default function LibraryScreen() {
   const insets = useSafeAreaInsets();
   const [selectedCategory, setSelectedCategory] = useState<string>("all");
   const [selectedLanguage, setSelectedLanguage] = useState<string>("all");
-  const [sortBy, setSortBy] = useState<"alpha" | "recent">("recent");
+  const [sortBy, setSortBy] = useState<LibrarySortMode>("forYou");
   const [searchQuery, setSearchQuery] = useState<string>("");
   const [showLanguageMenu, setShowLanguageMenu] = useState<boolean>(false);
   const [bookMetadataMap, setBookMetadataMap] = useState<Record<string, { languages: string[] }>>({});
@@ -469,24 +611,26 @@ export default function LibraryScreen() {
     useCallback(() => {
       void refreshProgress();
       void refreshCompletions();
-    }, [refreshCompletions, refreshProgress]),
+      void refreshPlans();
+    }, [refreshCompletions, refreshPlans, refreshProgress]),
   );
 
   const remoteBooks = useMemo(() => catalog?.books ?? [], [catalog?.books]);
-  const completedBookIdSet = new Set(completedBookIds);
-  const inProgressBooks = remoteBooks.filter(
-    (book) => latestProgressByBook[book.id] && !completedBookIdSet.has(book.id),
+  const completedBookIdSet = useMemo(() => new Set(completedBookIds), [completedBookIds]);
+  const activePlanBookIds = useMemo(
+    () => new Set(Object.values(activePlanMap).map((plan) => plan.bookId)),
+    [activePlanMap],
+  );
+  const inProgressBooks = useMemo(
+    () =>
+      remoteBooks.filter(
+        (book) => latestProgressByBook[book.id] && !completedBookIdSet.has(book.id),
+      ),
+    [completedBookIdSet, latestProgressByBook, remoteBooks],
   );
 
   const sortedInProgressBooks = useMemo(() => {
-    return [...inProgressBooks].sort((a, b) => {
-      const aProgress = latestProgressByBook[a.id];
-      const bProgress = latestProgressByBook[b.id];
-      if (!aProgress && !bProgress) return 0;
-      if (!aProgress) return 1;
-      if (!bProgress) return -1;
-      return new Date(bProgress.updatedAt).getTime() - new Date(aProgress.updatedAt).getTime();
-    });
+    return sortBooksByRecentProgress(inProgressBooks, latestProgressByBook);
   }, [inProgressBooks, latestProgressByBook]);
 
   const resumeCandidates = sortedInProgressBooks.length > 0 ? sortedInProgressBooks : remoteBooks;
@@ -597,16 +741,17 @@ export default function LibraryScreen() {
 
     // Sort
     if (sortBy === "alpha") {
-      books = [...books].sort((a, b) => a.title.localeCompare(b.title));
+      books = sortBooksByTitle(books);
     } else if (sortBy === "recent") {
-      // Sort by most recently read
-      books = [...books].sort((a, b) => {
-        const aProgress = latestProgressByBook[a.id];
-        const bProgress = latestProgressByBook[b.id];
-        if (!aProgress && !bProgress) return 0;
-        if (!aProgress) return 1;
-        if (!bProgress) return -1;
-        return new Date(bProgress.updatedAt).getTime() - new Date(aProgress.updatedAt).getTime();
+      books = sortBooksByRecentProgress(books, latestProgressByBook);
+    } else {
+      books = sortBooksForYou({
+        books,
+        remoteBooks,
+        latestProgressByBook,
+        completionMap,
+        completedBookIdSet,
+        activePlanBookIds,
       });
     }
 
@@ -618,6 +763,9 @@ export default function LibraryScreen() {
     selectedLanguage,
     sortBy,
     latestProgressByBook,
+    completionMap,
+    completedBookIdSet,
+    activePlanBookIds,
     bookMetadataMap,
   ]);
 
@@ -729,7 +877,7 @@ export default function LibraryScreen() {
             <Text style={{ color: colors.textMuted, fontSize: typography.caption }}>•</Text>
             <Pressable
               onPress={() => {
-                setSortBy(sortBy === "alpha" ? "recent" : "alpha");
+                setSortBy(getNextLibrarySortMode(sortBy));
               }}
               style={{
                 flexDirection: "row",
@@ -737,7 +885,7 @@ export default function LibraryScreen() {
                 gap: 4,
               }}
             >
-              <MetaText>{sortBy === "alpha" ? "A-Z" : "Recent"}</MetaText>
+              <MetaText>{librarySortLabels[sortBy]}</MetaText>
               <Text style={{ color: colors.textMuted, fontSize: typography.caption }}>▾</Text>
             </Pressable>
             {uniqueLanguages.length > 0 ? (

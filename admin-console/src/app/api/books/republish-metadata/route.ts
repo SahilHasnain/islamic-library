@@ -155,6 +155,7 @@ export async function POST(request: Request) {
       author?: string;
       description?: string;
       category?: string;
+      nextRecommendedBookId?: string;
       defaultLanguageId?: string;
       requestedBy?: string;
       languages?: unknown;
@@ -177,6 +178,7 @@ export async function POST(request: Request) {
       author: String(payload.author || "").trim() || undefined,
       description: String(payload.description || "").trim() || undefined,
       category: String(payload.category || "").trim() || undefined,
+      nextRecommendedBookId: String(payload.nextRecommendedBookId || "").trim() || undefined,
       defaultLanguageId: String(payload.defaultLanguageId || "").trim() || undefined,
       requestedBy: String(payload.requestedBy || "admin-console").trim(),
       languages: parseLanguages(payload.languages),

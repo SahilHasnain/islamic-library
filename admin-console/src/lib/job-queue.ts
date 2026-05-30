@@ -104,6 +104,7 @@ async function dispatchSingleJob(job: JobRecord): Promise<void> {
     author: book.author,
     description: book.description,
     category: book.category,
+    nextRecommendedBookId: book.nextRecommendedBookId,
     languageId: job.languageId,
     volumeId: job.volumeId,
     sourceFileId: job.sourceFileId,

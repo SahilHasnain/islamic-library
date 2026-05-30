@@ -35,6 +35,7 @@ type MetadataFormState = {
   author: string;
   description: string;
   category: string;
+  nextRecommendedBookId: string;
   defaultLanguageId: string;
   requestedBy: string;
   languages: EditionLanguageEditorItem[];
@@ -103,6 +104,7 @@ type PublishedMetadataPayload = {
   author?: string;
   description?: string;
   category?: string;
+  nextRecommendedBookId?: string;
   defaultLanguageId?: string;
   languages?: {
     id: string;
@@ -525,6 +527,7 @@ export function AdminConsole({ initialSnapshot }: { initialSnapshot: MonitoringS
     author: "",
     description: "",
     category: "Other",
+    nextRecommendedBookId: "",
     defaultLanguageId: "",
     requestedBy: "admin-console",
     languages: [],
@@ -631,6 +634,7 @@ export function AdminConsole({ initialSnapshot }: { initialSnapshot: MonitoringS
             author: payload.author || "",
             description: payload.description || "",
             category: payload.category || current.category,
+            nextRecommendedBookId: payload.nextRecommendedBookId || "",
             defaultLanguageId:
               payload.defaultLanguageId ||
               matchingLanguage?.id ||
@@ -827,6 +831,13 @@ export function AdminConsole({ initialSnapshot }: { initialSnapshot: MonitoringS
 
     try {
       const languages = buildLanguagePayload(metadataForm.languages);
+      if (
+        metadataForm.nextRecommendedBookId &&
+        metadataForm.nextRecommendedBookId === metadataForm.bookSlug.trim()
+      ) {
+        setMetadataState({ error: "Next recommended book cannot be the current book." });
+        return;
+      }
 
       const response = await fetch("/api/books/republish-metadata", {
         method: "POST",
@@ -1018,6 +1029,7 @@ export function AdminConsole({ initialSnapshot }: { initialSnapshot: MonitoringS
                       author: knownBook?.author || current.author,
                       description: knownBook?.description || current.description,
                       category: knownBook?.category || current.category,
+                      nextRecommendedBookId: knownBook?.nextRecommendedBookId || current.nextRecommendedBookId,
                       defaultLanguageId: knownBook?.defaultLanguageId || knownBook?.languageId || current.defaultLanguageId,
                       languages: knownBook
                         ? normalizeLanguages(undefined, knownBook.languageId, knownBook.volumeId)
@@ -1092,6 +1104,28 @@ export function AdminConsole({ initialSnapshot }: { initialSnapshot: MonitoringS
                   }}
                   className="w-full rounded-2xl border border-stone-700 bg-stone-950 px-4 py-3 text-sm outline-none transition focus:border-amber-300"
                 />
+              </label>
+              <label className="space-y-2">
+                <span className="text-sm text-stone-200">Next recommended book</span>
+                <select
+                  value={metadataForm.nextRecommendedBookId}
+                  onChange={(event) => {
+                    setMetadataForm((current) => ({
+                      ...current,
+                      nextRecommendedBookId: event.target.value,
+                    }));
+                  }}
+                  className="w-full rounded-2xl border border-stone-700 bg-stone-950 px-4 py-3 text-sm outline-none transition focus:border-amber-300"
+                >
+                  <option value="">None</option>
+                  {knownBooks
+                    .filter((book) => book?.status === "published" && book.slug !== metadataForm.bookSlug)
+                    .map((book) => (
+                      <option key={book!.$id} value={book!.slug}>
+                        {book!.title} ({book!.slug})
+                      </option>
+                    ))}
+                </select>
               </label>
             </div>
 

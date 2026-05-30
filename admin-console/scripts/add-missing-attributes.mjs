@@ -77,6 +77,26 @@ async function addMissingAttributes() {
       }
     }
 
+    console.log("\nAdding nextRecommendedBookId attribute...");
+    try {
+      await databases.createStringAttribute(
+        DATABASE_ID,
+        BOOKS_COLLECTION_ID,
+        "nextRecommendedBookId",
+        128,
+        false,
+        undefined,
+        false
+      );
+      console.log("✅ nextRecommendedBookId attribute added successfully");
+    } catch (error) {
+      if (error.message?.includes("already exists") || error.code === 409) {
+        console.log("ℹ️  nextRecommendedBookId attribute already exists");
+      } else {
+        throw error;
+      }
+    }
+
     console.log("\n✨ All attributes added successfully!");
     console.log("\nNote: Appwrite may take a few moments to process these changes.");
     console.log("You can verify the attributes in your Appwrite Console.");

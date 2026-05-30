@@ -33,6 +33,7 @@ export type BookRecord = {
   category?: string;
   metadataUrl?: string;
   manifestUrl?: string;
+  nextRecommendedBookId?: string;
   languageId: string;
   volumeId: string;
   defaultLanguageId?: string;
@@ -123,6 +124,7 @@ export type WorkerJobPayload = {
   author?: string;
   description?: string;
   category?: string;
+  nextRecommendedBookId?: string;
   languageId: string;
   volumeId: string;
   sourceFileId: string;
@@ -138,6 +140,7 @@ export type MetadataRepublishPayload = {
   author?: string;
   description?: string;
   category?: string;
+  nextRecommendedBookId?: string;
   defaultLanguageId?: string;
   requestedBy: string;
   languages?: EditionLanguageInput[];
@@ -315,6 +318,7 @@ export async function getDispatchPayload(jobId: string) {
     author: book.author,
     description: book.description,
     category: book.category,
+    nextRecommendedBookId: book.nextRecommendedBookId,
     languageId: job.languageId,
     volumeId: job.volumeId,
     sourceFileId: job.sourceFileId,
@@ -476,6 +480,27 @@ export async function republishBookMetadata(payload: MetadataRepublishPayload) {
     throw new Error("Book not found.");
   }
 
+  const nextRecommendedBookId = payload.nextRecommendedBookId?.trim();
+  if (nextRecommendedBookId) {
+    if (nextRecommendedBookId === payload.bookSlug) {
+      throw new Error("Next recommended book cannot be the current book.");
+    }
+
+    const recommendedBooksResponse = await appwriteDatabases.listDocuments(
+      APPWRITE_IDS.databaseId,
+      APPWRITE_IDS.booksCollectionId,
+      [
+        Query.equal("slug", nextRecommendedBookId),
+        Query.equal("status", "published"),
+        Query.limit(1),
+      ],
+    );
+
+    if (recommendedBooksResponse.documents.length === 0) {
+      throw new Error("Next recommended book must be a published book.");
+    }
+  }
+
   const now = new Date().toISOString();
   await appwriteDatabases.updateDocument(
     APPWRITE_IDS.databaseId,
@@ -487,6 +512,7 @@ export async function republishBookMetadata(payload: MetadataRepublishPayload) {
       author: payload.author || "",
       description: payload.description || "",
       category: payload.category || "",
+      nextRecommendedBookId: nextRecommendedBookId || "",
       defaultLanguageId: payload.defaultLanguageId || "",
       defaultVolumeId:
         payload.languages?.find((language) => language.languageId === payload.defaultLanguageId)
