@@ -6,6 +6,8 @@ type SessionCompletionModalProps = {
   panelColor: string;
   panelTextColor: string;
   mutedTextColor: string;
+  encouragementColor: string;
+  statsLabelColor: string;
   primaryActionColor: string;
   primaryActionTextColor: string;
   secondaryActionColor: string;
@@ -27,6 +29,8 @@ export function SessionCompletionModal({
   panelColor,
   panelTextColor,
   mutedTextColor,
+  encouragementColor,
+  statsLabelColor,
   primaryActionColor,
   primaryActionTextColor,
   secondaryActionColor,
@@ -87,7 +91,7 @@ export function SessionCompletionModal({
             </Text>
             <Text
               style={{
-                color: mutedTextColor,
+                color: encouragementColor,
                 fontSize: 16,
                 lineHeight: 24,
                 textAlign: "center",
@@ -119,7 +123,7 @@ export function SessionCompletionModal({
                 >
                   <Ionicons name="book" size={18} color={panelTextColor} />
                 </View>
-                <Text style={{ color: mutedTextColor, fontSize: 16 }}>Pages read</Text>
+                <Text style={{ color: statsLabelColor, fontSize: 16 }}>Pages read</Text>
               </View>
               <Text style={{ color: panelTextColor, fontSize: 18, fontWeight: "800" }}>{pagesRead}</Text>
             </View>
@@ -138,7 +142,7 @@ export function SessionCompletionModal({
                 >
                   <Ionicons name="time" size={18} color={panelTextColor} />
                 </View>
-                <Text style={{ color: mutedTextColor, fontSize: 16 }}>Time spent</Text>
+                <Text style={{ color: statsLabelColor, fontSize: 16 }}>Time spent</Text>
               </View>
               <Text style={{ color: panelTextColor, fontSize: 18, fontWeight: "800" }}>
                 {durationMinutes} min
@@ -146,7 +150,7 @@ export function SessionCompletionModal({
             </View>
           </View>
 
-          <View style={{ flexDirection: "row", gap: 12, width: "100%" }}>
+          <View style={{ flexDirection: "row", gap: 12, width: "100%", justifyContent: "flex-end" }}>
             <Pressable
               onPress={onGoHome}
               style={({ pressed }) => ({
@@ -157,6 +161,8 @@ export function SessionCompletionModal({
                 alignItems: "center",
                 justifyContent: "center",
                 backgroundColor: secondaryActionColor,
+                borderWidth: 1,
+                borderColor: "rgba(127, 127, 127, 0.22)",
                 opacity: pressed ? 0.75 : 1,
               })}
             >

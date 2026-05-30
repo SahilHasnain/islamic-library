@@ -162,7 +162,7 @@ export function BookCompletionModal({
                         </View>
                     </View>
 
-                    <View style={{ flexDirection: "row", gap: 12, width: "100%" }}>
+                    <View style={{ flexDirection: "row", gap: 12, width: "100%", justifyContent: "flex-end" }}>
                         <Pressable
                             onPress={onKeepReading}
                             style={({ pressed }) => ({
@@ -173,11 +173,13 @@ export function BookCompletionModal({
                                 alignItems: "center",
                                 justifyContent: "center",
                                 backgroundColor: secondaryActionColor,
+                                borderWidth: 1,
+                                borderColor: "rgba(127, 127, 127, 0.22)",
                                 opacity: pressed ? 0.75 : 1,
                             })}
                         >
                             <Text style={{ color: panelTextColor, fontSize: 15, fontWeight: "700" }}>
-                                Keep Reading
+                                Continue Reading
                             </Text>
                         </Pressable>
 

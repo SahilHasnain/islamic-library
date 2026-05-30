@@ -2,6 +2,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  AppState,
   BackHandler,
   FlatList,
   Modal,
@@ -197,12 +198,25 @@ export default function ReaderScreen() {
   } | null>(null);
   const [showBookCompletionModal, setShowBookCompletionModal] = useState(false);
   const flatListRef = useRef<FlatList<number>>(null);
-  const sessionStartTime = useRef(Date.now());
+  // Session metrics are computed locally in this screen.
+  // - duration: active app time while this screen is mounted
+  // - pagesRead: count of unique pages actually viewed (not a page range)
+  const sessionAccumulatedMs = useRef(0);
+  const sessionTickStartedAt = useRef(Date.now());
+  const sessionTimerRunning = useRef(true);
+  const sessionPagesViewedRef = useRef<Set<number>>(new Set([initialPage]));
   const sessionMinPage = useRef(initialPage);
   const sessionMaxPage = useRef(initialPage);
   const sessionCompletedRef = useRef(false);
   const finalPagesEnteredAt = useRef<number | null>(null);
   const bookCompletionPromptSuppressedRef = useRef(false);
+
+  const getSessionDurationMs = useCallback(() => {
+    return (
+      sessionAccumulatedMs.current +
+      (sessionTimerRunning.current ? Date.now() - sessionTickStartedAt.current : 0)
+    );
+  }, []);
   const pages = useMemo(
     () => Array.from({ length: totalPages }, (_, index) => index + 1),
     [totalPages],
@@ -286,7 +300,28 @@ export default function ReaderScreen() {
   useEffect(() => {
     sessionMinPage.current = Math.min(sessionMinPage.current, currentPage);
     sessionMaxPage.current = Math.max(sessionMaxPage.current, currentPage);
+    sessionPagesViewedRef.current.add(currentPage);
   }, [currentPage]);
+
+  useEffect(() => {
+    const subscription = AppState.addEventListener("change", (nextState) => {
+      if (nextState === "active") {
+        if (!sessionTimerRunning.current) {
+          sessionTimerRunning.current = true;
+          sessionTickStartedAt.current = Date.now();
+        }
+        return;
+      }
+
+      // Treat anything other than "active" as paused time.
+      if (sessionTimerRunning.current) {
+        sessionAccumulatedMs.current += Date.now() - sessionTickStartedAt.current;
+        sessionTimerRunning.current = false;
+      }
+    });
+
+    return () => subscription.remove();
+  }, []);
 
   useEffect(() => {
     const isNearBookEnd =
@@ -318,6 +353,7 @@ export default function ReaderScreen() {
   }, [currentPage, isCompleted, showBookCompletionModal, totalPages]);
 
   const handleMarkBookCompleted = useCallback(async () => {
+    const durationMinutes = Math.max(1, Math.round(getSessionDurationMs() / 60000));
     await markAsCompleted({
       bookId: readingBookId,
       languageId: resolvedLanguageId,
@@ -326,12 +362,13 @@ export default function ReaderScreen() {
       totalPages,
       finalPage: currentPage,
       totalPagesRead: pagesViewed.length,
-      totalMinutes: Math.max(1, Math.round((Date.now() - sessionStartTime.current) / 60000)),
+      totalMinutes: durationMinutes,
     });
     setShowBookCompletionModal(false);
     bookCompletionPromptSuppressedRef.current = true;
   }, [
     currentPage,
+    getSessionDurationMs,
     markAsCompleted,
     pagesViewed.length,
     readingBookId,
@@ -350,10 +387,9 @@ export default function ReaderScreen() {
       return false;
     }
 
-    const endTime = Date.now();
-    const durationMs = endTime - sessionStartTime.current;
+    const durationMs = getSessionDurationMs();
     const durationMinutes = Math.max(1, Math.round(durationMs / 60000));
-    const pagesRead = sessionMaxPage.current - sessionMinPage.current + 1;
+    const pagesRead = sessionPagesViewedRef.current.size;
 
     // Only consider it a meaningful session if:
     // - At least 2 minutes of reading AND
@@ -373,7 +409,7 @@ export default function ReaderScreen() {
 
     // For short sessions, just exit without modal
     return false;
-  }, []);
+  }, [getSessionDurationMs]);
 
   useEffect(() => {
     const backHandler = BackHandler.addEventListener("hardwareBackPress", () => {
@@ -633,6 +669,45 @@ export default function ReaderScreen() {
             color={colors.text}
           />
         </Pressable>
+
+        {__DEV__ && (
+          <Pressable
+            onPress={() => {
+              setSessionCompletionData({ pagesRead: 7, durationMinutes: 12 });
+              setShowSessionCompletionModal(true);
+            }}
+            style={({ pressed }) => ({
+              width: 40,
+              height: 40,
+              borderRadius: 20,
+              backgroundColor: colors.overlayLight,
+              alignItems: "center",
+              justifyContent: "center",
+              opacity: pressed ? 0.7 : 1,
+            })}
+          >
+            <Ionicons name="checkmark-done" size={20} color={colors.text} />
+          </Pressable>
+        )}
+
+        {__DEV__ && (
+          <Pressable
+            onPress={() => {
+              setShowBookCompletionModal(true);
+            }}
+            style={({ pressed }) => ({
+              width: 40,
+              height: 40,
+              borderRadius: 20,
+              backgroundColor: colors.overlayLight,
+              alignItems: "center",
+              justifyContent: "center",
+              opacity: pressed ? 0.7 : 1,
+            })}
+          >
+            <Ionicons name="ribbon" size={20} color={colors.text} />
+          </Pressable>
+        )}
       </View>
 
       <SafeAreaView
@@ -794,7 +869,7 @@ export default function ReaderScreen() {
         panelTextColor={colors.panelText}
         mutedTextColor={theme === "night" ? "#A9B7B0" : "#5F6C65"}
         primaryActionColor={colors.accent}
-        primaryActionTextColor={theme === "night" ? "#0F1714" : "#173D31"}
+        primaryActionTextColor={theme === "night" ? colors.textStrong : "#173D31"}
         secondaryActionColor={theme === "night" ? "#21302B" : "#F4ECD9"}
         onMarkCompleted={() => {
           void handleMarkBookCompleted();
@@ -804,25 +879,27 @@ export default function ReaderScreen() {
 
       {showSessionCompletionModal && sessionCompletionData && (
         <SessionCompletionModal
-          visible={showSessionCompletionModal}
-          panelColor={colors.panel}
-          panelTextColor={colors.panelText}
-          mutedTextColor={colors.textMuted}
-          primaryActionColor={colors.accent}
-          primaryActionTextColor={theme === "night" ? "#0F1714" : "#173D31"}
-          secondaryActionColor={theme === "night" ? "#21302B" : "#F4ECD9"}
-          pagesRead={sessionCompletionData.pagesRead}
-          durationMinutes={sessionCompletionData.durationMinutes}
-          onContinue={() => {
-            setShowSessionCompletionModal(false);
-            setSessionCompletionData(null);
-          }}
-          onGoHome={() => {
-            setShowSessionCompletionModal(false);
-            setSessionCompletionData(null);
-            router.replace("/(tabs)/library");
-          }}
-        />
+           visible={showSessionCompletionModal}
+           panelColor={colors.panel}
+           panelTextColor={colors.panelText}
+           mutedTextColor={colors.textMuted}
+           encouragementColor={theme === "night" ? colors.textMuted : "#6B7A72"}
+           statsLabelColor={theme === "night" ? colors.textMuted : "#7A8A82"}
+           primaryActionColor={colors.accent}
+           primaryActionTextColor={theme === "night" ? colors.textStrong : "#173D31"}
+           secondaryActionColor={theme === "night" ? "#21302B" : "#F4ECD9"}
+           pagesRead={sessionCompletionData.pagesRead}
+           durationMinutes={sessionCompletionData.durationMinutes}
+           onContinue={() => {
+             setShowSessionCompletionModal(false);
+             setSessionCompletionData(null);
+           }}
+           onGoHome={() => {
+             setShowSessionCompletionModal(false);
+             setSessionCompletionData(null);
+             router.replace("/(tabs)/library");
+           }}
+         />
       )}
     </View>
   );
