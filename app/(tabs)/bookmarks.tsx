@@ -4,11 +4,12 @@ import { Pressable, ScrollView, Text } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { EmptyCard, ErrorCard, LoadingCard, PageHeader, Screen } from "../../components/ui";
-import { colors } from "../../constants/theme";
+import { useAppTheme } from "../../hooks/useAppTheme";
 import { useBookmarks } from "../../hooks/useBookmarks";
 import { useRemoteCatalog } from "../../hooks/useRemoteCatalog";
 
 export default function BookmarksScreen() {
+  const { colors } = useAppTheme();
   const { error, filteredBookmarks, isLoaded, refreshBookmarks, removeBookmark } = useBookmarks();
   const { catalog } = useRemoteCatalog();
   const insets = useSafeAreaInsets();
@@ -83,7 +84,7 @@ export default function BookmarksScreen() {
                     style={{
                       alignSelf: "flex-start",
                       borderRadius: 999,
-                      backgroundColor: "#EFE2B6",
+                      backgroundColor: colors.surfaceSoft,
                       paddingHorizontal: 14,
                       paddingVertical: 10,
                     }}

@@ -8,15 +8,6 @@ import {
 } from "@/lib/appwrite";
 import { triggerQueueProcessing } from "@/lib/job-queue";
 
-const ALLOWED_CATEGORIES = [
-  "Seerah",
-  "Durood",
-  "Dua",
-  "Akhlaq",
-  "Motivation",
-  "Other",
-] as const;
-
 function slugify(input: string) {
   return input
     .toLowerCase()
@@ -74,9 +65,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Either a book slug or title is required." }, { status: 400 });
     }
 
-    if (category && !ALLOWED_CATEGORIES.includes(category as (typeof ALLOWED_CATEGORIES)[number])) {
-      return NextResponse.json({ error: "Invalid category." }, { status: 400 });
-    }
+    // Category is editorial metadata; allow any non-empty string.
 
     const timestamp = isoNow();
     const jobId = `job_${Date.now()}`;

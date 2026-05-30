@@ -1,24 +1,31 @@
 import type { PropsWithChildren, ReactNode } from "react";
 import { Text, View } from "react-native";
 
-import { colors, lineHeights, radii, spacing, typography } from "../constants/theme";
+import { lineHeights, radii, spacing, typography } from "../constants/theme";
+import { useAppTheme } from "../hooks/useAppTheme";
 
 export function Screen({
   children,
-  backgroundColor = colors.background,
+  backgroundColor,
 }: PropsWithChildren<{ backgroundColor?: string }>) {
-  return <View style={{ flex: 1, backgroundColor }}>{children}</View>;
+  const { colors } = useAppTheme();
+
+  return <View style={{ flex: 1, backgroundColor: backgroundColor ?? colors.background }}>{children}</View>;
 }
 
 export function SectionCard({
   children,
-  backgroundColor = colors.surface,
+  backgroundColor,
   gap = spacing.gapLg,
 }: PropsWithChildren<{ backgroundColor?: string; gap?: number }>) {
+  const { colors } = useAppTheme();
+
   return (
     <View
       style={{
-        backgroundColor,
+        backgroundColor: backgroundColor ?? colors.surface,
+        borderWidth: 1,
+        borderColor: colors.border,
         borderRadius: radii.lg,
         padding: spacing.page,
         gap,
@@ -31,12 +38,16 @@ export function SectionCard({
 
 export function HeroCard({
   children,
-  backgroundColor = colors.hero,
+  backgroundColor,
 }: PropsWithChildren<{ backgroundColor?: string }>) {
+  const { colors } = useAppTheme();
+
   return (
     <View
       style={{
-        backgroundColor,
+        backgroundColor: backgroundColor ?? colors.hero,
+        borderWidth: 1,
+        borderColor: colors.border,
         borderRadius: radii.xl,
         padding: spacing.hero,
         gap: spacing.gapLg,
@@ -54,6 +65,8 @@ export function PageHeader({
   title: string;
   subtitle: string;
 }) {
+  const { colors } = useAppTheme();
+
   return (
     <View style={{ gap: spacing.gapSm }}>
       <Text style={{ color: colors.text, fontSize: typography.hero, fontWeight: "800" }}>
@@ -73,6 +86,8 @@ export function PageHeader({
 }
 
 export function CardTitle({ children }: PropsWithChildren) {
+  const { colors } = useAppTheme();
+
   return (
     <Text style={{ color: colors.text, fontSize: typography.cardTitle, fontWeight: "800" }}>
       {children}
@@ -82,12 +97,14 @@ export function CardTitle({ children }: PropsWithChildren) {
 
 export function MetaText({
   children,
-  color = colors.accent,
+  color,
 }: PropsWithChildren<{ color?: string }>) {
+  const { colors } = useAppTheme();
+
   return (
     <Text
       style={{
-        color,
+        color: color ?? colors.accent,
         fontSize: typography.caption,
         fontWeight: "700",
         textTransform: "uppercase",
@@ -101,10 +118,12 @@ export function MetaText({
 
 export function BodyText({
   children,
-  color = colors.textMuted,
+  color,
 }: PropsWithChildren<{ color?: string }>) {
+  const { colors } = useAppTheme();
+
   return (
-    <Text style={{ color, fontSize: typography.body, lineHeight: lineHeights.bodyWide }}>
+    <Text style={{ color: color ?? colors.textMuted, fontSize: typography.body, lineHeight: lineHeights.bodyWide }}>
       {children}
     </Text>
   );
@@ -112,19 +131,21 @@ export function BodyText({
 
 export function ProgressBar({
   progressPercent,
-  fillColor = colors.accent,
-  trackColor = colors.progressTrack,
+  fillColor,
+  trackColor,
 }: {
   progressPercent: number;
   fillColor?: string;
   trackColor?: string;
 }) {
+  const { colors } = useAppTheme();
+
   return (
     <View
       style={{
         height: 8,
         borderRadius: radii.pill,
-        backgroundColor: trackColor,
+        backgroundColor: trackColor ?? colors.progressTrack,
         overflow: "hidden",
       }}
     >
@@ -133,7 +154,7 @@ export function ProgressBar({
           width: `${progressPercent}%`,
           height: "100%",
           borderRadius: radii.pill,
-          backgroundColor: fillColor,
+          backgroundColor: fillColor ?? colors.accent,
         }}
       />
     </View>
@@ -142,23 +163,25 @@ export function ProgressBar({
 
 export function Chip({
   label,
-  backgroundColor = colors.surfaceMuted,
-  color = colors.text,
+  backgroundColor,
+  color,
 }: {
   label: string;
   backgroundColor?: string;
   color?: string;
 }) {
+  const { colors } = useAppTheme();
+
   return (
     <View
       style={{
-        backgroundColor,
+        backgroundColor: backgroundColor ?? colors.surfaceMuted,
         borderRadius: radii.pill,
         paddingHorizontal: 14,
         paddingVertical: 10,
       }}
     >
-      <Text style={{ color, fontSize: typography.label, fontWeight: "700" }}>{label}</Text>
+      <Text style={{ color: color ?? colors.text, fontSize: typography.label, fontWeight: "700" }}>{label}</Text>
     </View>
   );
 }
@@ -193,6 +216,8 @@ export function LoadingCard({
   title?: string;
   message?: string;
 }) {
+  const { colors } = useAppTheme();
+
   return (
     <SectionCard backgroundColor={colors.surfaceMuted} gap={spacing.gapSm}>
       <CardTitle>{title}</CardTitle>
@@ -223,6 +248,8 @@ export function ErrorCard({
   title?: string;
   message?: string;
 }) {
+  const { colors } = useAppTheme();
+
   return (
     <SectionCard backgroundColor={colors.surfaceSoft}>
       <CardTitle>{title}</CardTitle>

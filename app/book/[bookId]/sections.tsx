@@ -4,16 +4,9 @@ import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context"
 
 import { ErrorCard, LoadingCard } from "../../../components/ui";
 import type { PublicBookSection } from "../../../data/types";
+import { useAppTheme } from "../../../hooks/useAppTheme";
 import { useRemoteBookData } from "../../../hooks/useRemoteBookData";
 import { useReadingProgress } from "../../../hooks/useReadingProgress";
-
-const colors = {
-  background: "#F7F1E3",
-  surface: "#FFF9EA",
-  text: "#173D31",
-  textMuted: "#5F6C65",
-  accent: "#C9A961",
-};
 
 function buildSections(totalPages: number): PublicBookSection[] {
   const total = Math.max(totalPages, 1);
@@ -70,6 +63,7 @@ function getSectionKindLabel(section: PublicBookSection) {
 }
 
 export default function BookSectionsScreen() {
+  const { colors } = useAppTheme();
   const insets = useSafeAreaInsets();
   const { bookId, languageId: routeLanguageId, volumeId: routeVolumeId } = useLocalSearchParams<{
     bookId: string;
@@ -167,7 +161,7 @@ export default function BookSectionsScreen() {
           {!hasAuthoredSections ? (
             <View
               style={{
-                backgroundColor: "#f5f0e8",
+                backgroundColor: colors.surfaceElevated,
                 borderRadius: 12,
                 padding: 12,
                 borderLeftWidth: 3,
@@ -236,7 +230,7 @@ export default function BookSectionsScreen() {
                  <View style={{ gap: 10 }}>
                    <View
                      style={{
-                       backgroundColor: "#f5f0e8",
+                        backgroundColor: colors.surfaceElevated,
                        borderRadius: 12,
                        padding: 12,
                        flexDirection: "row",
@@ -257,7 +251,7 @@ export default function BookSectionsScreen() {
 
                    <View
                      style={{
-                       backgroundColor: "#f5f0e8",
+                        backgroundColor: colors.surfaceElevated,
                        borderRadius: 12,
                        padding: 12,
                        flexDirection: "row",
@@ -279,7 +273,7 @@ export default function BookSectionsScreen() {
                    {getSectionKindLabel(section) ? (
                      <View
                        style={{
-                         backgroundColor: "#f5f0e8",
+                          backgroundColor: colors.surfaceElevated,
                          borderRadius: 12,
                          padding: 12,
                          flexDirection: "row",

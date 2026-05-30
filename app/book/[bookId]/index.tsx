@@ -5,23 +5,12 @@ import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context"
 
 import { ErrorCard } from "../../../components/ui";
 import type { PublicBookPlan, PublicBookSection } from "../../../data/types";
+import { useAppTheme } from "../../../hooks/useAppTheme";
 import { useBookCompletions } from "../../../hooks/useBookCompletions";
 import { useRemoteBookData } from "../../../hooks/useRemoteBookData";
 import { useReadingPlans } from "../../../hooks/useReadingPlans";
 import { useReadingProgress } from "../../../hooks/useReadingProgress";
 import { useVolumeDownload } from "../../../hooks/useVolumeDownload";
-
-const colors = {
-  background: "#F7F1E3",
-  surface: "#FFF9EA",
-  surfaceMuted: "#F3E7C9",
-  accent: "#C9A961",
-  accentSoft: "#EFE2B6",
-  text: "#173D31",
-  textMuted: "#5F6C65",
-  heroSubtle: "#C9D5CF",
-  heroMuted: "#D9E2DC",
-};
 
 function SkeletonBlock({
   width,
@@ -131,7 +120,30 @@ function getOrderedSections(sections: PublicBookSection[]) {
   });
 }
 
+function getSelectableChipColors({
+  selected,
+  colors,
+}: {
+  selected: boolean;
+  colors: ReturnType<typeof useAppTheme>["colors"];
+}) {
+  return {
+    backgroundColor: selected ? colors.accent : colors.surfaceMuted,
+    textColor: selected ? colors.text : colors.textMuted,
+  };
+}
+
 export default function BookHomeScreen() {
+  const { colors, resolvedTheme } = useAppTheme();
+  const skeletonAccent = resolvedTheme === "dark" ? colors.surfaceSoft : "#F0E1A7";
+  const skeletonText = resolvedTheme === "dark" ? colors.surfaceMuted : "#E2D3AA";
+  const skeletonBody = resolvedTheme === "dark" ? colors.surfaceElevated : "#E9DCBA";
+  const skeletonSoft = resolvedTheme === "dark" ? colors.surface : "#F1E8D1";
+  const heroSkeletonStrong = resolvedTheme === "dark" ? colors.overlayLight : "rgba(255, 249, 234, 0.2)";
+  const heroSkeletonMuted = resolvedTheme === "dark" ? colors.overlayMuted : "rgba(255, 249, 234, 0.16)";
+  const heroSkeletonSubtle = resolvedTheme === "dark" ? "rgba(219, 228, 223, 0.14)" : "rgba(255, 249, 234, 0.14)";
+  const selectedLanguageColors = getSelectableChipColors({ selected: true, colors });
+  const inactiveLanguageColors = getSelectableChipColors({ selected: false, colors });
   const { bookId, languageId: routeLanguageId, volumeId: routeVolumeId } = useLocalSearchParams<{
     bookId: string;
     languageId?: string;
@@ -338,15 +350,15 @@ export default function BookHomeScreen() {
                 gap: 18,
               }}
             >
-              <SkeletonBlock width={140} height={16} color="rgba(255, 249, 234, 0.18)" />
+              <SkeletonBlock width={140} height={16} color={heroSkeletonMuted} />
               <View style={{ gap: 10 }}>
-                <SkeletonBlock width="72%" height={34} color="rgba(255, 249, 234, 0.2)" />
-                <SkeletonBlock width="42%" height={20} color="rgba(255, 249, 234, 0.16)" />
-                <SkeletonBlock width="26%" height={18} color="rgba(255, 249, 234, 0.14)" />
+                <SkeletonBlock width="72%" height={34} color={heroSkeletonStrong} />
+                <SkeletonBlock width="42%" height={20} color={heroSkeletonMuted} />
+                <SkeletonBlock width="26%" height={18} color={heroSkeletonSubtle} />
               </View>
               <View style={{ flexDirection: "row", gap: 10 }}>
-                <SkeletonBlock width={170} height={46} color="#F0E1A7" />
-                <SkeletonBlock width={132} height={46} color="rgba(255, 249, 234, 0.16)" />
+                <SkeletonBlock width={170} height={46} color={skeletonAccent} />
+                <SkeletonBlock width={132} height={46} color={heroSkeletonMuted} />
               </View>
             </View>
 
@@ -358,10 +370,10 @@ export default function BookHomeScreen() {
                 gap: 14,
               }}
             >
-              <SkeletonBlock width={112} height={14} color="#E2D3AA" />
-              <SkeletonBlock width="68%" height={28} color="#E2D3AA" />
-              <SkeletonBlock width="100%" height={18} color="#E9DCBA" />
-              <SkeletonBlock width="74%" height={18} color="#E9DCBA" />
+              <SkeletonBlock width={112} height={14} color={skeletonText} />
+              <SkeletonBlock width="68%" height={28} color={skeletonText} />
+              <SkeletonBlock width="100%" height={18} color={skeletonBody} />
+              <SkeletonBlock width="74%" height={18} color={skeletonBody} />
             </View>
 
             <View
@@ -372,10 +384,10 @@ export default function BookHomeScreen() {
                 gap: 14,
               }}
             >
-              <SkeletonBlock width={180} height={26} color="#E2D3AA" />
-              <SkeletonBlock width="100%" height={18} color="#E9DCBA" />
-              <SkeletonBlock width="84%" height={18} color="#E9DCBA" />
-              <SkeletonBlock width={150} height={42} color="#F0E1A7" />
+              <SkeletonBlock width={180} height={26} color={skeletonText} />
+              <SkeletonBlock width="100%" height={18} color={skeletonBody} />
+              <SkeletonBlock width="84%" height={18} color={skeletonBody} />
+              <SkeletonBlock width={150} height={42} color={skeletonAccent} />
             </View>
 
             <View
@@ -386,10 +398,10 @@ export default function BookHomeScreen() {
                 gap: 12,
               }}
             >
-              <SkeletonBlock width={170} height={26} color="#E8DDC0" />
-              <SkeletonBlock width="100%" height={18} color="#F1E8D1" />
-              <SkeletonBlock width="88%" height={18} color="#F1E8D1" />
-              <SkeletonBlock width="92%" height={18} color="#F1E8D1" />
+              <SkeletonBlock width={170} height={26} color={colors.progressTrack} />
+              <SkeletonBlock width="100%" height={18} color={skeletonSoft} />
+              <SkeletonBlock width="88%" height={18} color={skeletonSoft} />
+              <SkeletonBlock width="92%" height={18} color={skeletonSoft} />
             </View>
           </ScrollView>
         ) : (
@@ -453,6 +465,8 @@ export default function BookHomeScreen() {
                   <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
                     {orderedLanguages.map((language) => {
                       const isActive = language.id === resolvedLanguageId;
+                      const chipColors = isActive ? selectedLanguageColors : inactiveLanguageColors;
+
                       return (
                         <Pressable
                           key={language.id}
@@ -462,14 +476,14 @@ export default function BookHomeScreen() {
                           }}
                           style={{
                             borderRadius: 999,
-                            backgroundColor: isActive ? colors.accent : colors.surfaceMuted,
+                            backgroundColor: chipColors.backgroundColor,
                             paddingHorizontal: 14,
                             paddingVertical: 9,
                           }}
                         >
                           <Text
                             style={{
-                              color: isActive ? colors.text : colors.textMuted,
+                              color: chipColors.textColor,
                               fontSize: 13,
                               fontWeight: "800",
                             }}
@@ -498,6 +512,8 @@ export default function BookHomeScreen() {
                   <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
                     {orderedVolumes.map((volume) => {
                       const isActive = volume.id === resolvedVolumeId;
+                      const chipColors = isActive ? selectedLanguageColors : inactiveLanguageColors;
+
                       return (
                         <Pressable
                           key={volume.id}
@@ -506,14 +522,14 @@ export default function BookHomeScreen() {
                           }}
                           style={{
                             borderRadius: 999,
-                            backgroundColor: isActive ? colors.accent : colors.surfaceMuted,
+                            backgroundColor: chipColors.backgroundColor,
                             paddingHorizontal: 14,
                             paddingVertical: 9,
                           }}
                         >
                           <Text
                             style={{
-                              color: isActive ? colors.text : colors.textMuted,
+                              color: chipColors.textColor,
                               fontSize: 13,
                               fontWeight: "800",
                             }}
@@ -597,7 +613,6 @@ export default function BookHomeScreen() {
                     justifyContent: "center",
                     alignItems: "center",
                   }}
-                  title={isFullyDownloaded ? "Remove Download" : "Save Offline"}
                 >
                   <Text style={{ color: colors.text, fontSize: 16, fontWeight: "800" }}>
                     {isFullyDownloaded ? "📦" : "💾"}
@@ -617,7 +632,6 @@ export default function BookHomeScreen() {
                   justifyContent: "center",
                   alignItems: "center",
                 }}
-                title={isCompleted ? "Mark Still Reading" : "Mark Completed"}
               >
                 <Text style={{ color: colors.text, fontSize: 16, fontWeight: "800" }}>
                   {isCompleted ? "✓" : "○"}

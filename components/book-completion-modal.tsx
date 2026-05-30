@@ -6,12 +6,16 @@ type BookCompletionModalProps = {
     bookTitle: string;
     totalPages: number;
     finalPage: number;
+    scrimColor: string;
     panelColor: string;
     panelTextColor: string;
     mutedTextColor: string;
     primaryActionColor: string;
     primaryActionTextColor: string;
     secondaryActionColor: string;
+    outlineColor: string;
+    iconBadgeColor: string;
+    successColor: string;
     onMarkCompleted: () => void;
     onKeepReading: () => void;
 };
@@ -28,12 +32,16 @@ export function BookCompletionModal({
     bookTitle,
     totalPages,
     finalPage,
+    scrimColor,
     panelColor,
     panelTextColor,
     mutedTextColor,
     primaryActionColor,
     primaryActionTextColor,
     secondaryActionColor,
+    outlineColor,
+    iconBadgeColor,
+    successColor,
     onMarkCompleted,
     onKeepReading,
 }: BookCompletionModalProps) {
@@ -45,7 +53,7 @@ export function BookCompletionModal({
             <View
                 style={{
                     flex: 1,
-                    backgroundColor: "rgba(0, 0, 0, 0.7)",
+                    backgroundColor: scrimColor,
                     justifyContent: "center",
                     alignItems: "center",
                     padding: 20,
@@ -67,12 +75,12 @@ export function BookCompletionModal({
                                 width: 80,
                                 height: 80,
                                 borderRadius: 40,
-                                backgroundColor: "rgba(127, 127, 127, 0.12)",
+                                backgroundColor: iconBadgeColor,
                                 alignItems: "center",
                                 justifyContent: "center",
                             }}
                         >
-                            <Ionicons name="checkmark-circle" size={48} color="#5B9A71" />
+                            <Ionicons name="checkmark-circle" size={48} color={successColor} />
                         </View>
                     </View>
 
@@ -120,7 +128,7 @@ export function BookCompletionModal({
                                         width: 36,
                                         height: 36,
                                         borderRadius: 18,
-                                        backgroundColor: "rgba(127, 127, 127, 0.12)",
+                                        backgroundColor: iconBadgeColor,
                                         alignItems: "center",
                                         justifyContent: "center",
                                     }}
@@ -147,7 +155,7 @@ export function BookCompletionModal({
                                         width: 36,
                                         height: 36,
                                         borderRadius: 18,
-                                        backgroundColor: "rgba(127, 127, 127, 0.12)",
+                                        backgroundColor: iconBadgeColor,
                                         alignItems: "center",
                                         justifyContent: "center",
                                     }}
@@ -174,7 +182,7 @@ export function BookCompletionModal({
                                 justifyContent: "center",
                                 backgroundColor: secondaryActionColor,
                                 borderWidth: 1,
-                                borderColor: "rgba(127, 127, 127, 0.22)",
+                                borderColor: outlineColor,
                                 opacity: pressed ? 0.75 : 1,
                             })}
                         >

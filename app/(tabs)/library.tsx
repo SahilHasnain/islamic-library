@@ -12,8 +12,9 @@ import {
   MetaText,
   Screen
 } from "../../components/ui";
-import { colors, radii, spacing, typography } from "../../constants/theme";
+import { radii, spacing, typography } from "../../constants/theme";
 import type { PublicCatalogBook, ReadingProgress } from "../../data/types";
+import { useAppTheme } from "../../hooks/useAppTheme";
 import { useBookCompletions } from "../../hooks/useBookCompletions";
 import { useReadingPlans } from "../../hooks/useReadingPlans";
 import { useReadingProgress } from "../../hooks/useReadingProgress";
@@ -211,6 +212,19 @@ function getDownloadButtonLabel({
   return "Save Offline";
 }
 
+function getSelectablePillColors({
+  selected,
+  colors,
+}: {
+  selected: boolean;
+  colors: ReturnType<typeof useAppTheme>["colors"];
+}) {
+  return {
+    backgroundColor: selected ? colors.accent : colors.surfaceMuted,
+    textColor: selected ? colors.text : colors.textMuted,
+  };
+}
+
 function ResumeReadingHero({
   candidates,
   index,
@@ -222,6 +236,7 @@ function ResumeReadingHero({
   onChangeIndex: (nextIndex: number) => void;
   latestProgressByBook: Record<string, ReadingProgress | undefined>;
 }) {
+  const { colors } = useAppTheme();
   const activeBook = candidates[index];
   const activeProgress = activeBook ? latestProgressByBook[activeBook.id] : undefined;
 
@@ -402,9 +417,9 @@ function ResumeReadingHero({
               borderRadius: 20,
               alignItems: "center",
               justifyContent: "center",
-              backgroundColor: "rgba(255, 255, 255, 0.14)",
+              backgroundColor: colors.overlayLight,
               borderWidth: 1,
-              borderColor: "rgba(255, 255, 255, 0.2)",
+              borderColor: colors.overlayMuted,
             }}
             accessibilityRole="button"
             accessibilityLabel="Next in-progress book"
@@ -500,6 +515,7 @@ function ResumeReadingHero({
 function LibraryBookCard({
   bookId,
   title,
+  subtitle,
   category,
   page,
   languageId,
@@ -508,19 +524,19 @@ function LibraryBookCard({
 }: {
   bookId: string;
   title: string;
+  subtitle?: string;
   category?: string;
   page?: number;
   languageId?: string;
   volumeId?: string;
   coverImage?: string;
 }) {
+  const { colors } = useAppTheme();
   const { metadata, selectedLanguage, selectedVolume } = useRemoteBookData(
     bookId,
     languageId,
     volumeId,
   );
-
-
 
   return (
     <Link href={`/book/${bookId}` as const} asChild>
@@ -581,6 +597,19 @@ function LibraryBookCard({
           >
             {title}
           </Text>
+          {subtitle ? (
+            <Text
+              style={{
+                color: colors.textMuted,
+                fontSize: typography.caption,
+                lineHeight: 18,
+                textAlign: "center",
+              }}
+              numberOfLines={2}
+            >
+              {subtitle}
+            </Text>
+          ) : null}
         </View>
       </Pressable>
     </Link>
@@ -588,6 +617,7 @@ function LibraryBookCard({
 }
 
 export default function LibraryScreen() {
+  const { colors } = useAppTheme();
   const { error, isLoaded, latestProgressByBook, refreshProgress } = useReadingProgress();
   const { completedBookIds, completionMap, refreshCompletions } = useBookCompletions();
   const { activePlanMap, refreshPlans } = useReadingPlans();
@@ -606,6 +636,10 @@ export default function LibraryScreen() {
   const [showLanguageMenu, setShowLanguageMenu] = useState<boolean>(false);
   const [bookMetadataMap, setBookMetadataMap] = useState<Record<string, { languages: string[] }>>({});
   const [resumeIndex, setResumeIndex] = useState(0);
+  const allCategoryPillColors = getSelectablePillColors({
+    selected: selectedCategory === "all",
+    colors,
+  });
 
   useFocusEffect(
     useCallback(() => {
@@ -848,7 +882,7 @@ export default function LibraryScreen() {
               alignItems: "center",
               gap: 12,
               borderWidth: 1,
-              borderColor: colors.surfaceMuted,
+              borderColor: colors.border,
             }}
           >
             <Text style={{ color: colors.textMuted, fontSize: 18 }}>🔍</Text>
@@ -986,14 +1020,14 @@ export default function LibraryScreen() {
             onPress={() => setSelectedCategory("all")}
             style={{
               borderRadius: radii.pill,
-              backgroundColor: selectedCategory === "all" ? colors.accent : colors.surfaceMuted,
+              backgroundColor: allCategoryPillColors.backgroundColor,
               paddingHorizontal: 16,
               paddingVertical: 10,
             }}
           >
             <Text
               style={{
-                color: selectedCategory === "all" ? colors.text : colors.textMuted,
+                color: allCategoryPillColors.textColor,
                 fontSize: typography.control,
                 fontWeight: "800",
               }}
@@ -1002,21 +1036,25 @@ export default function LibraryScreen() {
             </Text>
           </Pressable>
           {uniqueCategories.map((category) => {
+            const pillColors = getSelectablePillColors({
+              selected: selectedCategory === category,
+              colors,
+            });
+
             return (
               <Pressable
                 key={category}
                 onPress={() => setSelectedCategory(category)}
                 style={{
                   borderRadius: radii.pill,
-                  backgroundColor:
-                    selectedCategory === category ? colors.accent : colors.surfaceMuted,
+                  backgroundColor: pillColors.backgroundColor,
                   paddingHorizontal: 16,
                   paddingVertical: 10,
                 }}
               >
                 <Text
                   style={{
-                    color: selectedCategory === category ? colors.text : colors.textMuted,
+                    color: pillColors.textColor,
                     fontSize: typography.control,
                     fontWeight: "800",
                   }}

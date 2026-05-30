@@ -11,14 +11,16 @@ import {
   Screen,
   SectionCard,
 } from "../../components/ui";
-import { colors, radii, spacing, typography } from "../../constants/theme";
+import { radii, spacing, typography } from "../../constants/theme";
+import type { AppThemePreference } from "../../data/types";
+import { useAppTheme } from "../../hooks/useAppTheme";
 import { useBookmarks } from "../../hooks/useBookmarks";
-import { useReaderPreferences } from "../../hooks/useReaderPreferences";
 import { useReadingPlans } from "../../hooks/useReadingPlans";
 import { useReadingProgress } from "../../hooks/useReadingProgress";
 import { useRemoteCatalog } from "../../hooks/useRemoteCatalog";
 
 function CustomToast({ message, visible }: { message: string; visible: boolean }) {
+  const { colors } = useAppTheme();
   const opacity = useRef(new Animated.Value(0)).current;
   const translateY = useRef(new Animated.Value(20)).current;
 
@@ -84,11 +86,14 @@ function ActionButton({
   label,
   onPress,
   variant = "soft",
+  textColor,
 }: {
   label: string;
   onPress: () => void;
   variant?: "soft" | "primary";
+  textColor?: string;
 }) {
+  const { colors } = useAppTheme();
   const isPrimary = variant === "primary";
 
   return (
@@ -104,7 +109,7 @@ function ActionButton({
     >
       <Text
         style={{
-          color: isPrimary ? colors.primaryButtonText : colors.text,
+          color: textColor ?? (isPrimary ? colors.primaryButtonText : colors.text),
           fontSize: typography.caption,
           fontWeight: "800",
         }}
@@ -115,31 +120,54 @@ function ActionButton({
   );
 }
 
-function getThemeLabel(theme: "light" | "sepia" | "night") {
-  if (theme === "light") {
-    return "Light";
+function getThemeLabel(theme: AppThemePreference) {
+  if (theme === "system") {
+    return "System";
   }
 
-  if (theme === "sepia") {
-    return "Sepia";
-  }
-
-  return "Night";
+  return theme === "dark" ? "Dark" : "Light";
 }
 
-function getNextThemeLabel(theme: "light" | "sepia" | "night") {
-  if (theme === "light") {
-    return "Sepia";
-  }
+function ThemeOptionButton({
+  label,
+  selected,
+  onPress,
+}: {
+  label: string;
+  selected: boolean;
+  onPress: () => void;
+}) {
+  const { colors } = useAppTheme();
 
-  if (theme === "sepia") {
-    return "Night";
-  }
-
-  return "Light";
+  return (
+    <Pressable
+      onPress={onPress}
+      style={{
+        flex: 1,
+        borderRadius: radii.pill,
+        borderWidth: 1,
+        borderColor: selected ? colors.accent : colors.border,
+        backgroundColor: selected ? colors.primaryButton : colors.surface,
+        paddingHorizontal: 14,
+        paddingVertical: 12,
+      }}
+    >
+      <Text
+        style={{
+          color: selected ? colors.primaryButtonText : colors.text,
+          fontSize: typography.caption,
+          fontWeight: "800",
+          textAlign: "center",
+        }}
+      >
+        {label}
+      </Text>
+    </Pressable>
+  );
 }
 
 export default function SettingsScreen() {
+  const { colors, error: themeError, isLoaded: themeLoaded, resolvedTheme, themePreference, setThemePreference } = useAppTheme();
   const { catalog } = useRemoteCatalog();
   const {
     clearBookmarks,
@@ -153,12 +181,6 @@ export default function SettingsScreen() {
     error: plansError,
     isLoaded: plansLoaded,
   } = useReadingPlans();
-  const {
-    cycleTheme,
-    error: preferencesError,
-    isLoaded: preferencesLoaded,
-    theme,
-  } = useReaderPreferences();
   const {
     error: progressError,
     isLoaded: progressLoaded,
@@ -175,7 +197,7 @@ export default function SettingsScreen() {
   const progressCount = Object.keys(latestProgressByBook).length;
   const editionProgressCount = Object.keys(progressMap).length;
   const storageIsLoading =
-    !bookmarksLoaded || !plansLoaded || !preferencesLoaded || !progressLoaded;
+    !bookmarksLoaded || !plansLoaded || !themeLoaded || !progressLoaded;
 
   const displayToast = (message: string) => {
     if (Platform.OS === "android") {
@@ -210,7 +232,7 @@ export default function SettingsScreen() {
           />
         ) : null}
 
-        {preferencesError || bookmarksError || plansError || progressError ? (
+        {themeError || bookmarksError || plansError || progressError ? (
           <ErrorCard
             title="Couldn't load some settings"
             message="Some of your preferences couldn't be loaded. Using defaults for now."
@@ -218,20 +240,37 @@ export default function SettingsScreen() {
         ) : null}
 
         <SectionCard>
-          <CardTitle>Reading theme</CardTitle>
+          <CardTitle>Appearance</CardTitle>
           <View style={{ gap: spacing.gapSm }}>
-            <MetaText>Current theme</MetaText>
+            <MetaText>Current appearance</MetaText>
             <Text style={{ color: colors.text, fontSize: typography.subtitle, fontWeight: "800" }}>
-              {getThemeLabel(theme)}
+              {getThemeLabel(themePreference)}
+              {themePreference === "system" ? ` (${getThemeLabel(resolvedTheme)})` : ""}
             </Text>
           </View>
-          <ActionButton
-            label={`Switch to ${getNextThemeLabel(theme)}`}
-            onPress={() => {
-              void cycleTheme();
-            }}
-            variant="primary"
-          />
+          <View style={{ flexDirection: "row", gap: spacing.gapSm }}>
+            <ThemeOptionButton
+              label="System"
+              selected={themePreference === "system"}
+              onPress={() => {
+                void setThemePreference("system");
+              }}
+            />
+            <ThemeOptionButton
+              label="Light"
+              selected={themePreference === "light"}
+              onPress={() => {
+                void setThemePreference("light");
+              }}
+            />
+            <ThemeOptionButton
+              label="Dark"
+              selected={themePreference === "dark"}
+              onPress={() => {
+                void setThemePreference("dark");
+              }}
+            />
+          </View>
         </SectionCard>
 
         <SectionCard>

@@ -11,6 +11,7 @@ import type {
   RecoveryAction,
 } from "@/lib/ingestion";
 
+// Used only for suggestions in the UI; categories are not restricted.
 const categories = ["Seerah", "Durood", "Dua", "Akhlaq", "Motivation", "Other"];
 const jobFilters = [
   { label: "All", value: "all" },
@@ -919,14 +920,17 @@ export function AdminConsole({ initialSnapshot }: { initialSnapshot: MonitoringS
                 </label>
                 <label className="space-y-2">
                   <span className="text-sm text-stone-200">Category <span className="text-stone-500">(optional)</span></span>
-                  <select name="category" defaultValue="" className="w-full rounded-2xl border border-stone-700 bg-stone-950 px-4 py-3 text-sm outline-none transition focus:border-amber-300">
-                    <option value="">-- Select Category --</option>
+                  <input
+                    name="category"
+                    list="known-categories"
+                    className="w-full rounded-2xl border border-stone-700 bg-stone-950 px-4 py-3 text-sm outline-none transition focus:border-amber-300"
+                    placeholder="e.g. Seerah"
+                  />
+                  <datalist id="known-categories">
                     {categories.map((category) => (
-                      <option key={category} value={category}>
-                        {category}
-                      </option>
+                      <option key={category} value={category} />
                     ))}
-                  </select>
+                  </datalist>
                 </label>
                 <label className="space-y-2">
                   <span className="text-sm text-stone-200">Created By</span>
@@ -1078,19 +1082,15 @@ export function AdminConsole({ initialSnapshot }: { initialSnapshot: MonitoringS
               </label>
               <label className="space-y-2">
                 <span className="text-sm text-stone-200">Category</span>
-                <select
+                <input
                   value={metadataForm.category}
+                  list="known-categories"
                   onChange={(event) => {
                     setMetadataForm((current) => ({ ...current, category: event.target.value }));
                   }}
                   className="w-full rounded-2xl border border-stone-700 bg-stone-950 px-4 py-3 text-sm outline-none transition focus:border-amber-300"
-                >
-                  {categories.map((category) => (
-                    <option key={category} value={category}>
-                      {category}
-                    </option>
-                  ))}
-                </select>
+                  placeholder="e.g. Seerah"
+                />
               </label>
               <label className="space-y-2">
                 <span className="text-sm text-stone-200">Requested By</span>

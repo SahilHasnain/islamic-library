@@ -5,8 +5,9 @@ import { FlatList, Pressable, ScrollView, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { Screen } from "../../components/ui";
-import { colors, radii, spacing, typography } from "../../constants/theme";
+import { radii, spacing, typography } from "../../constants/theme";
 import type { PublicCatalogBook } from "../../data/types";
+import { useAppTheme } from "../../hooks/useAppTheme";
 import { useBookCompletions } from "../../hooks/useBookCompletions";
 import { useReadingPlans } from "../../hooks/useReadingPlans";
 import { useReadingProgress } from "../../hooks/useReadingProgress";
@@ -25,6 +26,8 @@ function CompletedBookCard({
   completedDate?: string;
   coverImage?: string;
 }) {
+  const { colors } = useAppTheme();
+
   return (
     <Link href={`/book/${bookId}` as const} asChild>
       <Pressable
@@ -104,6 +107,7 @@ function CompletedBookCard({
 }
 
 export default function JourneyScreen() {
+  const { colors } = useAppTheme();
   const { latestProgressByBook, progressMap, refreshProgress } = useReadingProgress();
   const { completedBookIds, completionMap, refreshCompletions } = useBookCompletions();
   const { activePlanMap, refreshPlans } = useReadingPlans();
@@ -187,7 +191,7 @@ export default function JourneyScreen() {
                   <View
                     key={`${plan.bookId}-${plan.languageId}-${plan.volumeId}`}
                     style={{
-                      backgroundColor: "#F4ECD9",
+                      backgroundColor: colors.surfaceElevated,
                       borderRadius: 16,
                       padding: 16,
                       gap: 10,

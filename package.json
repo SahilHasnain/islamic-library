@@ -5,6 +5,8 @@
   "scripts": {
     "start": "expo start",
     "start:clear": "expo start -c",
+    "console": "npm --prefix admin-console run dev",
+    "worker": "npm --prefix worker-service run dev",
     "reset-project": "node ./scripts/reset-project.js",
     "android": "expo run:android",
     "ios": "expo run:ios",

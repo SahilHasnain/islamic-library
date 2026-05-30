@@ -2,8 +2,9 @@ import { Stack, useLocalSearchParams } from "expo-router";
 import { Pressable, ScrollView, Text, View } from "react-native";
 
 import { EmptyCard, ErrorCard, LoadingCard, ProgressBar, Screen } from "../../../components/ui";
-import { colors, radii } from "../../../constants/theme";
+import { radii } from "../../../constants/theme";
 import type { PublicBookPlan } from "../../../data/types";
+import { useAppTheme } from "../../../hooks/useAppTheme";
 import { useRemoteBookData } from "../../../hooks/useRemoteBookData";
 import { useReadingPlans } from "../../../hooks/useReadingPlans";
 import { useReadingProgress } from "../../../hooks/useReadingProgress";
@@ -37,6 +38,7 @@ function buildRemotePlans(totalPages: number): PublicBookPlan[] {
 }
 
 export default function BookPlansScreen() {
+  const { colors } = useAppTheme();
   const { bookId, languageId: routeLanguageId, volumeId: routeVolumeId } = useLocalSearchParams<{
     bookId: string;
     languageId?: string;
@@ -221,14 +223,15 @@ export default function BookPlansScreen() {
                 style={{
                   alignSelf: "flex-start",
                   borderRadius: radii.pill,
-                  backgroundColor: activePlan?.planId === plan.id ? "#173D31" : "#EFE2B6",
+                  backgroundColor:
+                    activePlan?.planId === plan.id ? colors.primaryButton : colors.surfaceSoft,
                   paddingHorizontal: 14,
                   paddingVertical: 10,
                 }}
               >
                 <Text
                   style={{
-                    color: activePlan?.planId === plan.id ? "#FFF9EA" : colors.text,
+                    color: activePlan?.planId === plan.id ? colors.primaryButtonText : colors.text,
                     fontSize: 13,
                     fontWeight: "800",
                   }}

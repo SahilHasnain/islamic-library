@@ -18,53 +18,15 @@ import { SafeAreaView } from "react-native-safe-area-context";
 
 import { BookCompletionModal } from "../../../../../components/book-completion-modal";
 import { SessionCompletionModal } from "../../../../../components/session-completion-modal";
+import { getReaderColors } from "../../../../../constants/theme";
 import { ZoomableReaderImage } from "../../../../../components/zoomable-reader-image";
+import { useAppTheme } from "../../../../../hooks/useAppTheme";
 import { useBookCompletions } from "../../../../../hooks/useBookCompletions";
 import { useBookmarks } from "../../../../../hooks/useBookmarks";
-import { useReaderPreferences } from "../../../../../hooks/useReaderPreferences";
 import { useReadingProgress } from "../../../../../hooks/useReadingProgress";
 import { useRemoteBookData } from "../../../../../hooks/useRemoteBookData";
 import { useResolvedManifestPageAsset } from "../../../../../hooks/useResolvedManifestPageAsset";
 import { prefetchManifestPages } from "../../../../../lib/reader-prefetch";
-
-const themeColors = {
-  light: {
-    background: "#F6F0E2",
-    overlay: "rgba(23, 61, 49, 0.9)",
-    overlayLight: "rgba(255, 249, 234, 0.16)",
-    overlayMuted: "rgba(255, 249, 234, 0.12)",
-    text: "#FFF9EA",
-    textMuted: "#C6D4CB",
-    textStrong: "#173D31",
-    accent: "#C9A961",
-    panel: "#FFF9EA",
-    panelText: "#173D31",
-  },
-  sepia: {
-    background: "#EDE0C8",
-    overlay: "rgba(59, 47, 31, 0.92)",
-    overlayLight: "rgba(248, 239, 217, 0.14)",
-    overlayMuted: "rgba(248, 239, 217, 0.1)",
-    text: "#FFF7E7",
-    textMuted: "#DCCBAF",
-    textStrong: "#3F3425",
-    accent: "#9F7A2F",
-    panel: "#F8EFD9",
-    panelText: "#3F3425",
-  },
-  night: {
-    background: "#0F1714",
-    overlay: "rgba(6, 10, 9, 0.94)",
-    overlayLight: "rgba(219, 228, 223, 0.12)",
-    overlayMuted: "rgba(219, 228, 223, 0.08)",
-    text: "#F2F6F3",
-    textMuted: "#A9B7B0",
-    textStrong: "#EAF1ED",
-    accent: "#88A879",
-    panel: "#16211D",
-    panelText: "#EAF1ED",
-  },
-};
 
 const BOOK_COMPLETION_FINAL_PAGE_WINDOW = 3;
 const BOOK_COMPLETION_FINAL_PAGE_MS = 120000;
@@ -149,6 +111,7 @@ function ReaderPageSurface({
 }
 
 export default function ReaderScreen() {
+  const { colors: appColors, resolvedTheme } = useAppTheme();
   const router = useRouter();
   const { bookId, languageId, volumeId, page } = useLocalSearchParams<{
     bookId: string;
@@ -169,8 +132,7 @@ export default function ReaderScreen() {
   const readingBookId = Array.isArray(bookId) ? bookId[0] : bookId ?? "";
   const { progress, saveProgress } = useReadingProgress(readingBookId, languageId, volumeId);
   const { addBookmark, getBookmarkForPage, removeBookmark } = useBookmarks(readingBookId);
-  const { theme, cycleTheme } = useReaderPreferences();
-  const colors = themeColors[theme];
+  const colors = getReaderColors(resolvedTheme);
   const totalPages = manifest?.totalPages ?? 1;
   const resolvedLanguageId = selectedLanguage?.id ?? languageId;
   const resolvedVolumeId = selectedVolume?.id ?? volumeId;
@@ -229,6 +191,11 @@ export default function ReaderScreen() {
       (section) => currentPage >= section.startPage && currentPage <= section.endPage,
     ) ?? { title: `Section ${currentSectionIndex}` };
   const progressPercent = Math.round((currentPage / totalPages) * 100);
+  const mutedBodyColor = appColors.textMuted;
+  const controlSurfaceColor = appColors.primaryButton;
+  const pageModalSurfaceColor = colors.secondaryPanel;
+  const outlineColor = appColors.border;
+  const iconBadgeColor = colors.overlayLight;
   const existingBookmark = getBookmarkForPage(
     readingBookId,
     resolvedLanguageId,
@@ -508,9 +475,7 @@ export default function ReaderScreen() {
             screenHeight={screenHeight}
             backgroundColor={colors.background}
             textColor={colors.textStrong}
-            mutedTextColor={
-              theme === "light" ? "#5F6C65" : theme === "sepia" ? "#6D5D46" : "#8FA19A"
-            }
+            mutedTextColor={mutedBodyColor}
             remoteState={remoteState}
             isActivePage={pageNum === currentPage}
             onZoomChange={setIsZoomed}
@@ -518,7 +483,7 @@ export default function ReaderScreen() {
         </View>
       );
     },
-    [colors.background, colors.textStrong, currentPage, manifest, remoteState, screenHeight, screenWidth, theme],
+    [colors.background, colors.textStrong, currentPage, manifest, mutedBodyColor, remoteState, screenHeight, screenWidth],
   );
 
   return (
@@ -536,12 +501,12 @@ export default function ReaderScreen() {
           <Text style={{ color: colors.textStrong, fontSize: 28, fontWeight: "800" }}>
             Image-based reader is ready
           </Text>
-          <Text
-            style={{
-              color: theme === "light" ? "#5F6C65" : theme === "sepia" ? "#6D5D46" : "#8FA19A",
-              fontSize: 16,
-              lineHeight: 24,
-              textAlign: "center",
+            <Text
+              style={{
+                color: mutedBodyColor,
+                fontSize: 16,
+                lineHeight: 24,
+                textAlign: "center",
             }}
           >
             This reader is designed first for Android and iOS.
@@ -623,32 +588,6 @@ export default function ReaderScreen() {
             {editionLine}
           </Text>
         </View>
-        <Pressable
-          onPress={() => {
-            void cycleTheme();
-          }}
-          style={({ pressed }) => ({
-            width: 40,
-            height: 40,
-            borderRadius: 20,
-            backgroundColor: colors.overlayLight,
-            alignItems: "center",
-            justifyContent: "center",
-            opacity: pressed ? 0.7 : 1,
-          })}
-        >
-          <Ionicons
-            name={
-              theme === "light"
-                ? "sunny-outline"
-                : theme === "sepia"
-                  ? "book-outline"
-                  : "moon-outline"
-            }
-            size={22}
-            color={colors.text}
-          />
-        </Pressable>
         <Pressable
           onPress={() => {
             void toggleBookmark();
@@ -736,7 +675,7 @@ export default function ReaderScreen() {
                 height: 48,
                 borderRadius: 24,
                 paddingHorizontal: 18,
-                backgroundColor: theme === "night" ? "#284239" : "#2A4A3D",
+                backgroundColor: controlSurfaceColor,
                 alignItems: "center",
                 justifyContent: "center",
                 opacity: pressed ? 0.8 : 1,
@@ -753,7 +692,7 @@ export default function ReaderScreen() {
                 style={{
                   width: "100%",
                   height: 6,
-                  backgroundColor: "rgba(255, 249, 234, 0.2)",
+                  backgroundColor: colors.overlayMuted,
                   borderRadius: 3,
                   overflow: "hidden",
                 }}
@@ -784,7 +723,7 @@ export default function ReaderScreen() {
           onPress={() => setIsPageModalVisible(false)}
           style={{
             flex: 1,
-            backgroundColor: "rgba(0, 0, 0, 0.45)",
+            backgroundColor: appColors.scrim,
             alignItems: "center",
             justifyContent: "center",
             padding: 24,
@@ -811,12 +750,12 @@ export default function ReaderScreen() {
               onSubmitEditing={submitPageInput}
               keyboardType="number-pad"
               placeholder={`Enter page 1-${totalPages}`}
-              placeholderTextColor={theme === "night" ? "#8FA19A" : "#7A8A82"}
+              placeholderTextColor={appColors.textSubtle}
               style={{
                 height: 48,
                 borderRadius: 16,
                 paddingHorizontal: 16,
-                backgroundColor: theme === "night" ? "#21302B" : "#F4ECD9",
+                backgroundColor: pageModalSurfaceColor,
                 color: colors.panelText,
                 fontSize: 16,
                 fontWeight: "600",
@@ -831,7 +770,7 @@ export default function ReaderScreen() {
                   paddingHorizontal: 18,
                   alignItems: "center",
                   justifyContent: "center",
-                  backgroundColor: theme === "night" ? "#21302B" : "#F4ECD9",
+                  backgroundColor: pageModalSurfaceColor,
                   opacity: pressed ? 0.8 : 1,
                 })}
               >
@@ -847,7 +786,7 @@ export default function ReaderScreen() {
                   paddingHorizontal: 18,
                   alignItems: "center",
                   justifyContent: "center",
-                  backgroundColor: theme === "night" ? "#284239" : "#2A4A3D",
+                  backgroundColor: controlSurfaceColor,
                   opacity: pressed ? 0.8 : 1,
                 })}
               >
@@ -865,12 +804,16 @@ export default function ReaderScreen() {
         bookTitle={bookTitle}
         totalPages={totalPages}
         finalPage={currentPage}
+        scrimColor={appColors.scrim}
         panelColor={colors.panel}
         panelTextColor={colors.panelText}
-        mutedTextColor={theme === "night" ? "#A9B7B0" : "#5F6C65"}
+        mutedTextColor={appColors.textMuted}
         primaryActionColor={colors.accent}
-        primaryActionTextColor={theme === "night" ? colors.textStrong : "#173D31"}
-        secondaryActionColor={theme === "night" ? "#21302B" : "#F4ECD9"}
+        primaryActionTextColor={colors.textStrong}
+        secondaryActionColor={pageModalSurfaceColor}
+        outlineColor={outlineColor}
+        iconBadgeColor={iconBadgeColor}
+        successColor={appColors.success}
         onMarkCompleted={() => {
           void handleMarkBookCompleted();
         }}
@@ -880,14 +823,18 @@ export default function ReaderScreen() {
       {showSessionCompletionModal && sessionCompletionData && (
         <SessionCompletionModal
            visible={showSessionCompletionModal}
+           scrimColor={appColors.scrim}
            panelColor={colors.panel}
            panelTextColor={colors.panelText}
-           mutedTextColor={colors.textMuted}
-           encouragementColor={theme === "night" ? colors.textMuted : "#6B7A72"}
-           statsLabelColor={theme === "night" ? colors.textMuted : "#7A8A82"}
+           mutedTextColor={appColors.textMuted}
+           encouragementColor={appColors.textSubtle}
+           statsLabelColor={appColors.textSubtle}
            primaryActionColor={colors.accent}
-           primaryActionTextColor={theme === "night" ? colors.textStrong : "#173D31"}
-           secondaryActionColor={theme === "night" ? "#21302B" : "#F4ECD9"}
+           primaryActionTextColor={colors.textStrong}
+           secondaryActionColor={pageModalSurfaceColor}
+           outlineColor={outlineColor}
+           iconBadgeColor={iconBadgeColor}
+           successColor={appColors.success}
            pagesRead={sessionCompletionData.pagesRead}
            durationMinutes={sessionCompletionData.durationMinutes}
            onContinue={() => {
