@@ -1,7 +1,7 @@
 import { Link, Stack, useLocalSearchParams } from "expo-router";
 import { useEffect, useMemo, useState } from "react";
-import { Pressable, ScrollView, Text, View } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
+import { Image, Pressable, ScrollView, Text, View } from "react-native";
+import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { ErrorCard } from "../../../components/ui";
 import type { PublicBookPlan, PublicBookSection } from "../../../data/types";
@@ -315,15 +315,13 @@ export default function BookHomeScreen() {
       totalPagesRead: editionProgress?.pagesViewed?.length,
     });
   };
+  const insets = useSafeAreaInsets();
 
   return (
     <>
       <Stack.Screen
         options={{
-          title: displayTitle,
-          headerTintColor: colors.text,
-          headerStyle: { backgroundColor: colors.background },
-          headerShadowVisible: false,
+          headerShown: false,
         }}
       />
       <SafeAreaView
@@ -331,7 +329,7 @@ export default function BookHomeScreen() {
         style={{ flex: 1, backgroundColor: colors.background }}
       >
         {shouldShowInitialSkeleton ? (
-          <ScrollView contentContainerStyle={{ padding: 20, gap: 20, paddingBottom: 40 }}>
+          <ScrollView contentContainerStyle={{ paddingTop: insets.top + 16, paddingHorizontal: 20, gap: 20, paddingBottom: 40 }}>
             <View
               style={{
                 backgroundColor: colors.text,
@@ -395,7 +393,7 @@ export default function BookHomeScreen() {
             </View>
           </ScrollView>
         ) : (
-        <ScrollView contentContainerStyle={{ padding: 20, gap: 20, paddingBottom: 40 }}>
+        <ScrollView contentContainerStyle={{ paddingTop: insets.top + 16, paddingHorizontal: 20, gap: 20, paddingBottom: 40 }}>
           {!isBookDataLoading && (metadataError || manifestError) ? (
             <ErrorCard
               title="Book details unavailable"
@@ -414,145 +412,156 @@ export default function BookHomeScreen() {
             />
           ) : null}
 
-          <View
-            style={{
-              backgroundColor: colors.text,
-              borderRadius: 28,
-              padding: 24,
-              gap: 18,
-            }}
-          >
-            {(orderedLanguages.length > 1 || orderedVolumes.length > 1) && (
-              <View style={{ gap: 12 }}>
-                {orderedLanguages.length > 1 ? (
-                  <View style={{ gap: 8 }}>
-                    <Text
-                      style={{
-                        color: colors.heroSubtle,
-                        fontSize: 12,
-                        fontWeight: "700",
-                        textTransform: "uppercase",
-                        letterSpacing: 0.4,
-                      }}
-                    >
-                      Language
-                    </Text>
-                    <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
-                      {orderedLanguages.map((language) => {
-                        const isActive = language.id === resolvedLanguageId;
-                        return (
-                          <Pressable
-                            key={language.id}
-                            onPress={() => {
-                              setSelectedLanguageId(language.id);
-                              setSelectedVolumeId(language.defaultVolumeId ?? language.volumes[0]?.id);
-                            }}
-                            style={{
-                              borderRadius: 999,
-                              backgroundColor: isActive
-                                ? "#F0E1A7"
-                                : "rgba(255, 249, 234, 0.14)",
-                              paddingHorizontal: 14,
-                              paddingVertical: 9,
-                            }}
-                          >
-                            <Text
-                              style={{
-                                color: isActive ? colors.text : "#FFF9EA",
-                                fontSize: 13,
-                                fontWeight: "800",
-                              }}
-                            >
-                              {language.title}
-                            </Text>
-                          </Pressable>
-                        );
-                      })}
-                    </View>
-                  </View>
-                ) : null}
-                {orderedVolumes.length > 1 ? (
-                  <View style={{ gap: 8 }}>
-                    <Text
-                      style={{
-                        color: colors.heroSubtle,
-                        fontSize: 12,
-                        fontWeight: "700",
-                        textTransform: "uppercase",
-                        letterSpacing: 0.4,
-                      }}
-                    >
-                      Volume
-                    </Text>
-                    <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
-                      {orderedVolumes.map((volume) => {
-                        const isActive = volume.id === resolvedVolumeId;
-                        return (
-                          <Pressable
-                            key={volume.id}
-                            onPress={() => {
-                              setSelectedVolumeId(volume.id);
-                            }}
-                            style={{
-                              borderRadius: 999,
-                              backgroundColor: isActive
-                                ? "#F0E1A7"
-                                : "rgba(255, 249, 234, 0.14)",
-                              paddingHorizontal: 14,
-                              paddingVertical: 9,
-                            }}
-                          >
-                            <Text
-                              style={{
-                                color: isActive ? colors.text : "#FFF9EA",
-                                fontSize: 13,
-                                fontWeight: "800",
-                              }}
-                            >
-                              {volume.subtitle?.trim() ? volume.subtitle : volume.title}
-                            </Text>
-                          </Pressable>
-                        );
-                      })}
-                    </View>
-                  </View>
-                ) : null}
-              </View>
-            )}
-            <Text
-              style={{
-                color: "#FFF9EA",
-                fontSize: 14,
-                fontWeight: "700",
-                textTransform: "uppercase",
-                letterSpacing: 0.5,
-              }}
-            >
-              Continue Reading
-            </Text>
-            <View style={{ gap: 10 }}>
-              <Text style={{ color: "#FFF9EA", fontSize: 30, fontWeight: "800" }}>
-                {displayTitle}
-              </Text>
-              <Text style={{ color: colors.heroSubtle, fontSize: 15, lineHeight: 22 }}>
-                {displaySubtitle}
-              </Text>
-              <Text style={{ color: colors.heroMuted, fontSize: 15, lineHeight: 22 }}>
-                Page {resumePage}
-              </Text>
-              {isBookDataLoading ? (
+          {/* Language & Volume Selection - TOP */}
+          {(orderedLanguages.length > 1 || orderedVolumes.length > 1) && (
+            <View style={{ gap: 12, backgroundColor: colors.surface, borderRadius: 24, padding: 20 }}>
+              <View style={{ gap: 2 }}>
                 <Text
                   style={{
-                    color: colors.heroSubtle,
-                    fontSize: 13,
+                    color: colors.accent,
+                    fontSize: 12,
                     fontWeight: "700",
+                    textTransform: "uppercase",
+                    letterSpacing: 0.4,
                   }}
                 >
-                  Preparing this book...
+                  🌍 Choose Edition
                 </Text>
+                <Text
+                  style={{
+                    color: colors.text,
+                    fontSize: 18,
+                    fontWeight: "800",
+                  }}
+                >
+                  {displayTitle}
+                </Text>
+              </View>
+              {orderedLanguages.length > 1 ? (
+                <View style={{ gap: 8 }}>
+                  <Text
+                    style={{
+                      color: colors.text,
+                      fontSize: 12,
+                      fontWeight: "700",
+                      textTransform: "uppercase",
+                      letterSpacing: 0.4,
+                    }}
+                  >
+                    Language
+                  </Text>
+                  <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
+                    {orderedLanguages.map((language) => {
+                      const isActive = language.id === resolvedLanguageId;
+                      return (
+                        <Pressable
+                          key={language.id}
+                          onPress={() => {
+                            setSelectedLanguageId(language.id);
+                            setSelectedVolumeId(language.defaultVolumeId ?? language.volumes[0]?.id);
+                          }}
+                          style={{
+                            borderRadius: 999,
+                            backgroundColor: isActive ? colors.accent : colors.surfaceMuted,
+                            paddingHorizontal: 14,
+                            paddingVertical: 9,
+                          }}
+                        >
+                          <Text
+                            style={{
+                              color: isActive ? colors.text : colors.textMuted,
+                              fontSize: 13,
+                              fontWeight: "800",
+                            }}
+                          >
+                            {language.title}
+                          </Text>
+                        </Pressable>
+                      );
+                    })}
+                  </View>
+                </View>
+              ) : null}
+              {orderedVolumes.length > 1 ? (
+                <View style={{ gap: 8 }}>
+                  <Text
+                    style={{
+                      color: colors.text,
+                      fontSize: 12,
+                      fontWeight: "700",
+                      textTransform: "uppercase",
+                      letterSpacing: 0.4,
+                    }}
+                  >
+                    Volume
+                  </Text>
+                  <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
+                    {orderedVolumes.map((volume) => {
+                      const isActive = volume.id === resolvedVolumeId;
+                      return (
+                        <Pressable
+                          key={volume.id}
+                          onPress={() => {
+                            setSelectedVolumeId(volume.id);
+                          }}
+                          style={{
+                            borderRadius: 999,
+                            backgroundColor: isActive ? colors.accent : colors.surfaceMuted,
+                            paddingHorizontal: 14,
+                            paddingVertical: 9,
+                          }}
+                        >
+                          <Text
+                            style={{
+                              color: isActive ? colors.text : colors.textMuted,
+                              fontSize: 13,
+                              fontWeight: "800",
+                            }}
+                          >
+                            {volume.subtitle?.trim() ? volume.subtitle : volume.title}
+                          </Text>
+                        </Pressable>
+                      );
+                    })}
+                  </View>
+                </View>
               ) : null}
             </View>
+          )}
 
+          {/* Primary Action Section - Compact */}
+          <View
+            style={{
+              backgroundColor: colors.accent,
+              borderRadius: 24,
+              padding: 16,
+              gap: 12,
+            }}
+          >
+            {/* Header with Progress */}
+            <View style={{ gap: 4 }}>
+              <Text
+                style={{
+                  color: colors.text,
+                  fontSize: 13,
+                  fontWeight: "800",
+                }}
+              >
+                ▶️ {editionProgress ? `Continue from Page ${resumePage}` : "Start Reading"}
+              </Text>
+              <Text
+                style={{
+                  color: colors.text,
+                  fontSize: 12,
+                  fontWeight: "600",
+                  opacity: 0.8,
+                }}
+              >
+                {editionProgress ? "Ongoing" : "Not started yet"}
+              </Text>
+            </View>
+
+            {/* Action Buttons */}
             <View style={{ flexDirection: "row", gap: 10 }}>
               <Link
                 href={
@@ -562,15 +571,15 @@ export default function BookHomeScreen() {
               >
                 <Pressable
                   style={{
-                    alignSelf: "flex-start",
+                    flex: 1,
                     borderRadius: 999,
-                    backgroundColor: "#F0E1A7",
-                    paddingHorizontal: 20,
+                    backgroundColor: colors.text,
                     paddingVertical: 12,
+                    alignItems: "center",
                   }}
                 >
-                  <Text style={{ color: colors.text, fontSize: 15, fontWeight: "800" }}>
-                    Resume Reading
+                  <Text style={{ color: colors.accent, fontSize: 14, fontWeight: "800" }}>
+                    {editionProgress ? "Continue" : "Start"}
                   </Text>
                 </Pressable>
               </Link>
@@ -581,13 +590,17 @@ export default function BookHomeScreen() {
                   }}
                   style={{
                     borderRadius: 999,
-                    backgroundColor: "rgba(255, 249, 234, 0.16)",
-                    paddingHorizontal: 16,
-                    paddingVertical: 12,
+                    borderWidth: 1.5,
+                    borderColor: colors.text,
+                    paddingHorizontal: 14,
+                    paddingVertical: 10,
+                    justifyContent: "center",
+                    alignItems: "center",
                   }}
+                  title={isFullyDownloaded ? "Remove Download" : "Save Offline"}
                 >
-                  <Text style={{ color: "#FFF9EA", fontSize: 13, fontWeight: "800" }}>
-                    {downloadButtonLabel}
+                  <Text style={{ color: colors.text, fontSize: 16, fontWeight: "800" }}>
+                    {isFullyDownloaded ? "📦" : "💾"}
                   </Text>
                 </Pressable>
               ) : null}
@@ -597,57 +610,100 @@ export default function BookHomeScreen() {
                 }}
                 style={{
                   borderRadius: 999,
-                  backgroundColor: isCompleted ? "#DCE8DF" : "rgba(255, 249, 234, 0.16)",
-                  paddingHorizontal: 16,
-                  paddingVertical: 12,
+                  borderWidth: 1.5,
+                  borderColor: colors.text,
+                  paddingHorizontal: 14,
+                  paddingVertical: 10,
+                  justifyContent: "center",
+                  alignItems: "center",
                 }}
+                title={isCompleted ? "Mark Still Reading" : "Mark Completed"}
               >
-                <Text
-                  style={{
-                    color: isCompleted ? colors.text : "#FFF9EA",
-                    fontSize: 13,
-                    fontWeight: "800",
-                  }}
-                >
-                  {isCompleted ? "Mark Still Reading" : "Mark Completed"}
+                <Text style={{ color: colors.text, fontSize: 16, fontWeight: "800" }}>
+                  {isCompleted ? "✓" : "○"}
                 </Text>
               </Pressable>
-            </View>
-          </View>
+             </View>
+           </View>
 
-          {activeRemotePlan ? (
+          {/* Today's Focus Section - Improved */}
             <View
               style={{
                 backgroundColor: colors.surface,
                 borderRadius: 24,
-                padding: 20,
-                gap: 14,
+                padding: 18,
+                gap: 10,
               }}
             >
-              <View
+            {/* Header */}
+            <View style={{ gap: 2 }}>
+              <Text
                 style={{
-                  flexDirection: "row",
-                  alignItems: "center",
-                  justifyContent: "space-between",
-                  gap: 16,
+                  color: colors.accent,
+                  fontSize: 12,
+                  fontWeight: "700",
+                  textTransform: "uppercase",
+                  letterSpacing: 0.4,
                 }}
               >
-                <View style={{ flex: 1, gap: 4 }}>
-                  <Text
+                📅 Today&apos;s Focus
+              </Text>
+              <Text style={{ color: colors.text, fontSize: 20, fontWeight: "800" }}>
+                {activeRemotePlan ? activeRemotePlan.title : "Set Your Reading Pace"}
+              </Text>
+            </View>
+
+            {activeRemotePlan ? (
+              <>
+                {/* Progress Bar - Compact */}
+                <View style={{ gap: 6 }}>
+                  <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
+                    <Text style={{ color: colors.textMuted, fontSize: 13, fontWeight: "600" }}>
+                      Day {currentDay}/{activeRemotePlan.totalDays}
+                    </Text>
+                    <Text style={{ color: colors.accent, fontSize: 13, fontWeight: "700" }}>
+                      {progressPercent}%
+                    </Text>
+                  </View>
+                  <View
                     style={{
-                      color: colors.accent,
-                      fontSize: 13,
-                      fontWeight: "700",
-                      textTransform: "uppercase",
-                      letterSpacing: 0.4,
+                      height: 5,
+                      borderRadius: 999,
+                      backgroundColor: colors.surfaceMuted,
+                      overflow: "hidden",
                     }}
                   >
-                    Active plan
-                  </Text>
-                  <Text style={{ color: colors.text, fontSize: 22, fontWeight: "800" }}>
-                    {activeRemotePlan.title}
-                  </Text>
+                    <View
+                      style={{
+                        width: `${progressPercent}%`,
+                        height: "100%",
+                        backgroundColor: colors.accent,
+                      }}
+                    />
+                  </View>
                 </View>
+
+                {/* Today's Task - Highlighted */}
+                <View style={{ backgroundColor: colors.surfaceMuted, borderRadius: 16, padding: 14, gap: 6 }}>
+                  <Text style={{ color: colors.textMuted, fontSize: 12, fontWeight: "600" }}>
+                    📖 {currentPlanItem?.label}
+                  </Text>
+                  <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
+                    <Text style={{ color: colors.text, fontSize: 16, fontWeight: "800" }}>
+                      Pages {currentPlanItem?.startPage}–{currentPlanItem?.endPage}
+                    </Text>
+                    <Text style={{ color: colors.textMuted, fontSize: 12, fontWeight: "600" }}>
+                      ⏱️ {currentPlanItem?.estimatedMinutes}m
+                    </Text>
+                  </View>
+                </View>
+
+                {/* Daily Target - Subtle */}
+                 <Text style={{ color: colors.textMuted, fontSize: 13, lineHeight: 20, fontStyle: "italic" }}>
+                  💭 &quot;{todayTarget}&quot;
+                 </Text>
+
+                {/* View Plans Button */}
                 <Link
                   href={
                     `/book/${readingBookId}/plans?languageId=${resolvedLanguageId}&volumeId=${resolvedVolumeId}` as const
@@ -656,274 +712,198 @@ export default function BookHomeScreen() {
                 >
                   <Pressable
                     style={{
-                      borderRadius: 14,
-                      backgroundColor: colors.accentSoft,
+                      alignSelf: "flex-start",
+                      borderRadius: 999,
+                      borderWidth: 1.5,
+                      borderColor: colors.accent,
                       paddingHorizontal: 16,
                       paddingVertical: 10,
                     }}
                   >
                     <Text style={{ color: colors.text, fontSize: 13, fontWeight: "800" }}>
-                      View
+                      View Plans
                     </Text>
                   </Pressable>
                 </Link>
-              </View>
+              </>
+            ) : (
+              <>
+                <Text style={{ color: colors.textMuted, fontSize: 13, lineHeight: 20, fontWeight: "500" }}>
+                  Select a reading plan to structure your daily reading and track your progress steadily.
+                </Text>
+                <Link
+                  href={
+                    `/book/${readingBookId}/plans?languageId=${resolvedLanguageId}&volumeId=${resolvedVolumeId}` as const
+                  }
+                  asChild
+                >
+                  <Pressable
+                    style={{
+                      alignSelf: "flex-start",
+                      borderRadius: 999,
+                      backgroundColor: colors.accent,
+                      paddingHorizontal: 18,
+                      paddingVertical: 11,
+                    }}
+                  >
+                    <Text style={{ color: colors.text, fontSize: 14, fontWeight: "800" }}>
+                      Choose Plan
+                    </Text>
+                  </Pressable>
+                </Link>
+              </>
+            )}
+          </View>
 
-              <Text style={{ color: colors.textMuted, fontSize: 16, lineHeight: 24 }}>
-                Day {currentDay} of {activeRemotePlan.totalDays}
-              </Text>
-              <View
-                style={{
-                  height: 8,
-                  borderRadius: 999,
-                  backgroundColor: "#E8DDC0",
-                  overflow: "hidden",
-                }}
-              >
-                <View
-                  style={{
-                    width: `${progressPercent}%`,
-                    height: "100%",
-                    backgroundColor: colors.accent,
-                  }}
-                />
-              </View>
+          {/* Book Structure - Key Sections */}
+          <View style={{ backgroundColor: colors.surface, borderRadius: 24, padding: 18, gap: 14 }}>
+            {/* Header */}
+            <View style={{ gap: 2 }}>
               <Text
                 style={{
                   color: colors.accent,
-                  fontSize: 13,
+                  fontSize: 12,
                   fontWeight: "700",
                   textTransform: "uppercase",
                   letterSpacing: 0.4,
                 }}
               >
-                {currentPlanItem?.label} | Pages {currentPlanItem?.startPage}-{currentPlanItem?.endPage}
+                📚 Book Structure
+              </Text>
+              <Text style={{ color: colors.text, fontSize: 20, fontWeight: "800" }}>
+                Key Sections
               </Text>
             </View>
-          ) : (
-            <Link
-              href={
-                `/book/${readingBookId}/plans?languageId=${resolvedLanguageId}&volumeId=${resolvedVolumeId}` as const
-              }
-              asChild
-            >
-              <Pressable
-                style={{
-                  backgroundColor: colors.surfaceMuted,
-                  borderRadius: 24,
-                  padding: 22,
-                  gap: 14,
-                }}
-              >
-                <View style={{ gap: 8 }}>
-                  <Text
-                    style={{
-                      alignSelf: "flex-start",
-                      color: colors.text,
-                      fontSize: 12,
-                      fontWeight: "800",
-                      textTransform: "uppercase",
-                      letterSpacing: 0.4,
-                    }}
-                  >
-                    Reading plan
-                  </Text>
-                  <Text style={{ color: colors.text, fontSize: 28, fontWeight: "800" }}>
-                    Choose a Reading Plan
-                  </Text>
-                  <Text style={{ color: colors.textMuted, fontSize: 16, lineHeight: 24 }}>
-                    Build consistency with a gentle structure that fits your pace.
-                  </Text>
-                </View>
-                <Text
-                  style={{
-                    color: colors.accent,
-                    fontSize: 13,
-                    fontWeight: "700",
-                    textTransform: "uppercase",
-                    letterSpacing: 0.4,
-                  }}
-                >
-                  {plans[0]?.title ?? "Guided daily options"} | View plans
-                </Text>
-              </Pressable>
-            </Link>
-          )}
 
-          <View
-            style={{
-              backgroundColor: colors.surfaceMuted,
-              borderRadius: 24,
-              padding: 20,
-              gap: 14,
-            }}
-          >
-            <Text style={{ color: colors.text, fontSize: 22, fontWeight: "800" }}>
-              Today&apos;s gentle target
-            </Text>
-            <Text style={{ color: colors.textMuted, fontSize: 16, lineHeight: 24 }}>
-              {todayTarget}
-            </Text>
-            <Link
-              href={
-                `/reader/${readingBookId}/${resolvedLanguageId}/${resolvedVolumeId}/${resumePage}` as const
-              }
-              asChild
-            >
-              <Pressable
-                style={{
-                  alignSelf: "flex-start",
-                  borderRadius: 999,
-                  borderWidth: 1.5,
-                  borderColor: colors.accent,
-                  paddingHorizontal: 18,
-                  paddingVertical: 11,
-                }}
-              >
-                <Text style={{ color: colors.text, fontSize: 15, fontWeight: "800" }}>
-                  Read for 5 minutes
-                </Text>
-              </Pressable>
-            </Link>
-          </View>
-
-          <View style={{ backgroundColor: colors.surface, borderRadius: 24, padding: 20, gap: 12 }}>
-            <Text style={{ color: colors.text, fontSize: 22, fontWeight: "800" }}>
-              Reading structure
-            </Text>
             {!hasAuthoredSections ? (
-              <Text style={{ color: colors.textMuted, fontSize: 14, lineHeight: 22 }}>
-                Guided sections are still being prepared. For now, the book is divided into gentle page ranges.
+              <Text style={{ color: colors.textMuted, fontSize: 13, lineHeight: 20 }}>
+                Guided sections are being prepared. Browse gentle page ranges for now.
               </Text>
             ) : null}
-            {sections.slice(0, 3).map((section) => (
-              <View
-                key={section.id}
-                style={{
-                  flexDirection: "row",
-                  justifyContent: "space-between",
-                  gap: 16,
-                }}
-              >
-                <View style={{ flex: 1 }}>
-                  <Text style={{ color: colors.text, fontSize: 17, fontWeight: "700" }}>
-                    {section.title}
-                  </Text>
-                  {section.subtitle ? (
-                    <Text style={{ color: colors.textMuted, fontSize: 14, marginTop: 2 }}>
-                      {section.subtitle}
-                    </Text>
-                  ) : null}
-                  <Text style={{ color: colors.textMuted, fontSize: 15, marginTop: 2 }}>
-                    Pages {section.startPage}-{section.endPage}
-                  </Text>
+
+            {/* Sections List */}
+            <View style={{ gap: 8 }}>
+              {sections.slice(0, 3).map((section, index) => (
+                <View
+                  key={section.id}
+                  style={{
+                    backgroundColor: colors.surfaceMuted,
+                    borderRadius: 12,
+                    padding: 12,
+                    gap: 6,
+                  }}
+                >
+                  <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start" }}>
+                    <View style={{ flex: 1, gap: 2 }}>
+                      <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                        <Text style={{ color: colors.accent, fontSize: 14, fontWeight: "700" }}>
+                          {index + 1}
+                        </Text>
+                        <Text style={{ color: colors.text, fontSize: 14, fontWeight: "700", flex: 1 }}>
+                          {section.title}
+                        </Text>
+                      </View>
+                      <Text style={{ color: colors.textMuted, fontSize: 12 }}>
+                        Pages {section.startPage}–{section.endPage} • ⏱️ {section.estimatedMinutes}m
+                      </Text>
+                    </View>
+                  </View>
                 </View>
-                <Text style={{ color: colors.accent, fontSize: 14, fontWeight: "700" }}>
-                  {section.estimatedMinutes} min
-                </Text>
-              </View>
-            ))}
+              ))}
+            </View>
+
+            {/* Action Button */}
+            <View style={{ paddingTop: 4 }}>
+              <Link
+                href={
+                  `/book/${readingBookId}/sections?languageId=${resolvedLanguageId}&volumeId=${resolvedVolumeId}` as const
+                }
+                asChild
+              >
+                <Pressable
+                  style={{
+                    backgroundColor: colors.accent,
+                    borderRadius: 999,
+                    paddingVertical: 11,
+                    alignItems: "center",
+                  }}
+                >
+                  <Text style={{ color: colors.text, fontSize: 13, fontWeight: "800" }}>
+                    View All
+                  </Text>
+                </Pressable>
+              </Link>
+            </View>
           </View>
 
-          <View style={{ flexDirection: "row", gap: 12 }}>
-            <Link
-              href={
-                `/book/${readingBookId}/sections?languageId=${resolvedLanguageId}&volumeId=${resolvedVolumeId}` as const
-              }
-              asChild
-            >
-              <Pressable
+          {/* About This Book */}
+          <View style={{ backgroundColor: colors.surface, borderRadius: 24, padding: 18, gap: 12 }}>
+            {/* Header */}
+            <View style={{ gap: 2 }}>
+              <Text
                 style={{
-                  flex: 1,
-                  backgroundColor: colors.surface,
-                  borderRadius: 20,
-                  padding: 18,
-                  gap: 6,
+                  color: colors.accent,
+                  fontSize: 12,
+                  fontWeight: "700",
+                  textTransform: "uppercase",
+                  letterSpacing: 0.4,
                 }}
               >
-                <Text style={{ color: colors.text, fontSize: 18, fontWeight: "800" }}>
-                  Sections
-                </Text>
-                <Text style={{ color: colors.textMuted, fontSize: 14, lineHeight: 21 }}>
-                  Browse the book in manageable portions.
-                </Text>
-              </Pressable>
-            </Link>
-            <Link
-              href={
-                `/book/${readingBookId}/plans?languageId=${resolvedLanguageId}&volumeId=${resolvedVolumeId}` as const
-              }
-              asChild
-            >
-              <Pressable
-                style={{
-                  flex: 1,
-                  backgroundColor: colors.surface,
-                  borderRadius: 20,
-                  padding: 18,
-                  gap: 6,
-                }}
-              >
-                <Text style={{ color: colors.text, fontSize: 18, fontWeight: "800" }}>
-                  Plans
-                </Text>
-                <Text style={{ color: colors.textMuted, fontSize: 14, lineHeight: 21 }}>
-                  Follow a pace that supports regular reading.
-                </Text>
-              </Pressable>
-            </Link>
-          </View>
+                ℹ️ About This Book
+              </Text>
+            </View>
 
-          <View style={{ backgroundColor: colors.surface, borderRadius: 24, padding: 20, gap: 12 }}>
-            <Text style={{ color: colors.text, fontSize: 22, fontWeight: "800" }}>
-              About this book
-            </Text>
-            <Text style={{ color: colors.textMuted, fontSize: 16, lineHeight: 24 }}>
+            {/* Description */}
+            <Text style={{ color: colors.textMuted, fontSize: 14, lineHeight: 22 }}>
               {displayDescription}
             </Text>
-            <Text
-              style={{
-                color: colors.accent,
-                fontSize: 13,
-                fontWeight: "700",
-                textTransform: "uppercase",
-                letterSpacing: 0.4,
-              }}
-            >
-              {displayCategory} | {displayAuthor ?? "Editorial selection"}
-            </Text>
-          </View>
 
-          <View
-            style={{
-              backgroundColor: colors.surface,
-              borderRadius: 24,
-              padding: 22,
-            }}
-          >
-            <Text
-              style={{
-                color: colors.textMuted,
-                fontSize: 18,
-                lineHeight: 28,
-                fontWeight: "600",
-                textAlign: "center",
-              }}
-            >
-              {metadata?.devotionalContext ?? devotionalContext}
-            </Text>
-            <Text
-              style={{
-                color: colors.text,
-                fontSize: 16,
-                lineHeight: 26,
-                fontWeight: "700",
-                textAlign: "center",
-                marginTop: 14,
-              }}
-            >
-              {featuredQuote}
-            </Text>
+            {/* Metadata - Compact Grid */}
+            <View style={{ gap: 10 }}>
+              <View
+                style={{
+                  backgroundColor: colors.surfaceMuted,
+                  borderRadius: 12,
+                  padding: 12,
+                  flexDirection: "row",
+                  alignItems: "center",
+                  gap: 10,
+                }}
+              >
+                <Text style={{ fontSize: 16 }}>📂</Text>
+                <View style={{ flex: 1 }}>
+                  <Text style={{ color: colors.textMuted, fontSize: 11, fontWeight: "600", opacity: 0.8 }}>
+                    Category
+                  </Text>
+                  <Text style={{ color: colors.text, fontSize: 13, fontWeight: "700", marginTop: 2 }}>
+                    {displayCategory}
+                  </Text>
+                </View>
+              </View>
+
+              {displayAuthor ? (
+                <View
+                  style={{
+                    backgroundColor: colors.surfaceMuted,
+                    borderRadius: 12,
+                    padding: 12,
+                    flexDirection: "row",
+                    alignItems: "center",
+                    gap: 10,
+                  }}
+                >
+                  <Text style={{ fontSize: 16 }}>✍️</Text>
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ color: colors.textMuted, fontSize: 11, fontWeight: "600", opacity: 0.8 }}>
+                      Author
+                    </Text>
+                    <Text style={{ color: colors.text, fontSize: 13, fontWeight: "700", marginTop: 2 }}>
+                      {displayAuthor}
+                    </Text>
+                  </View>
+                </View>
+              ) : null}
+            </View>
           </View>
         </ScrollView>
         )}

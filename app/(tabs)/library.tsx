@@ -359,7 +359,6 @@ function ResumeReadingHero({
 function LibraryBookCard({
   bookId,
   title,
-  subtitle,
   category,
   page,
   languageId,
@@ -368,7 +367,6 @@ function LibraryBookCard({
 }: {
   bookId: string;
   title: string;
-  subtitle?: string;
   category?: string;
   page?: number;
   languageId?: string;
@@ -381,34 +379,7 @@ function LibraryBookCard({
     volumeId,
   );
 
-  const totalLanguages = metadata?.languages?.length ?? 0;
-  const totalVolumes = selectedLanguage?.volumes?.length ?? 0;
-  const hasMultipleLanguages = totalLanguages > 1;
-  const hasMultipleVolumes = totalVolumes > 1;
 
-  const buildEnhancedSubtitle = () => {
-    const parts: string[] = [];
-
-    if (hasMultipleLanguages && selectedLanguage) {
-      const langTitle = selectedLanguage.nativeTitle || selectedLanguage.title;
-      parts.push(`${langTitle} (${totalLanguages} languages)`);
-    } else if (selectedLanguage) {
-      parts.push(selectedLanguage.nativeTitle || selectedLanguage.title);
-    }
-
-    if (hasMultipleVolumes && selectedVolume) {
-      const volumeLabel = selectedVolume.subtitle?.trim() || selectedVolume.title;
-      parts.push(`${volumeLabel} of ${totalVolumes}`);
-    }
-
-    if (parts.length > 0) {
-      return parts.join(" • ");
-    }
-
-    return subtitle ?? "Ready for reading";
-  };
-
-  const enhancedSubtitle = buildEnhancedSubtitle();
 
   return (
     <View
@@ -468,19 +439,6 @@ function LibraryBookCard({
         >
           {title}
         </Text>
-        <View style={{ height: 36, justifyContent: "center" }}>
-          <Text
-            style={{
-              color: colors.textMuted,
-              fontSize: typography.caption,
-              lineHeight: 18,
-              textAlign: "center",
-            }}
-            numberOfLines={2}
-          >
-            {enhancedSubtitle}
-          </Text>
-        </View>
       </View>
 
       {/* Action Button */}
