@@ -1,6 +1,6 @@
 import { Link, Stack, useLocalSearchParams } from "expo-router";
-import { Pressable, ScrollView, Text } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
+import { Pressable, ScrollView, Text, View } from "react-native";
+import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { ErrorCard, LoadingCard } from "../../../components/ui";
 import type { PublicBookSection } from "../../../data/types";
@@ -70,6 +70,7 @@ function getSectionKindLabel(section: PublicBookSection) {
 }
 
 export default function BookSectionsScreen() {
+  const insets = useSafeAreaInsets();
   const { bookId, languageId: routeLanguageId, volumeId: routeVolumeId } = useLocalSearchParams<{
     bookId: string;
     languageId?: string;
@@ -106,14 +107,11 @@ export default function BookSectionsScreen() {
     <>
       <Stack.Screen
         options={{
-          title: "Sections",
-          headerTintColor: colors.text,
-          headerStyle: { backgroundColor: colors.background },
-          headerShadowVisible: false,
+          headerShown: false,
         }}
       />
       <SafeAreaView style={{ flex: 1, backgroundColor: colors.background }}>
-        <ScrollView contentContainerStyle={{ padding: 20, gap: 16, paddingBottom: 40 }}>
+        <ScrollView contentContainerStyle={{ paddingTop: insets.top + 16, paddingHorizontal: 20, gap: 16, paddingBottom: 40 }}>
           <Text style={{ color: colors.text, fontSize: 30, fontWeight: "800" }}>
             {displayTitle}
           </Text>
@@ -129,69 +127,181 @@ export default function BookSectionsScreen() {
               message="The sections for this book could not be loaded."
             />
           ) : null}
-          <Text style={{ color: colors.textMuted, fontSize: 15 }}>
-            {displayLanguageTitle}
-          </Text>
-          {displayVolumeTitle ? (
-            <Text style={{ color: colors.accent, fontSize: 13, fontWeight: "700" }}>
-              {displayVolumeTitle}
-            </Text>
-          ) : null}
-          <Text style={{ color: colors.textMuted, fontSize: 16, lineHeight: 24 }}>
-            Move through the book in calm, manageable portions. Choose the section that matches
-            your current pace.
-          </Text>
-          {!hasAuthoredSections ? (
-            <Text style={{ color: colors.accent, fontSize: 13, fontWeight: "700" }}>
-              Guided sections are still being prepared for this book.
-            </Text>
-          ) : null}
-          {sections.map((section) => (
-            <Link
-              key={section.id}
-              href={`/reader/${readingBookId}/${resolvedLanguageId}/${resolvedVolumeId}/${getSectionEntryPage(section)}` as const}
-              asChild
+
+          {/* Language and Volume in one row */}
+          <View style={{ flexDirection: "row", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
+            <View
+              style={{
+                backgroundColor: colors.surface,
+                borderRadius: 12,
+                paddingHorizontal: 12,
+                paddingVertical: 8,
+              }}
             >
-              <Pressable
+              <Text style={{ color: colors.textMuted, fontSize: 11, fontWeight: "600", opacity: 0.8 }}>
+                Edition
+              </Text>
+              <Text style={{ color: colors.text, fontSize: 13, fontWeight: "700", marginTop: 2 }}>
+                {displayLanguageTitle}
+              </Text>
+            </View>
+            {displayVolumeTitle ? (
+              <View
                 style={{
                   backgroundColor: colors.surface,
-                  borderRadius: 22,
-                  padding: 18,
-                  gap: 6,
+                  borderRadius: 12,
+                  paddingHorizontal: 12,
+                  paddingVertical: 8,
                 }}
               >
-                <Text style={{ color: colors.text, fontSize: 18, fontWeight: "800" }}>
-                  {section.title}
+                <Text style={{ color: colors.textMuted, fontSize: 11, fontWeight: "600", opacity: 0.8 }}>
+                  Volume
                 </Text>
-                {section.subtitle ? (
-                  <Text style={{ color: colors.textMuted, fontSize: 15, lineHeight: 22 }}>
-                    {section.subtitle}
-                  </Text>
-                ) : null}
-                <Text style={{ color: colors.textMuted, fontSize: 15 }}>
-                  Pages {section.startPage}-{section.endPage}
+                <Text style={{ color: colors.text, fontSize: 13, fontWeight: "700", marginTop: 2 }}>
+                  {displayVolumeTitle}
                 </Text>
-                {section.description ? (
-                  <Text style={{ color: colors.textMuted, fontSize: 14, lineHeight: 21 }}>
-                    {section.description}
-                  </Text>
-                ) : null}
-                <Text
-                  style={{
-                    color: colors.accent,
-                    fontSize: 13,
-                    fontWeight: "700",
-                    textTransform: "uppercase",
-                    letterSpacing: 0.4,
-                  }}
-                >
-                  {[getSectionKindLabel(section), `${section.estimatedMinutes} min`]
-                    .filter(Boolean)
-                    .join(" | ")}
-                </Text>
-              </Pressable>
-            </Link>
-          ))}
+              </View>
+            ) : null}
+          </View>
+
+          {!hasAuthoredSections ? (
+            <View
+              style={{
+                backgroundColor: "#f5f0e8",
+                borderRadius: 12,
+                padding: 12,
+                borderLeftWidth: 3,
+                borderLeftColor: colors.accent,
+              }}
+            >
+              <Text style={{ color: colors.accent, fontSize: 13, fontWeight: "700" }}>
+                Guided sections are being prepared
+              </Text>
+              <Text style={{ color: colors.textMuted, fontSize: 12, marginTop: 4, lineHeight: 18 }}>
+                You can still browse all sections and read freely.
+              </Text>
+            </View>
+          ) : null}
+           {sections.map((section, index) => (
+             <Link
+               key={section.id}
+               href={`/reader/${readingBookId}/${resolvedLanguageId}/${resolvedVolumeId}/${getSectionEntryPage(section)}` as const}
+               asChild
+             >
+               <Pressable
+                 style={{
+                   backgroundColor: colors.surface,
+                   borderRadius: 24,
+                   padding: 20,
+                   gap: 14,
+                 }}
+               >
+                 {/* Header with Section Number Badge */}
+                 <View style={{ flexDirection: "row", alignItems: "flex-start", gap: 12 }}>
+                   <View
+                     style={{
+                       backgroundColor: colors.accent,
+                       borderRadius: 999,
+                       width: 44,
+                       height: 44,
+                       justifyContent: "center",
+                       alignItems: "center",
+                       flexShrink: 0,
+                     }}
+                   >
+                     <Text style={{ color: colors.text, fontSize: 18, fontWeight: "800" }}>
+                       {index + 1}
+                     </Text>
+                   </View>
+                   <View style={{ flex: 1, gap: 4 }}>
+                     <Text style={{ color: colors.text, fontSize: 18, fontWeight: "800" }}>
+                       {section.title}
+                     </Text>
+                     {section.subtitle ? (
+                       <Text style={{ color: colors.textMuted, fontSize: 13, lineHeight: 20 }}>
+                         {section.subtitle}
+                       </Text>
+                     ) : null}
+                   </View>
+                 </View>
+
+                 {/* Description if available */}
+                 {section.description ? (
+                   <Text style={{ color: colors.textMuted, fontSize: 13, lineHeight: 20 }}>
+                     {section.description}
+                   </Text>
+                 ) : null}
+
+                 {/* Metadata Grid */}
+                 <View style={{ gap: 10 }}>
+                   <View
+                     style={{
+                       backgroundColor: "#f5f0e8",
+                       borderRadius: 12,
+                       padding: 12,
+                       flexDirection: "row",
+                       alignItems: "center",
+                       gap: 10,
+                     }}
+                   >
+                     <Text style={{ fontSize: 16 }}>📄</Text>
+                     <View style={{ flex: 1 }}>
+                       <Text style={{ color: colors.textMuted, fontSize: 11, fontWeight: "600", opacity: 0.8 }}>
+                         Pages
+                       </Text>
+                       <Text style={{ color: colors.text, fontSize: 13, fontWeight: "700", marginTop: 2 }}>
+                         {section.startPage}–{section.endPage}
+                       </Text>
+                     </View>
+                   </View>
+
+                   <View
+                     style={{
+                       backgroundColor: "#f5f0e8",
+                       borderRadius: 12,
+                       padding: 12,
+                       flexDirection: "row",
+                       alignItems: "center",
+                       gap: 10,
+                     }}
+                   >
+                     <Text style={{ fontSize: 16 }}>⏱️</Text>
+                     <View style={{ flex: 1 }}>
+                       <Text style={{ color: colors.textMuted, fontSize: 11, fontWeight: "600", opacity: 0.8 }}>
+                         Estimated Time
+                       </Text>
+                       <Text style={{ color: colors.text, fontSize: 13, fontWeight: "700", marginTop: 2 }}>
+                         {section.estimatedMinutes} minutes
+                       </Text>
+                     </View>
+                   </View>
+
+                   {getSectionKindLabel(section) ? (
+                     <View
+                       style={{
+                         backgroundColor: "#f5f0e8",
+                         borderRadius: 12,
+                         padding: 12,
+                         flexDirection: "row",
+                         alignItems: "center",
+                         gap: 10,
+                       }}
+                     >
+                       <Text style={{ fontSize: 16 }}>📌</Text>
+                       <View style={{ flex: 1 }}>
+                         <Text style={{ color: colors.textMuted, fontSize: 11, fontWeight: "600", opacity: 0.8 }}>
+                           Type
+                         </Text>
+                         <Text style={{ color: colors.text, fontSize: 13, fontWeight: "700", marginTop: 2 }}>
+                           {getSectionKindLabel(section)}
+                         </Text>
+                       </View>
+                     </View>
+                   ) : null}
+                 </View>
+               </Pressable>
+             </Link>
+           ))}
         </ScrollView>
       </SafeAreaView>
     </>

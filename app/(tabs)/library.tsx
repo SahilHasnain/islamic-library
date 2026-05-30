@@ -382,84 +382,67 @@ function LibraryBookCard({
 
 
   return (
-    <View
-      style={{
-        backgroundColor: colors.surface,
-        borderRadius: radii.md,
-        overflow: "hidden",
-        padding: spacing.card,
-        alignItems: "center",
-        gap: 12,
-      }}
-    >
-      {/* Cover Image with Shadow */}
-      <View
+    <Link href={`/book/${bookId}` as const} asChild>
+      <Pressable
         style={{
-          shadowColor: "#000",
-          shadowOffset: { width: 0, height: 3 },
-          shadowOpacity: 0.2,
-          shadowRadius: 6,
-          elevation: 4,
+          backgroundColor: colors.surface,
+          borderRadius: radii.md,
+          overflow: "hidden",
+          padding: spacing.card,
+          alignItems: "center",
+          gap: 12,
         }}
       >
-        {coverImage ? (
-          <Image
-            source={{ uri: coverImage }}
-            contentFit="cover"
-            transition={120}
-            style={{
-              width: 100,
-              height: 140,
-              borderRadius: 8,
-              backgroundColor: colors.surfaceMuted,
-            }}
-          />
-        ) : (
-          <View
-            style={{
-              width: 100,
-              height: 140,
-              borderRadius: 8,
-              backgroundColor: colors.accentStrong,
-            }}
-          />
-        )}
-      </View>
-
-      {/* Book Info */}
-      <View style={{ gap: 6, alignItems: "center", width: "100%" }}>
-        <Text
+        {/* Cover Image with Shadow */}
+        <View
           style={{
-            color: colors.text,
-            fontSize: typography.subtitle,
-            fontWeight: "800",
-            textAlign: "center",
-          }}
-          numberOfLines={2}
-        >
-          {title}
-        </Text>
-      </View>
-
-      {/* Action Button */}
-      <Link href={`/book/${bookId}` as const} asChild>
-        <Pressable
-          style={{
-            borderRadius: radii.pill,
-            borderWidth: 1,
-            borderColor: colors.accent,
-            paddingHorizontal: 20,
-            paddingVertical: 10,
-            width: "100%",
-            alignItems: "center",
+            shadowColor: "#000",
+            shadowOffset: { width: 0, height: 3 },
+            shadowOpacity: 0.2,
+            shadowRadius: 6,
+            elevation: 4,
           }}
         >
-          <Text style={{ color: colors.text, fontSize: typography.control, fontWeight: "800" }}>
-            View
+          {coverImage ? (
+            <Image
+              source={{ uri: coverImage }}
+              contentFit="cover"
+              transition={120}
+              style={{
+                width: 100,
+                height: 140,
+                borderRadius: 8,
+                backgroundColor: colors.surfaceMuted,
+              }}
+            />
+          ) : (
+            <View
+              style={{
+                width: 100,
+                height: 140,
+                borderRadius: 8,
+                backgroundColor: colors.accentStrong,
+              }}
+            />
+          )}
+        </View>
+
+        {/* Book Info */}
+        <View style={{ gap: 6, alignItems: "center", width: "100%" }}>
+          <Text
+            style={{
+              color: colors.text,
+              fontSize: typography.subtitle,
+              fontWeight: "800",
+              textAlign: "center",
+            }}
+            numberOfLines={2}
+          >
+            {title}
           </Text>
-        </Pressable>
-      </Link>
-    </View>
+        </View>
+      </Pressable>
+    </Link>
   );
 }
 

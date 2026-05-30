@@ -462,6 +462,7 @@ export default function ReaderScreen() {
             backgroundColor: colors.background,
             alignItems: "center",
             justifyContent: "center",
+            paddingTop: 70,
           }}
         >
           <ReaderPageSurface
