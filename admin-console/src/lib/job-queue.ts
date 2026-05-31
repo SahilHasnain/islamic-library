@@ -107,6 +107,7 @@ async function dispatchSingleJob(job: JobRecord): Promise<void> {
     nextRecommendedBookId: book.nextRecommendedBookId,
     languageId: job.languageId,
     volumeId: job.volumeId,
+    printedPageStartPage: job.printedPageStartPage,
     sourceFileId: job.sourceFileId,
     requestedBy: book.createdBy,
     publishMode: "public",

@@ -100,6 +100,7 @@ async function handleIngest(request, response) {
     description,
     category,
     nextRecommendedBookId,
+    printedPageStartPage,
     requestedBy,
     publishMode,
     dispatchToken,
@@ -185,6 +186,7 @@ async function handleIngest(request, response) {
       nextRecommendedBookId,
       languageId,
       volumeId,
+      printedPageStartPage,
     });
     const manifest = buildVolumeManifest({
       bookSlug,

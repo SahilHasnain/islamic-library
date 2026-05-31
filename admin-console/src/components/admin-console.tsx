@@ -47,6 +47,7 @@ type EditionVolumeEditorItem = {
   title: string;
   subtitle: string;
   order: string;
+  printedPageStartPage: string;
   manifestUrl: string;
   introNote: string;
   todayTarget: string;
@@ -120,6 +121,7 @@ type PublishedMetadataPayload = {
       subtitle?: string;
       order?: number;
       manifestUrl?: string;
+      printedPageStartPage?: number;
       introNote?: string;
       todayTarget?: string;
       sections?: unknown[];
@@ -134,6 +136,7 @@ function createEmptyVolume(): EditionVolumeEditorItem {
     title: "",
     subtitle: "",
     order: "",
+    printedPageStartPage: "",
     manifestUrl: "",
     introNote: "",
     todayTarget: "",
@@ -282,6 +285,7 @@ function normalizeLanguages(
             title: fallbackVolumeId || "Volume 1",
             subtitle: "",
             order: "1",
+            printedPageStartPage: "",
             manifestUrl: "",
             introNote: "",
             todayTarget: "",
@@ -307,6 +311,8 @@ function normalizeLanguages(
           title: String(volume.title || volume.id || ""),
           subtitle: String(volume.subtitle || ""),
           order: volume.order == null ? String(volumeIndex + 1) : String(volume.order),
+          printedPageStartPage:
+            volume.printedPageStartPage == null ? "" : String(volume.printedPageStartPage),
           manifestUrl: String(volume.manifestUrl || ""),
           introNote: String(volume.introNote || ""),
           todayTarget: String(volume.todayTarget || ""),
@@ -343,6 +349,9 @@ function buildLanguagePayload(languages: EditionLanguageEditorItem[]) {
             title: volumeTitle,
             subtitle: volume.subtitle.trim() || undefined,
             order: volume.order.trim() ? Number(volume.order) : undefined,
+            printedPageStartPage: volume.printedPageStartPage.trim()
+              ? Number(volume.printedPageStartPage)
+              : undefined,
             manifestUrl: volume.manifestUrl.trim() || undefined,
             introNote: volume.introNote.trim() || undefined,
             todayTarget: volume.todayTarget.trim() || undefined,
@@ -719,6 +728,7 @@ export function AdminConsole({ initialSnapshot }: { initialSnapshot: MonitoringS
         createdBy: String(formData.get("createdBy") || ""),
         languageId: String(formData.get("languageId") || ""),
         volumeId: String(formData.get("volumeId") || ""),
+        printedPageStartPage: String(formData.get("printedPageStartPage") || ""),
         description: String(formData.get("description") || ""),
         sourceFileId,
       };
@@ -943,6 +953,11 @@ export function AdminConsole({ initialSnapshot }: { initialSnapshot: MonitoringS
                 <label className="space-y-2">
                   <span className="text-sm text-stone-200">Volume ID <span className="text-rose-300">*</span></span>
                   <input required name="volumeId" defaultValue="volume1" className="w-full rounded-2xl border border-stone-700 bg-stone-950 px-4 py-3 text-sm outline-none transition focus:border-amber-300" placeholder="volume1, volume2" />
+                </label>
+                <label className="space-y-2">
+                  <span className="text-sm text-stone-200">Printed page 1 starts at rendered page</span>
+                  <input name="printedPageStartPage" inputMode="numeric" className="w-full rounded-2xl border border-stone-700 bg-stone-950 px-4 py-3 text-sm outline-none transition focus:border-amber-300" placeholder="e.g. 7" />
+                  <span className="block text-xs leading-5 text-stone-500">Leave empty if the first rendered page is printed page 1.</span>
                 </label>
               </div>
 
@@ -1479,6 +1494,33 @@ export function AdminConsole({ initialSnapshot }: { initialSnapshot: MonitoringS
                                     }));
                                   }}
                                   className="w-full rounded-2xl border border-stone-700 bg-stone-950 px-4 py-3 text-sm outline-none transition focus:border-amber-300"
+                                />
+                              </label>
+                              <label className="space-y-2">
+                                <span className="text-xs text-stone-300">Printed page 1 starts at rendered page</span>
+                                <input
+                                  inputMode="numeric"
+                                  value={volume.printedPageStartPage}
+                                  onChange={(event) => {
+                                    const value = event.target.value;
+                                    setMetadataForm((current) => ({
+                                      ...current,
+                                      languages: current.languages.map((item, currentIndex) =>
+                                        currentIndex === languageIndex
+                                          ? {
+                                            ...item,
+                                            volumes: item.volumes.map((currentVolume, currentVolumeIndex) =>
+                                              currentVolumeIndex === volumeIndex
+                                                ? { ...currentVolume, printedPageStartPage: value }
+                                                : currentVolume,
+                                            ),
+                                          }
+                                          : item,
+                                      ),
+                                    }));
+                                  }}
+                                  className="w-full rounded-2xl border border-stone-700 bg-stone-950 px-4 py-3 text-sm outline-none transition focus:border-amber-300"
+                                  placeholder="e.g. 7"
                                 />
                               </label>
                               <label className="space-y-2 md:col-span-2">

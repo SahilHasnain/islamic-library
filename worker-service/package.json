@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "node --watch src/server.mjs",
     "repair-volume-covers": "node scripts/repair-volume-covers.mjs",
+    "repair-pdf-page-labels": "node scripts/repair-pdf-page-labels.mjs",
     "start": "node src/server.mjs"
   }
 }

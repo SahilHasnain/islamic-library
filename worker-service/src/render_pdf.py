@@ -8,6 +8,26 @@ from pathlib import Path
 import fitz
 
 
+def get_pdf_page_label(document, page, index):
+    try:
+        if hasattr(page, "get_label"):
+            label = page.get_label()
+            if label:
+                return str(label)
+    except Exception:
+        pass
+
+    try:
+        if hasattr(document, "get_page_labels"):
+            labels = document.get_page_labels()
+            if labels:
+                return str(document.get_page_label(index))
+    except Exception:
+        pass
+
+    return None
+
+
 def main() -> int:
     if len(sys.argv) != 6:
         raise SystemExit(
@@ -33,20 +53,24 @@ def main() -> int:
     try:
       for index in range(document.page_count):
           page = document.load_page(index)
+          printed_page_label = get_pdf_page_label(document, page, index)
           pixmap = page.get_pixmap(matrix=matrix, alpha=False)
           page_name = f"page-{index + 1:03d}.png"
           page_path = pages_dir / page_name
           pixmap.save(page_path)
 
-          pages.append(
-              {
-                  "page": index + 1,
-                  "fileName": page_name,
-                  "width": pixmap.width,
-                  "height": pixmap.height,
-                  "size": page_path.stat().st_size,
-              }
-          )
+          page_entry = {
+              "page": index + 1,
+              "fileName": page_name,
+              "width": pixmap.width,
+              "height": pixmap.height,
+              "size": page_path.stat().st_size,
+          }
+
+          if printed_page_label and printed_page_label != str(index + 1):
+              page_entry["printedPageLabel"] = printed_page_label
+
+          pages.append(page_entry)
 
           if index == 0:
               pixmap.save(cover_path)

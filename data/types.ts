@@ -124,6 +124,7 @@ export type PublicBookMetadataVolume = {
   subtitle?: string;
   manifestUrl: string;
   order?: number;
+  printedPageStartPage?: number;
   introNote?: string;
   todayTarget?: string;
   sections?: PublicBookSection[];
@@ -196,6 +197,7 @@ export type PublicBookPlan = {
 
 export type PublicManifestPage = {
   page: number;
+  printedPageLabel?: string;
   fileName: string;
   width: number;
   height: number;

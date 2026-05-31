@@ -31,6 +31,12 @@ import { prefetchManifestPages } from "../../../../../lib/reader-prefetch";
 const BOOK_COMPLETION_FINAL_PAGE_WINDOW = 3;
 const BOOK_COMPLETION_FINAL_PAGE_MS = 120000;
 
+function getPrintedPageStartPage(value?: number) {
+  return typeof value === "number" && Number.isFinite(value) && value > 1
+    ? Math.floor(value)
+    : undefined;
+}
+
 function ReaderPageSurface({
   manifest,
   pageNum,
@@ -184,6 +190,46 @@ export default function ReaderScreen() {
     [totalPages],
   );
   const remoteSections = selectedVolume?.sections ?? [];
+  const printedPageStartPage = getPrintedPageStartPage(selectedVolume?.printedPageStartPage);
+  const manifestPages = useMemo(() => manifest?.pages ?? [], [manifest?.pages]);
+  const currentManifestPage = manifestPages.find((entry) => entry.page === currentPage);
+  const automaticPageLabel = !printedPageStartPage
+    ? currentManifestPage?.printedPageLabel?.trim()
+    : undefined;
+  const automaticLastPageLabel = !printedPageStartPage
+    ? [...manifestPages].reverse().find((entry) => entry.printedPageLabel?.trim())?.printedPageLabel?.trim()
+    : undefined;
+  const automaticPageLookup = useMemo(() => {
+    const lookup = new Map<string, number>();
+
+    if (printedPageStartPage) {
+      return lookup;
+    }
+
+    manifestPages.forEach((entry) => {
+      const label = entry.printedPageLabel?.trim();
+
+      if (label) {
+        lookup.set(label, entry.page);
+      }
+    });
+
+    return lookup;
+  }, [manifestPages, printedPageStartPage]);
+  const printedTotalPages = printedPageStartPage
+    ? Math.max(1, totalPages - printedPageStartPage + 1)
+    : totalPages;
+  const printedCurrentPage = printedPageStartPage
+    ? currentPage >= printedPageStartPage
+      ? currentPage - printedPageStartPage + 1
+      : undefined
+    : currentPage;
+  const pageInputDisplayValue = automaticPageLabel ?? String(printedCurrentPage ?? currentPage);
+  const footerPageLabel = automaticPageLabel
+    ? `Page ${automaticPageLabel}${automaticLastPageLabel ? ` of ${automaticLastPageLabel}` : ""}`
+    : printedCurrentPage
+      ? `Page ${printedCurrentPage} of ${printedTotalPages}`
+      : `Front matter ${currentPage} of ${Math.max(1, (printedPageStartPage ?? 1) - 1)}`;
   const sectionSpan = Math.max(1, Math.ceil(totalPages / 6));
   const currentSectionIndex = Math.max(1, Math.ceil(currentPage / sectionSpan));
   const currentSection =
@@ -266,8 +312,8 @@ export default function ReaderScreen() {
   }, [requestedPage, totalPages]);
 
   useEffect(() => {
-    setPageInput(String(currentPage));
-  }, [currentPage]);
+    setPageInput(pageInputDisplayValue);
+  }, [pageInputDisplayValue]);
 
   useEffect(() => {
     sessionMinPage.current = Math.min(sessionMinPage.current, currentPage);
@@ -440,10 +486,17 @@ export default function ReaderScreen() {
   );
 
   const submitPageInput = useCallback(() => {
+    const trimmedInput = pageInput.trim();
     const parsedPage = Number(pageInput.replace(/[^0-9]/g, ""));
-    moveToPage(Number.isFinite(parsedPage) ? parsedPage : currentPage);
+    const targetPage =
+      automaticPageLookup.get(trimmedInput) ??
+      (Number.isFinite(parsedPage) && printedPageStartPage
+        ? printedPageStartPage + parsedPage - 1
+        : parsedPage);
+
+    moveToPage(Number.isFinite(targetPage) ? targetPage : currentPage);
     setIsPageModalVisible(false);
-  }, [currentPage, moveToPage, pageInput]);
+  }, [automaticPageLookup, currentPage, moveToPage, pageInput, printedPageStartPage]);
 
   const handleViewableItemsChanged = useRef(
     ({ viewableItems }: { viewableItems: ViewToken[] }) => {
@@ -691,7 +744,7 @@ export default function ReaderScreen() {
 
             <View style={{ flex: 1, alignItems: "center", gap: 8, transform: [{ translateX: 14 }] }}>
               <Text style={{ color: colors.text, fontSize: 18, fontWeight: "800" }}>
-                Page {currentPage} of {totalPages}
+                {footerPageLabel}
               </Text>
               <View
                 style={{
@@ -754,7 +807,7 @@ export default function ReaderScreen() {
               onChangeText={(value) => setPageInput(value.replace(/[^0-9]/g, ""))}
               onSubmitEditing={submitPageInput}
               keyboardType="number-pad"
-              placeholder={`Enter page 1-${totalPages}`}
+              placeholder={`Enter page 1-${automaticLastPageLabel ?? printedTotalPages}`}
               placeholderTextColor={appColors.textSubtle}
               style={{
                 height: 48,

@@ -25,7 +25,8 @@
     "submit:ios": "eas submit --platform ios --latest",
     "typecheck": "npx tsc --noEmit",
     "appwrite:bootstrap": "node ./scripts/bootstrap-appwrite.mjs",
-    "appwrite:add-attributes": "node ./scripts/add-missing-attributes.mjs"
+    "appwrite:add-attributes": "node ./scripts/add-missing-attributes.mjs",
+    "appwrite:add-printed-page-start": "node ./scripts/add-printed-page-start-attribute.mjs"
   },
   "dependencies": {
     "@expo/vector-icons": "^15.0.3",

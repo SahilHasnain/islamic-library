@@ -31,6 +31,7 @@ export async function POST(request: Request) {
       category?: string;
       languageId?: string;
       volumeId?: string;
+      printedPageStartPage?: number | string;
       createdBy?: string;
       slug?: string;
       sourceFileId?: string;
@@ -43,6 +44,7 @@ export async function POST(request: Request) {
     const category = String(payload.category || "").trim();
     const languageId = String(payload.languageId || "").trim();
     const volumeId = String(payload.volumeId || "").trim();
+    const printedPageStartPage = Number(payload.printedPageStartPage || 0);
     const createdBy = String(payload.createdBy || "admin-console").trim();
     const explicitSlug = String(payload.slug || "").trim();
     const sourceFileId = String(payload.sourceFileId || "").trim();
@@ -172,6 +174,7 @@ export async function POST(request: Request) {
         sourceFileId,
         languageId,
         volumeId,
+        printedPageStartPage: Number.isFinite(printedPageStartPage) && printedPageStartPage > 1 ? printedPageStartPage : undefined,
         status: "queued",
         attempt: 0,
         createdAt: timestamp,

@@ -396,6 +396,7 @@ export async function republishBookMetadata({
               subtitle: volume.subtitle,
               manifestUrl: resolvedManifestUrl,
               order: volume.order,
+              printedPageStartPage: volume.printedPageStartPage,
               introNote: volume.introNote,
               todayTarget: volume.todayTarget,
               sections: volume.sections?.length ? volume.sections : existingVolume?.sections,

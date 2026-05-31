@@ -113,7 +113,10 @@ export function buildPublicMetadata({
   nextRecommendedBookId,
   languageId,
   volumeId,
+  printedPageStartPage,
 }) {
+  const normalizedPrintedPageStartPage = Number(printedPageStartPage);
+
   return {
     id: bookSlug,
     title,
@@ -131,6 +134,10 @@ export function buildPublicMetadata({
           {
             id: volumeId,
             title: volumeId,
+            printedPageStartPage:
+              Number.isFinite(normalizedPrintedPageStartPage) && normalizedPrintedPageStartPage > 1
+                ? normalizedPrintedPageStartPage
+                : undefined,
             manifestUrl: "manifest.json",
           },
         ],

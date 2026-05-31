@@ -54,6 +54,7 @@ export type EditionVolumeInput = {
   todayTarget?: string;
   sourceFileId?: string;
   manifestUrl?: string;
+  printedPageStartPage?: number;
   sections?: {
     id: string;
     title: string;
@@ -98,6 +99,7 @@ export type JobRecord = {
   sourceFileId: string;
   languageId: string;
   volumeId: string;
+  printedPageStartPage?: number;
   status: JobStatus;
   attempt: number;
   workerId?: string;
@@ -127,6 +129,7 @@ export type WorkerJobPayload = {
   nextRecommendedBookId?: string;
   languageId: string;
   volumeId: string;
+  printedPageStartPage?: number;
   sourceFileId: string;
   requestedBy: string;
   publishMode: "public";
