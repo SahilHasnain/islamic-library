@@ -19,7 +19,6 @@ import { useReadingPlans } from "../../hooks/useReadingPlans";
 import { useReadingProgress } from "../../hooks/useReadingProgress";
 import { useRemoteBookData } from "../../hooks/useRemoteBookData";
 import { useRemoteCatalog } from "../../hooks/useRemoteCatalog";
-import { useVolumeDownload } from "../../hooks/useVolumeDownload";
 import {
   loadLibraryLanguagePreference,
   saveLibraryLanguagePreference,
@@ -195,32 +194,6 @@ function sortBooksForYou({
   return [...orderedBooks, ...remainingBooks];
 }
 
-function getDownloadButtonLabel({
-  canDownload,
-  isDownloading,
-  isFullyDownloaded,
-  progressPercent,
-}: {
-  canDownload: boolean;
-  isDownloading: boolean;
-  isFullyDownloaded: boolean;
-  progressPercent: number;
-}) {
-  if (isDownloading) {
-    return progressPercent > 0 ? `Saving... ${progressPercent}%` : "Saving...";
-  }
-
-  if (isFullyDownloaded) {
-    return "Remove Download";
-  }
-
-  if (!canDownload) {
-    return "";
-  }
-
-  return "Save Offline";
-}
-
 function getSelectablePillColors({
   selected,
   colors,
@@ -281,7 +254,6 @@ function LibrarySkeleton() {
         <View style={{ flexDirection: "row", gap: 12, flexWrap: "wrap" }}>
           <SkeletonBlock width={132} height={44} color={skeletonAccent} />
           <SkeletonBlock width={92} height={44} color={heroMuted} />
-          <SkeletonBlock width={116} height={44} color={heroMuted} />
         </View>
       </HeroCard>
 
@@ -373,15 +345,6 @@ function ResumeReadingHero({
     activeProgress?.languageId,
     activeProgress?.volumeId,
   );
-  const { canDownload, downloadAll, isDownloading, isFullyDownloaded, progressPercent, removeDownload } =
-    useVolumeDownload(manifest);
-
-  const downloadButtonLabel = getDownloadButtonLabel({
-    canDownload,
-    isDownloading,
-    isFullyDownloaded,
-    progressPercent,
-  });
   const readerLanguageId =
     selectedLanguage?.id ?? activeProgress?.languageId ?? metadata?.languages[0]?.id ?? "english";
   const readerVolumeId =
@@ -536,14 +499,68 @@ function ResumeReadingHero({
           </Animated.View>
         </View>
 
+      </View>
+
+      <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
+        <View style={{ flex: 1, flexDirection: "row", gap: 12, flexWrap: "wrap" }}>
+          <Link
+            href={
+              activeBook
+                ? (`/reader/${activeBook.id}/${readerLanguageId}/${readerVolumeId}/${readerPage}` as const)
+                : ("/" as const)
+            }
+            asChild
+          >
+            <Pressable
+              style={{
+                borderRadius: radii.pill,
+                backgroundColor: colors.accent,
+                paddingHorizontal: 20,
+                paddingVertical: 13,
+              }}
+            >
+              <Text
+                style={{
+                  color: colors.text,
+                  fontSize: typography.bodySmall,
+                  fontWeight: "800",
+                }}
+              >
+                {activeProgress?.page ? "Resume Reading" : "Start Reading"}
+              </Text>
+            </Pressable>
+          </Link>
+
+          <Link
+            href={activeBook ? (`/book/${activeBook.id}` as const) : ("/" as const)}
+            asChild
+          >
+            <Pressable
+              style={{
+                borderRadius: radii.pill,
+                backgroundColor: colors.surfaceMuted,
+                paddingHorizontal: 16,
+                paddingVertical: 13,
+              }}
+            >
+              <Text
+                style={{
+                  color: colors.text,
+                  fontSize: typography.control,
+                  fontWeight: "800",
+                }}
+              >
+                View Book
+              </Text>
+            </Pressable>
+          </Link>
+        </View>
+
         {canAdvance ? (
           <Pressable
             onPress={advance}
             hitSlop={10}
             style={{
-              position: "absolute",
-              right: -8,
-              top: 44,
               width: 40,
               height: 40,
               borderRadius: 20,
@@ -554,85 +571,7 @@ function ResumeReadingHero({
             accessibilityRole="button"
             accessibilityLabel="Next in-progress book"
           >
-            <Ionicons name="chevron-forward" size={22} color={colors.text} />
-          </Pressable>
-        ) : null}
-      </View>
-
-      <View style={{ flexDirection: "row", gap: 12, flexWrap: "wrap" }}>
-        <Link
-          href={
-            activeBook
-              ? (`/reader/${activeBook.id}/${readerLanguageId}/${readerVolumeId}/${readerPage}` as const)
-              : ("/" as const)
-          }
-          asChild
-        >
-          <Pressable
-            style={{
-              borderRadius: radii.pill,
-              backgroundColor: colors.accent,
-              paddingHorizontal: 20,
-              paddingVertical: 13,
-            }}
-          >
-            <Text
-              style={{
-                color: colors.text,
-                fontSize: typography.bodySmall,
-                fontWeight: "800",
-              }}
-            >
-              {activeProgress?.page ? "Resume Reading" : "Start Reading"}
-            </Text>
-          </Pressable>
-        </Link>
-
-        <Link
-          href={activeBook ? (`/book/${activeBook.id}` as const) : ("/" as const)}
-          asChild
-        >
-          <Pressable
-            style={{
-              borderRadius: radii.pill,
-              backgroundColor: colors.surfaceMuted,
-              paddingHorizontal: 16,
-              paddingVertical: 13,
-            }}
-          >
-            <Text
-              style={{
-                color: colors.text,
-                fontSize: typography.control,
-                fontWeight: "800",
-              }}
-            >
-              View Book
-            </Text>
-          </Pressable>
-        </Link>
-
-        {canDownload ? (
-          <Pressable
-            onPress={() => {
-              void (isFullyDownloaded ? removeDownload() : downloadAll());
-            }}
-            style={{
-              borderRadius: radii.pill,
-              backgroundColor: colors.surfaceMuted,
-              paddingHorizontal: 16,
-              paddingVertical: 13,
-            }}
-          >
-            <Text
-              style={{
-                color: colors.text,
-                fontSize: typography.control,
-                fontWeight: "800",
-              }}
-            >
-              {downloadButtonLabel}
-            </Text>
+            <Ionicons name="chevron-forward" size={20} color={colors.text} />
           </Pressable>
         ) : null}
       </View>
