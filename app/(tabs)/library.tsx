@@ -8,7 +8,6 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import {
   ErrorCard,
   HeroCard,
-  LoadingCard,
   MetaText,
   Screen
 } from "../../components/ui";
@@ -223,6 +222,124 @@ function getSelectablePillColors({
     backgroundColor: selected ? colors.accent : colors.surfaceMuted,
     textColor: selected ? colors.text : colors.textMuted,
   };
+}
+
+function SkeletonBlock({
+  width,
+  height,
+  color,
+  radius = 999,
+}: {
+  width: number | `${number}%`;
+  height: number;
+  color: string;
+  radius?: number;
+}) {
+  return (
+    <View
+      style={{
+        width,
+        height,
+        borderRadius: radius,
+        backgroundColor: color,
+      }}
+    />
+  );
+}
+
+function LibrarySkeleton() {
+  const { colors, resolvedTheme } = useAppTheme();
+  const skeletonAccent = resolvedTheme === "dark" ? colors.surfaceSoft : "#F0E1A7";
+  const skeletonText = resolvedTheme === "dark" ? colors.surfaceMuted : "#E2D3AA";
+  const skeletonBody = resolvedTheme === "dark" ? colors.surfaceElevated : "#E9DCBA";
+  const skeletonSoft = resolvedTheme === "dark" ? colors.surface : "#F1E8D1";
+  const heroMuted = resolvedTheme === "dark" ? colors.overlayMuted : "rgba(255, 249, 234, 0.16)";
+  const heroStrong = resolvedTheme === "dark" ? colors.overlayLight : "rgba(255, 249, 234, 0.24)";
+
+  return (
+    <>
+      <HeroCard>
+        <SkeletonBlock width={136} height={14} color={heroMuted} />
+        <View style={{ flexDirection: "row", gap: 16 }}>
+          <SkeletonBlock width={90} height={126} color={heroStrong} radius={8} />
+          <View style={{ flex: 1, gap: 10, justifyContent: "center" }}>
+            <SkeletonBlock width="92%" height={26} color={heroStrong} />
+            <SkeletonBlock width="68%" height={18} color={heroMuted} />
+            <SkeletonBlock width={84} height={16} color={heroMuted} />
+          </View>
+        </View>
+        <View style={{ flexDirection: "row", gap: 12, flexWrap: "wrap" }}>
+          <SkeletonBlock width={132} height={44} color={skeletonAccent} />
+          <SkeletonBlock width={92} height={44} color={heroMuted} />
+          <SkeletonBlock width={116} height={44} color={heroMuted} />
+        </View>
+      </HeroCard>
+
+      <View style={{ gap: 14, paddingHorizontal: spacing.page }}>
+        <View
+          style={{
+            backgroundColor: colors.surface,
+            borderRadius: radii.lg,
+            paddingHorizontal: 18,
+            paddingVertical: 14,
+            flexDirection: "row",
+            alignItems: "center",
+            gap: 12,
+            borderWidth: 1,
+            borderColor: colors.border,
+          }}
+        >
+          <SkeletonBlock width={18} height={18} color={skeletonText} />
+          <SkeletonBlock width="54%" height={18} color={skeletonSoft} />
+        </View>
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+          <SkeletonBlock width={58} height={14} color={skeletonText} />
+          <SkeletonBlock width={4} height={4} color={skeletonText} />
+          <SkeletonBlock width={64} height={14} color={skeletonText} />
+          <SkeletonBlock width={4} height={4} color={skeletonText} />
+          <SkeletonBlock width={84} height={14} color={skeletonText} />
+        </View>
+      </View>
+
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        contentContainerStyle={{ gap: 10, paddingLeft: spacing.page, paddingRight: spacing.page }}
+      >
+        <SkeletonBlock width={54} height={38} color={skeletonAccent} />
+        <SkeletonBlock width={98} height={38} color={skeletonBody} />
+        <SkeletonBlock width={112} height={38} color={skeletonBody} />
+        <SkeletonBlock width={82} height={38} color={skeletonBody} />
+      </ScrollView>
+
+      <View style={{ gap: 12, paddingHorizontal: spacing.page }}>
+        {[0, 1, 2].map((row) => (
+          <View key={row} style={{ flexDirection: "row", gap: 12 }}>
+            {[0, 1].map((column) => (
+              <View
+                key={column}
+                style={{
+                  flex: 1,
+                  backgroundColor: colors.surface,
+                  borderRadius: radii.md,
+                  padding: spacing.card,
+                  alignItems: "center",
+                  gap: 12,
+                }}
+              >
+                <SkeletonBlock width={100} height={140} color={skeletonBody} radius={8} />
+                <View style={{ alignItems: "center", gap: 8, width: "100%" }}>
+                  <SkeletonBlock width="86%" height={18} color={skeletonText} />
+                  <SkeletonBlock width="68%" height={14} color={skeletonSoft} />
+                  <SkeletonBlock width="48%" height={14} color={skeletonSoft} />
+                </View>
+              </View>
+            ))}
+          </View>
+        ))}
+      </View>
+    </>
+  );
 }
 
 function ResumeReadingHero({
@@ -640,6 +757,7 @@ export default function LibraryScreen() {
     selected: selectedCategory === "all",
     colors,
   });
+  const shouldShowLibrarySkeleton = !isLoaded || isCatalogLoading;
 
   useFocusEffect(
     useCallback(() => {
@@ -829,20 +947,11 @@ export default function LibraryScreen() {
           />
         ) : null}
 
-        {!isLoaded ? (
-          <LoadingCard
-            title="Loading library"
-            message="Restoring your reading progress and continue-reading state."
-          />
-        ) : null}
         {error ? (
           <ErrorCard
             title="Progress unavailable"
             message="Saved reading progress could not be restored for this session."
           />
-        ) : null}
-        {isCatalogLoading ? (
-          <LoadingCard title="Loading library" message="Bringing your books into view." />
         ) : null}
         {catalogError ? (
           <ErrorCard
@@ -860,7 +969,9 @@ export default function LibraryScreen() {
           <ErrorCard title="No books yet" message="The library does not contain any books yet." />
         ) : null}
 
-        {resumeCandidates.length > 0 ? (
+        {shouldShowLibrarySkeleton ? <LibrarySkeleton /> : null}
+
+        {!shouldShowLibrarySkeleton && resumeCandidates.length > 0 ? (
           <ResumeReadingHero
             candidates={resumeCandidates}
             index={resumeIndex}
@@ -870,7 +981,8 @@ export default function LibraryScreen() {
         ) : null}
 
 
-        <View style={{ gap: 14, paddingHorizontal: spacing.page }}>
+        {!shouldShowLibrarySkeleton ? (
+          <View style={{ gap: 14, paddingHorizontal: spacing.page }}>
           {/* Search Bar */}
           <View
             style={{
@@ -1008,101 +1120,106 @@ export default function LibraryScreen() {
               </>
             ) : null}
           </View>
-        </View>
+          </View>
+        ) : null}
 
         {/* Category Filter Chips */}
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={{ gap: 10, paddingLeft: spacing.page, paddingRight: spacing.page }}
-        >
-          <Pressable
-            onPress={() => setSelectedCategory("all")}
-            style={{
-              borderRadius: radii.pill,
-              backgroundColor: allCategoryPillColors.backgroundColor,
-              paddingHorizontal: 16,
-              paddingVertical: 10,
-            }}
+        {!shouldShowLibrarySkeleton ? (
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={{ gap: 10, paddingLeft: spacing.page, paddingRight: spacing.page }}
           >
-            <Text
+            <Pressable
+              onPress={() => setSelectedCategory("all")}
               style={{
-                color: allCategoryPillColors.textColor,
-                fontSize: typography.control,
-                fontWeight: "800",
+                borderRadius: radii.pill,
+                backgroundColor: allCategoryPillColors.backgroundColor,
+                paddingHorizontal: 16,
+                paddingVertical: 10,
               }}
             >
-              All
-            </Text>
-          </Pressable>
-          {uniqueCategories.map((category) => {
-            const pillColors = getSelectablePillColors({
-              selected: selectedCategory === category,
-              colors,
-            });
-
-            return (
-              <Pressable
-                key={category}
-                onPress={() => setSelectedCategory(category)}
+              <Text
                 style={{
-                  borderRadius: radii.pill,
-                  backgroundColor: pillColors.backgroundColor,
-                  paddingHorizontal: 16,
-                  paddingVertical: 10,
+                  color: allCategoryPillColors.textColor,
+                  fontSize: typography.control,
+                  fontWeight: "800",
                 }}
               >
-                <Text
+                All
+              </Text>
+            </Pressable>
+            {uniqueCategories.map((category) => {
+              const pillColors = getSelectablePillColors({
+                selected: selectedCategory === category,
+                colors,
+              });
+
+              return (
+                <Pressable
+                  key={category}
+                  onPress={() => setSelectedCategory(category)}
                   style={{
-                    color: pillColors.textColor,
-                    fontSize: typography.control,
-                    fontWeight: "800",
+                    borderRadius: radii.pill,
+                    backgroundColor: pillColors.backgroundColor,
+                    paddingHorizontal: 16,
+                    paddingVertical: 10,
                   }}
                 >
-                  {category}
-                </Text>
-              </Pressable>
-            );
-          })}
-        </ScrollView>
+                  <Text
+                    style={{
+                      color: pillColors.textColor,
+                      fontSize: typography.control,
+                      fontWeight: "800",
+                    }}
+                  >
+                    {category}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </ScrollView>
+        ) : null}
 
-        <View style={{ gap: spacing.gapXl }}>
-          <FlatList
-            data={filteredAndSortedBooks}
-            keyExtractor={(book: PublicCatalogBook) => book.id}
-            numColumns={2}
-            scrollEnabled={false}
-            columnWrapperStyle={{
-              gap: 12,
-              paddingHorizontal: spacing.page,
-            }}
-            contentContainerStyle={{
-              gap: 12,
-            }}
-            ListEmptyComponent={
-              <View style={{ alignItems: "center", paddingVertical: spacing.gapXl }}>
-                <MetaText>No books found in this category.</MetaText>
-              </View>
-            }
-            renderItem={({ item: book }: { item: PublicCatalogBook }) => (
-              <View style={{ flex: 1 }}>
-                <LibraryBookCard
-                  bookId={book.id}
-                  title={book.title}
-                  subtitle={book.subtitle}
-                  category={getCategoryDisplayLabel({
-                    category: book.category,
-                    categoryLabel: book.categoryLabel,
-                  })}
-                  page={latestProgressByBook[book.id]?.page}
-                  languageId={latestProgressByBook[book.id]?.languageId}
-                  volumeId={latestProgressByBook[book.id]?.volumeId}
-                  coverImage={book.coverImage}
-                />
-              </View>
-            )}
-          />
-        </View>
+        {!shouldShowLibrarySkeleton ? (
+          <View style={{ gap: spacing.gapXl }}>
+            <FlatList
+              data={filteredAndSortedBooks}
+              keyExtractor={(book: PublicCatalogBook) => book.id}
+              numColumns={2}
+              scrollEnabled={false}
+              columnWrapperStyle={{
+                gap: 12,
+                paddingHorizontal: spacing.page,
+              }}
+              contentContainerStyle={{
+                gap: 12,
+              }}
+              ListEmptyComponent={
+                <View style={{ alignItems: "center", paddingVertical: spacing.gapXl }}>
+                  <MetaText>No books found in this category.</MetaText>
+                </View>
+              }
+              renderItem={({ item: book }: { item: PublicCatalogBook }) => (
+                <View style={{ flex: 1 }}>
+                  <LibraryBookCard
+                    bookId={book.id}
+                    title={book.title}
+                    subtitle={book.subtitle}
+                    category={getCategoryDisplayLabel({
+                      category: book.category,
+                      categoryLabel: book.categoryLabel,
+                    })}
+                    page={latestProgressByBook[book.id]?.page}
+                    languageId={latestProgressByBook[book.id]?.languageId}
+                    volumeId={latestProgressByBook[book.id]?.volumeId}
+                    coverImage={book.coverImage}
+                  />
+                </View>
+              )}
+            />
+          </View>
+        ) : null}
       </ScrollView>
     </Screen>
   );

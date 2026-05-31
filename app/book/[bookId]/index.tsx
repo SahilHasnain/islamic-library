@@ -139,9 +139,7 @@ export default function BookHomeScreen() {
   const skeletonText = resolvedTheme === "dark" ? colors.surfaceMuted : "#E2D3AA";
   const skeletonBody = resolvedTheme === "dark" ? colors.surfaceElevated : "#E9DCBA";
   const skeletonSoft = resolvedTheme === "dark" ? colors.surface : "#F1E8D1";
-  const heroSkeletonStrong = resolvedTheme === "dark" ? colors.overlayLight : "rgba(255, 249, 234, 0.2)";
-  const heroSkeletonMuted = resolvedTheme === "dark" ? colors.overlayMuted : "rgba(255, 249, 234, 0.16)";
-  const heroSkeletonSubtle = resolvedTheme === "dark" ? "rgba(219, 228, 223, 0.14)" : "rgba(255, 249, 234, 0.14)";
+  const skeletonOutline = resolvedTheme === "dark" ? colors.overlayMuted : "rgba(255, 249, 234, 0.16)";
   const selectedLanguageColors = getSelectableChipColors({ selected: true, colors });
   const inactiveLanguageColors = getSelectableChipColors({ selected: false, colors });
   const { bookId, languageId: routeLanguageId, volumeId: routeVolumeId } = useLocalSearchParams<{
@@ -344,64 +342,122 @@ export default function BookHomeScreen() {
           <ScrollView contentContainerStyle={{ paddingTop: insets.top + 16, paddingHorizontal: 20, gap: 20, paddingBottom: 40 }}>
             <View
               style={{
-                backgroundColor: colors.text,
-                borderRadius: 28,
-                padding: 24,
-                gap: 18,
-              }}
-            >
-              <SkeletonBlock width={140} height={16} color={heroSkeletonMuted} />
-              <View style={{ gap: 10 }}>
-                <SkeletonBlock width="72%" height={34} color={heroSkeletonStrong} />
-                <SkeletonBlock width="42%" height={20} color={heroSkeletonMuted} />
-                <SkeletonBlock width="26%" height={18} color={heroSkeletonSubtle} />
-              </View>
-              <View style={{ flexDirection: "row", gap: 10 }}>
-                <SkeletonBlock width={170} height={46} color={skeletonAccent} />
-                <SkeletonBlock width={132} height={46} color={heroSkeletonMuted} />
-              </View>
-            </View>
-
-            <View
-              style={{
-                backgroundColor: colors.surfaceMuted,
-                borderRadius: 24,
-                padding: 22,
-                gap: 14,
-              }}
-            >
-              <SkeletonBlock width={112} height={14} color={skeletonText} />
-              <SkeletonBlock width="68%" height={28} color={skeletonText} />
-              <SkeletonBlock width="100%" height={18} color={skeletonBody} />
-              <SkeletonBlock width="74%" height={18} color={skeletonBody} />
-            </View>
-
-            <View
-              style={{
-                backgroundColor: colors.surfaceMuted,
-                borderRadius: 24,
-                padding: 20,
-                gap: 14,
-              }}
-            >
-              <SkeletonBlock width={180} height={26} color={skeletonText} />
-              <SkeletonBlock width="100%" height={18} color={skeletonBody} />
-              <SkeletonBlock width="84%" height={18} color={skeletonBody} />
-              <SkeletonBlock width={150} height={42} color={skeletonAccent} />
-            </View>
-
-            <View
-              style={{
                 backgroundColor: colors.surface,
                 borderRadius: 24,
                 padding: 20,
                 gap: 12,
               }}
             >
-              <SkeletonBlock width={170} height={26} color={colors.progressTrack} />
+              <View style={{ gap: 4 }}>
+                <SkeletonBlock width={120} height={14} color={skeletonAccent} />
+                <SkeletonBlock width="48%" height={24} color={skeletonText} />
+              </View>
+              <View style={{ gap: 8 }}>
+                <SkeletonBlock width={88} height={14} color={skeletonText} />
+                <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
+                  <SkeletonBlock width={88} height={34} color={skeletonBody} />
+                  <SkeletonBlock width={104} height={34} color={skeletonBody} />
+                  <SkeletonBlock width={92} height={34} color={skeletonAccent} />
+                </View>
+              </View>
+              <View style={{ gap: 8 }}>
+                <SkeletonBlock width={72} height={14} color={skeletonText} />
+                <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
+                  <SkeletonBlock width={112} height={34} color={skeletonBody} />
+                  <SkeletonBlock width={96} height={34} color={skeletonBody} />
+                </View>
+              </View>
+            </View>
+
+            <View
+              style={{
+                backgroundColor: colors.accent,
+                borderRadius: 24,
+                padding: 16,
+                gap: 14,
+              }}
+            >
+              <View style={{ gap: 4 }}>
+                <SkeletonBlock width={176} height={16} color={skeletonOutline} />
+                <SkeletonBlock width={84} height={14} color={skeletonOutline} />
+              </View>
+              <View style={{ flexDirection: "row", gap: 10 }}>
+                <SkeletonBlock width="100%" height={40} color={colors.text} />
+              </View>
+            </View>
+
+            <View
+              style={{
+                backgroundColor: colors.surface,
+                borderRadius: 24,
+                padding: 18,
+                gap: 14,
+              }}
+            >
+              <View style={{ gap: 4 }}>
+                <SkeletonBlock width={128} height={14} color={skeletonAccent} />
+                <SkeletonBlock width="66%" height={28} color={skeletonText} />
+              </View>
+              <View style={{ gap: 6 }}>
+                <View style={{ flexDirection: "row", justifyContent: "space-between" }}>
+                  <SkeletonBlock width={92} height={14} color={skeletonText} />
+                  <SkeletonBlock width={44} height={14} color={skeletonAccent} />
+                </View>
+                <SkeletonBlock width="100%" height={5} color={skeletonBody} />
+              </View>
+              <View
+                style={{
+                  backgroundColor: colors.surfaceMuted,
+                  borderRadius: 16,
+                  padding: 14,
+                  gap: 8,
+                }}
+              >
+                <SkeletonBlock width={96} height={14} color={skeletonText} />
+                <View style={{ flexDirection: "row", justifyContent: "space-between", gap: 12 }}>
+                  <SkeletonBlock width={152} height={18} color={skeletonBody} />
+                  <SkeletonBlock width={52} height={14} color={skeletonText} />
+                </View>
+              </View>
+              <SkeletonBlock width="92%" height={16} color={skeletonSoft} />
+              <SkeletonBlock width={104} height={38} color={skeletonAccent} />
+            </View>
+
+            <View
+              style={{
+                backgroundColor: colors.surface,
+                borderRadius: 24,
+                padding: 18,
+                gap: 14,
+              }}
+            >
+              <View style={{ gap: 4 }}>
+                <SkeletonBlock width={132} height={14} color={skeletonAccent} />
+                <SkeletonBlock width={120} height={28} color={skeletonText} />
+              </View>
+              <View style={{ gap: 8 }}>
+                <SkeletonBlock width="100%" height={60} color={skeletonBody} />
+                <SkeletonBlock width="100%" height={60} color={skeletonBody} />
+                <SkeletonBlock width="100%" height={60} color={skeletonBody} />
+              </View>
+              <SkeletonBlock width="100%" height={38} color={skeletonAccent} />
+            </View>
+
+            <View
+              style={{
+                backgroundColor: colors.surface,
+                borderRadius: 24,
+                padding: 18,
+                gap: 12,
+              }}
+            >
+              <SkeletonBlock width={116} height={14} color={skeletonAccent} />
               <SkeletonBlock width="100%" height={18} color={skeletonSoft} />
               <SkeletonBlock width="88%" height={18} color={skeletonSoft} />
-              <SkeletonBlock width="92%" height={18} color={skeletonSoft} />
+              <View style={{ gap: 10 }}>
+                <SkeletonBlock width="100%" height={54} color={skeletonBody} />
+                <SkeletonBlock width="100%" height={54} color={skeletonBody} />
+              </View>
             </View>
           </ScrollView>
         ) : (
