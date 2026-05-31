@@ -320,9 +320,6 @@ function LibrarySkeleton() {
                 key={column}
                 style={{
                   flex: 1,
-                  backgroundColor: colors.surface,
-                  borderRadius: radii.md,
-                  padding: spacing.card,
                   alignItems: "center",
                   gap: 12,
                 }}
@@ -659,10 +656,8 @@ function LibraryBookCard({
     <Link href={`/book/${bookId}` as const} asChild>
       <Pressable
         style={{
-          backgroundColor: colors.surface,
-          borderRadius: radii.md,
           overflow: "hidden",
-          padding: spacing.card,
+          paddingVertical: 4,
           alignItems: "center",
           gap: 12,
         }}
