@@ -120,6 +120,76 @@ Rules:
 - Keep sections conservative; only include sections clearly supported by the extract.`;
 }
 
+function buildSectionChunkPrompt({ pages, context }) {
+  const chunkText = pages
+    .map((page) => `--- Rendered page ${page.page} ---\n${page.text || "[no extractable text]"}`)
+    .join("\n\n")
+    .slice(0, 60000);
+
+  return `Extract section/chapter candidates from this PDF chunk. Return ONLY valid JSON.
+
+Context:
+${JSON.stringify(context, null, 2)}
+
+PDF chunk:
+${chunkText}
+
+Return shape:
+{
+  "sections": [{"id": string, "title": string, "kind": string, "startPage": number, "endPage": number, "estimatedMinutes": number}],
+  "notes": string
+}
+
+Rules:
+- Page numbers are rendered image/PDF indexes.
+- Only include sections clearly supported by this chunk.
+- Use conservative start/end pages.
+- Do not invent metadata outside this chunk.`;
+}
+
+function buildMergePrompt({ baseDraft, sectionCandidates, context }) {
+  return `Merge these AI section candidates into one clean metadata draft. Return ONLY valid JSON.
+
+Context:
+${JSON.stringify(context, null, 2)}
+
+Base draft:
+${JSON.stringify(baseDraft, null, 2)}
+
+Section candidates:
+${JSON.stringify(sectionCandidates, null, 2).slice(0, 70000)}
+
+Return shape:
+{
+  "title": string | null,
+  "subtitle": string | null,
+  "author": string | null,
+  "category": ${allowedCategories.map((category) => JSON.stringify(category)).join(" | ")} | null,
+  "description": string | null,
+  "languageId": string | null,
+  "volumeTitle": string | null,
+  "printedPageStartPage": number | null,
+  "sections": [{"id": string, "title": string, "kind": string, "startPage": number, "endPage": number, "estimatedMinutes": number}],
+  "confidence": "low" | "medium" | "high",
+  "notes": string
+}
+
+Rules:
+- Preserve good fields from base draft.
+- category must be exactly one item from: ${allowedCategories.join(", ")}.
+- Merge duplicates and overlapping section candidates.
+- Sort sections by startPage.
+- Do not invent sections not supported by candidates.`;
+}
+
+function chunkPages(pages, chunkSize) {
+  const chunks = [];
+  for (let index = 0; index < pages.length; index += chunkSize) {
+    chunks.push(pages.slice(index, index + chunkSize));
+  }
+  return chunks;
+}
+
 function buildFallbackDraft({ title, category, languageId, volumeId, extracted }) {
   const firstTextPage = extracted.pages.find((page) => page.text)?.page;
   const normalizedCategory = allowedCategories.includes(category) ? category : undefined;
@@ -203,13 +273,11 @@ async function callGemini({ config, prompt }) {
   return extractJson(result.candidates?.[0]?.content?.parts?.[0]?.text ?? "");
 }
 
-async function callAiProvider({ extracted, context }) {
+async function callAiProviderPrompt(prompt) {
   const config = getAiConfig();
   if (!config.provider) {
     return null;
   }
-
-  const prompt = buildPrompt({ extracted, context });
 
   if (config.provider === "gemini") {
     if (!config.apiKey) {
@@ -243,6 +311,37 @@ async function callAiProvider({ extracted, context }) {
   throw new Error(`Unsupported AI_PROVIDER: ${config.provider}`);
 }
 
+async function callAiProvider({ extracted, context }) {
+  return callAiProviderPrompt(buildPrompt({ extracted, context }));
+}
+
+async function buildChunkedDraft({ extracted, context }) {
+  const basePages = { ...extracted, pages: extracted.pages.slice(0, Math.min(40, extracted.pages.length)) };
+  const baseDraft = normalizeDraft(await callAiProvider({ extracted: basePages, context }));
+  if (!baseDraft) {
+    return null;
+  }
+
+  const chunkSize = Number(process.env.AI_ANALYSIS_CHUNK_PAGES || 50);
+  const chunks = chunkPages(extracted.pages, chunkSize);
+  const sectionCandidates = [];
+
+  for (const pages of chunks) {
+    const chunkDraft = await callAiProviderPrompt(buildSectionChunkPrompt({ pages, context }));
+    if (Array.isArray(chunkDraft?.sections)) {
+      sectionCandidates.push(...chunkDraft.sections);
+    }
+  }
+
+  if (sectionCandidates.length === 0) {
+    return baseDraft;
+  }
+
+  return normalizeDraft(
+    await callAiProviderPrompt(buildMergePrompt({ baseDraft, sectionCandidates, context })),
+  );
+}
+
 function normalizeDraft(draft) {
   if (!draft) {
     return draft;
@@ -266,7 +365,10 @@ export async function analyzeSourcePdf({ sourceFileId, context, maxPages }) {
       : Number(process.env.AI_ANALYSIS_MAX_PAGES || 40);
     const output = await runPython(scriptPath, [tempPdfPath, String(resolvedMaxPages)]);
     const extracted = JSON.parse(output);
-    const aiDraft = normalizeDraft(await callAiProvider({ extracted, context }));
+    const isFullAnalysis = resolvedMaxPages <= 0;
+    const aiDraft = isFullAnalysis
+      ? await buildChunkedDraft({ extracted, context })
+      : normalizeDraft(await callAiProvider({ extracted, context }));
 
     return {
       pageCount: extracted.pageCount,
