@@ -249,6 +249,52 @@ function normalizeSections(value: unknown[] | undefined): SectionEditorItem[] {
   });
 }
 
+function validateAiSections(value: unknown[] | undefined): {
+  sections: SectionEditorItem[];
+  warnings: string[];
+} {
+  const warnings: string[] = [];
+  if (!value || value.length === 0) {
+    return { sections: [], warnings: ["AI did not return sections."] };
+  }
+
+  const sections = normalizeSections(value)
+    .map((section, index) => ({ section, index }))
+    .filter(({ section, index }) => {
+      const startPage = Number(section.startPage);
+      const endPage = Number(section.endPage);
+
+      if (!section.id.trim() || !section.title.trim()) {
+        warnings.push(`Skipped section ${index + 1}: missing id or title.`);
+        return false;
+      }
+
+      if (!Number.isFinite(startPage) || !Number.isFinite(endPage) || startPage < 1 || endPage < startPage) {
+        warnings.push(`Skipped ${section.title}: invalid page range.`);
+        return false;
+      }
+
+      return true;
+    })
+    .sort((left, right) => Number(left.section.startPage) - Number(right.section.startPage))
+    .map(({ section }, index) => ({
+      ...section,
+      order: String(index + 1),
+      entryPage: section.entryPage || section.startPage,
+      estimatedMinutes: section.estimatedMinutes || "5",
+    }));
+
+  for (let index = 1; index < sections.length; index += 1) {
+    const previous = sections[index - 1];
+    const current = sections[index];
+    if (Number(current.startPage) <= Number(previous.endPage)) {
+      warnings.push(`Section overlap: ${previous.title} and ${current.title}.`);
+    }
+  }
+
+  return { sections, warnings };
+}
+
 function normalizePlans(value: unknown[] | undefined): PlanEditorItem[] {
   if (!value || value.length === 0) {
     return [];
@@ -949,7 +995,19 @@ export function AdminConsole({ initialSnapshot }: { initialSnapshot: MonitoringS
     }
   }
 
-  function applyAiAnalysisDraft() {
+  function updateFirstVolume(updater: (volume: EditionVolumeEditorItem) => EditionVolumeEditorItem) {
+    setMetadataForm((current) => ({
+      ...current,
+      languages: current.languages.map((language, languageIndex) => ({
+        ...language,
+        volumes: language.volumes.map((volume, volumeIndex) =>
+          languageIndex === 0 && volumeIndex === 0 ? updater(volume) : volume,
+        ),
+      })),
+    }));
+  }
+
+  function applyAiMetadataDraft() {
     const draft = aiAnalysis?.draft;
     if (!draft) {
       return;
@@ -970,15 +1028,44 @@ export function AdminConsole({ initialSnapshot }: { initialSnapshot: MonitoringS
             ? {
                 ...volume,
                 title: draft.volumeTitle || volume.title,
-                printedPageStartPage: draft.printedPageStartPage
-                  ? String(draft.printedPageStartPage)
-                  : volume.printedPageStartPage,
-                sections: draft.sections?.length ? normalizeSections(draft.sections) : volume.sections,
               }
             : volume,
         ),
       })),
     }));
+    setMetadataState({ message: "Applied AI metadata draft to the form." });
+  }
+
+  function applyAiPageNumberingDraft() {
+    const startPage = aiAnalysis?.draft?.printedPageStartPage;
+    if (!startPage) {
+      setMetadataState({ error: "AI draft does not include printed page start." });
+      return;
+    }
+
+    updateFirstVolume((volume) => ({ ...volume, printedPageStartPage: String(startPage) }));
+    setMetadataState({ message: "Applied AI page numbering to the first volume." });
+  }
+
+  function applyAiSectionsDraft() {
+    const { sections, warnings } = validateAiSections(aiAnalysis?.draft?.sections);
+    if (sections.length === 0) {
+      setMetadataState({ error: warnings.join(" ") || "AI draft does not include valid sections." });
+      return;
+    }
+
+    updateFirstVolume((volume) => ({ ...volume, sections }));
+    setMetadataState({
+      message: warnings.length
+        ? `Applied ${sections.length} AI sections with warnings: ${warnings.join(" ")}`
+        : `Applied ${sections.length} AI sections.`,
+    });
+  }
+
+  function applyAiAnalysisDraft() {
+    applyAiMetadataDraft();
+    applyAiPageNumberingDraft();
+    applyAiSectionsDraft();
   }
 
   return (
@@ -1342,13 +1429,36 @@ export function AdminConsole({ initialSnapshot }: { initialSnapshot: MonitoringS
                   <pre className="max-h-72 overflow-auto rounded-2xl bg-stone-950 p-3 text-xs text-stone-300">
                     {JSON.stringify(aiAnalysis.draft, null, 2)}
                   </pre>
-                  <button
-                    type="button"
-                    onClick={applyAiAnalysisDraft}
-                    className="rounded-full bg-emerald-300 px-4 py-2 text-xs font-medium text-stone-950 transition hover:bg-emerald-200"
-                  >
-                    Apply draft to form
-                  </button>
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={applyAiMetadataDraft}
+                      className="rounded-full bg-emerald-300 px-4 py-2 text-xs font-medium text-stone-950 transition hover:bg-emerald-200"
+                    >
+                      Apply metadata
+                    </button>
+                    <button
+                      type="button"
+                      onClick={applyAiPageNumberingDraft}
+                      className="rounded-full border border-emerald-800 px-4 py-2 text-xs font-medium text-emerald-100 transition hover:border-emerald-300"
+                    >
+                      Apply page numbering
+                    </button>
+                    <button
+                      type="button"
+                      onClick={applyAiSectionsDraft}
+                      className="rounded-full border border-emerald-800 px-4 py-2 text-xs font-medium text-emerald-100 transition hover:border-emerald-300"
+                    >
+                      Apply sections
+                    </button>
+                    <button
+                      type="button"
+                      onClick={applyAiAnalysisDraft}
+                      className="rounded-full border border-stone-700 px-4 py-2 text-xs font-medium text-stone-200 transition hover:border-emerald-300"
+                    >
+                      Apply all
+                    </button>
+                  </div>
                 </div>
               ) : null}
             </div>
