@@ -5,6 +5,26 @@ import { spawn } from "node:child_process";
 
 import { downloadSourcePdf } from "./appwrite.mjs";
 
+const allowedCategories = [
+  "Aqaid",
+  "Baghare Tehreer",
+  "Dua",
+  "Fazail",
+  "Fiqh",
+  "Hadees",
+  "Islahe Aamaal",
+  "Kalaam",
+  "Knowledge",
+  "Mahnama",
+  "Radde Bid'aat",
+  "Safarname",
+  "Seerat",
+  "Tarikh",
+  "Tasawwuf",
+  "Tehqeeq",
+  "Zubaano Bayaan",
+];
+
 function runPython(scriptPath, args) {
   return new Promise((resolve, reject) => {
     const child = spawn("python", [scriptPath, ...args], { stdio: ["ignore", "pipe", "pipe"] });
@@ -82,7 +102,7 @@ Return shape:
   "title": string | null,
   "subtitle": string | null,
   "author": string | null,
-  "category": "Seerah" | "Durood" | "Dua" | "Akhlaq" | "Motivation" | "Other" | string | null,
+  "category": ${allowedCategories.map((category) => JSON.stringify(category)).join(" | ")} | null,
   "description": string | null,
   "languageId": string | null,
   "volumeTitle": string | null,
@@ -95,16 +115,18 @@ Return shape:
 Rules:
 - rendered page means image/PDF index, not printed page number.
 - printedPageStartPage should be the rendered page where printed page 1 begins.
+- category must be exactly one item from this list: ${allowedCategories.join(", ")}.
 - If unsure, use null and explain in notes.
 - Keep sections conservative; only include sections clearly supported by the extract.`;
 }
 
 function buildFallbackDraft({ title, category, languageId, volumeId, extracted }) {
   const firstTextPage = extracted.pages.find((page) => page.text)?.page;
+  const normalizedCategory = allowedCategories.includes(category) ? category : undefined;
 
   return {
     title: title || undefined,
-    category: category || undefined,
+    category: normalizedCategory,
     languageId,
     volumeId,
     printedPageStartPage: firstTextPage && firstTextPage > 1 ? firstTextPage : undefined,
@@ -221,6 +243,17 @@ async function callAiProvider({ extracted, context }) {
   throw new Error(`Unsupported AI_PROVIDER: ${config.provider}`);
 }
 
+function normalizeDraft(draft) {
+  if (!draft) {
+    return draft;
+  }
+
+  return {
+    ...draft,
+    category: allowedCategories.includes(draft.category) ? draft.category : null,
+  };
+}
+
 export async function analyzeSourcePdf({ sourceFileId, context, maxPages }) {
   const pdfBuffer = await downloadSourcePdf(sourceFileId);
   const tempPdfPath = path.join(os.tmpdir(), `ai-analysis-${sourceFileId}-${Date.now()}.pdf`);
@@ -233,7 +266,7 @@ export async function analyzeSourcePdf({ sourceFileId, context, maxPages }) {
       : Number(process.env.AI_ANALYSIS_MAX_PAGES || 40);
     const output = await runPython(scriptPath, [tempPdfPath, String(resolvedMaxPages)]);
     const extracted = JSON.parse(output);
-    const aiDraft = await callAiProvider({ extracted, context });
+    const aiDraft = normalizeDraft(await callAiProvider({ extracted, context }));
 
     return {
       pageCount: extracted.pageCount,

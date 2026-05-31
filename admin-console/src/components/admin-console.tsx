@@ -12,8 +12,25 @@ import type {
   RecoveryAction,
 } from "@/lib/ingestion";
 
-// Used only for suggestions in the UI; categories are not restricted.
-const categories = ["Seerah", "Durood", "Dua", "Akhlaq", "Motivation", "Other"];
+const categories = [
+  "Aqaid",
+  "Baghare Tehreer",
+  "Dua",
+  "Fazail",
+  "Fiqh",
+  "Hadees",
+  "Islahe Aamaal",
+  "Kalaam",
+  "Knowledge",
+  "Mahnama",
+  "Radde Bid'aat",
+  "Safarname",
+  "Seerat",
+  "Tarikh",
+  "Tasawwuf",
+  "Tehqeeq",
+  "Zubaano Bayaan",
+];
 const jobFilters = [
   { label: "All", value: "all" },
   { label: "Queued", value: "queued" },
@@ -541,7 +558,7 @@ export function AdminConsole({ initialSnapshot }: { initialSnapshot: MonitoringS
     subtitle: "",
     author: "",
     description: "",
-    category: "Other",
+    category: "Knowledge",
     nextRecommendedBookId: "",
     defaultLanguageId: "",
     requestedBy: "admin-console",
@@ -1012,17 +1029,15 @@ export function AdminConsole({ initialSnapshot }: { initialSnapshot: MonitoringS
                 </label>
                 <label className="space-y-2">
                   <span className="text-sm text-stone-200">Category <span className="text-stone-500">(optional)</span></span>
-                  <input
+                  <select
                     name="category"
-                    list="known-categories"
+                    defaultValue="Knowledge"
                     className="w-full rounded-2xl border border-stone-700 bg-stone-950 px-4 py-3 text-sm outline-none transition focus:border-amber-300"
-                    placeholder="e.g. Seerah"
-                  />
-                  <datalist id="known-categories">
+                  >
                     {categories.map((category) => (
                       <option key={category} value={category} />
                     ))}
-                  </datalist>
+                  </select>
                 </label>
                 <label className="space-y-2">
                   <span className="text-sm text-stone-200">Created By</span>
@@ -1179,15 +1194,17 @@ export function AdminConsole({ initialSnapshot }: { initialSnapshot: MonitoringS
               </label>
               <label className="space-y-2">
                 <span className="text-sm text-stone-200">Category</span>
-                <input
+                <select
                   value={metadataForm.category}
-                  list="known-categories"
                   onChange={(event) => {
                     setMetadataForm((current) => ({ ...current, category: event.target.value }));
                   }}
                   className="w-full rounded-2xl border border-stone-700 bg-stone-950 px-4 py-3 text-sm outline-none transition focus:border-amber-300"
-                  placeholder="e.g. Seerah"
-                />
+                >
+                  {categories.map((category) => (
+                    <option key={category} value={category} />
+                  ))}
+                </select>
               </label>
               <label className="space-y-2">
                 <span className="text-sm text-stone-200">Requested By</span>
