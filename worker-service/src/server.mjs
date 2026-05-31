@@ -25,6 +25,7 @@ import {
 } from "./publish.mjs";
 import { validateRenderedWorkspace } from "./validate.mjs";
 import { createJobWorkspace, writeWorkspaceSummary } from "./workspace.mjs";
+import { analyzeSourcePdf } from "./ai-analysis.mjs";
 
 function requireEnv(name, fallback) {
   return process.env[name] || fallback;
@@ -511,6 +512,23 @@ async function handleRetryPush(request, response) {
   });
 }
 
+async function handleAiAnalyze(request, response) {
+  if (!isAuthorized(request)) {
+    sendJson(response, 401, { error: "Unauthorized" });
+    return;
+  }
+
+  const payload = await readJsonBody(request);
+  const { sourceFileId, context = {}, maxPages } = payload || {};
+  if (!sourceFileId) {
+    sendJson(response, 400, { error: "Missing sourceFileId." });
+    return;
+  }
+
+  const result = await analyzeSourcePdf({ sourceFileId, context, maxPages });
+  sendJson(response, 200, { ok: true, ...result });
+}
+
 const server = http.createServer(async (request, response) => {
   try {
     if (request.method === "GET" && request.url === "/health") {
@@ -530,6 +548,11 @@ const server = http.createServer(async (request, response) => {
 
     if (request.method === "POST" && request.url === "/jobs/retry-push") {
       await handleRetryPush(request, response);
+      return;
+    }
+
+    if (request.method === "POST" && request.url === "/ai/analyze") {
+      await handleAiAnalyze(request, response);
       return;
     }
 

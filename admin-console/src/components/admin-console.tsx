@@ -4,6 +4,7 @@ import { FormEvent, useEffect, useMemo, useState } from "react";
 
 import { uploadPdfWithProgress } from "@/lib/appwrite-client";
 import type {
+  AiAnalysisResult,
   JobListItem,
   MonitoringSnapshot,
   MonitoringSummary,
@@ -529,8 +530,11 @@ export function AdminConsole({ initialSnapshot }: { initialSnapshot: MonitoringS
   const [jobFilter, setJobFilter] = useState<(typeof jobFilters)[number]["value"]>("all");
   const [searchQuery, setSearchQuery] = useState("");
   const [isRepublishingMetadata, setIsRepublishingMetadata] = useState(false);
+  const [isAnalyzingMetadata, setIsAnalyzingMetadata] = useState(false);
+  const [aiAnalysisDepth, setAiAnalysisDepth] = useState<"quick" | "full">("quick");
   const [showAdvancedMetadata, setShowAdvancedMetadata] = useState(false);
   const [metadataState, setMetadataState] = useState<SubmissionState>({});
+  const [aiAnalysis, setAiAnalysis] = useState<AiAnalysisResult | null>(null);
   const [metadataForm, setMetadataForm] = useState<MetadataFormState>({
     bookSlug: "",
     title: "",
@@ -883,6 +887,83 @@ export function AdminConsole({ initialSnapshot }: { initialSnapshot: MonitoringS
     }
   }
 
+  async function handleAiAnalyzeMetadata() {
+    const slug = metadataForm.bookSlug.trim();
+    const knownBook = knownBooks.find((book) => book?.slug === slug);
+    if (!knownBook?.sourceFileId) {
+      setMetadataState({ error: "Select a published book with a source PDF before running AI analysis." });
+      return;
+    }
+
+    setIsAnalyzingMetadata(true);
+    setMetadataState({});
+    setAiAnalysis(null);
+
+    try {
+      const response = await fetch("/api/ai/analyze", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          sourceFileId: knownBook.sourceFileId,
+          maxPages: aiAnalysisDepth === "full" ? 0 : 40,
+          context: {
+            bookSlug: slug,
+            title: metadataForm.title,
+            subtitle: metadataForm.subtitle,
+            author: metadataForm.author,
+            category: metadataForm.category,
+            languageId: knownBook.languageId,
+            volumeId: knownBook.volumeId,
+          },
+        }),
+      });
+      const payload = (await response.json()) as AiAnalysisResult & { error?: string };
+      if (!response.ok) {
+        setMetadataState({ error: payload.error || "AI analysis failed." });
+        return;
+      }
+
+      setAiAnalysis(payload);
+      setMetadataState({ message: payload.aiEnabled ? "AI draft generated." : "PDF analyzed. Configure OPENAI_API_KEY for richer AI drafts." });
+    } catch (error) {
+      setMetadataState({ error: error instanceof Error ? error.message : "AI analysis failed." });
+    } finally {
+      setIsAnalyzingMetadata(false);
+    }
+  }
+
+  function applyAiAnalysisDraft() {
+    const draft = aiAnalysis?.draft;
+    if (!draft) {
+      return;
+    }
+
+    setMetadataForm((current) => ({
+      ...current,
+      title: draft.title || current.title,
+      subtitle: draft.subtitle || current.subtitle,
+      author: draft.author || current.author,
+      category: draft.category || current.category,
+      description: draft.description || current.description,
+      languages: current.languages.map((language, languageIndex) => ({
+        ...language,
+        id: draft.languageId && languageIndex === 0 ? draft.languageId : language.id,
+        volumes: language.volumes.map((volume, volumeIndex) =>
+          languageIndex === 0 && volumeIndex === 0
+            ? {
+                ...volume,
+                title: draft.volumeTitle || volume.title,
+                printedPageStartPage: draft.printedPageStartPage
+                  ? String(draft.printedPageStartPage)
+                  : volume.printedPageStartPage,
+                sections: draft.sections?.length ? normalizeSections(draft.sections) : volume.sections,
+              }
+            : volume,
+        ),
+      })),
+    }));
+  }
+
   return (
     <main className="min-h-screen bg-stone-950 px-6 py-10 text-stone-50">
       <div className="mx-auto max-w-6xl">
@@ -1205,6 +1286,55 @@ export function AdminConsole({ initialSnapshot }: { initialSnapshot: MonitoringS
                 </div>
               </div>
             ) : null}
+
+            <div className="space-y-4 rounded-3xl border border-emerald-900/40 bg-emerald-950/10 p-4">
+              <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+                <div>
+                  <span className="text-sm text-emerald-200">AI Assist</span>
+                  <p className="mt-1 text-xs leading-5 text-stone-400">
+                    Analyze the original source PDF and draft metadata, page numbering, and sections. Review before publishing.
+                  </p>
+                </div>
+                <div className="flex flex-wrap items-center gap-3">
+                  <select
+                    value={aiAnalysisDepth}
+                    onChange={(event) => setAiAnalysisDepth(event.target.value as "quick" | "full")}
+                    className="rounded-full border border-emerald-900 bg-stone-950 px-4 py-2 text-xs font-medium text-emerald-100 outline-none transition focus:border-emerald-300"
+                  >
+                    <option value="quick">Quick: first 40 pages</option>
+                    <option value="full">Full: all pages</option>
+                  </select>
+                  <button
+                    type="button"
+                    disabled={isAnalyzingMetadata || !metadataForm.bookSlug.trim()}
+                    onClick={() => void handleAiAnalyzeMetadata()}
+                    className="rounded-full border border-emerald-800 px-4 py-2 text-xs font-medium text-emerald-100 transition hover:border-emerald-300 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {isAnalyzingMetadata ? "Analyzing..." : "Analyze PDF"}
+                  </button>
+                </div>
+              </div>
+              {aiAnalysis?.draft ? (
+                <div className="space-y-3 rounded-2xl border border-stone-800 bg-stone-950/70 p-4 text-sm leading-6 text-stone-300">
+                  <div className="flex flex-wrap items-center gap-3 text-xs text-stone-400">
+                    <span>Pages: {aiAnalysis.pageCount ?? "?"}</span>
+                    <span>Analyzed: {aiAnalysis.analyzedPages ?? "?"}</span>
+                    <span>Text pages: {aiAnalysis.extractableTextPages ?? "?"}</span>
+                    <span>Confidence: {aiAnalysis.draft.confidence || "unknown"}</span>
+                  </div>
+                  <pre className="max-h-72 overflow-auto rounded-2xl bg-stone-950 p-3 text-xs text-stone-300">
+                    {JSON.stringify(aiAnalysis.draft, null, 2)}
+                  </pre>
+                  <button
+                    type="button"
+                    onClick={applyAiAnalysisDraft}
+                    className="rounded-full bg-emerald-300 px-4 py-2 text-xs font-medium text-stone-950 transition hover:bg-emerald-200"
+                  >
+                    Apply draft to form
+                  </button>
+                </div>
+              ) : null}
+            </div>
 
             <div className="space-y-4 rounded-3xl border border-stone-800 bg-stone-950/40 p-4">
               <div className="flex items-start justify-between gap-4">

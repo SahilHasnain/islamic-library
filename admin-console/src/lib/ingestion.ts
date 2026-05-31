@@ -161,6 +161,29 @@ export type MetadataRepublishPayload = {
   }[];
 };
 
+export type AiAnalysisDraft = {
+  title?: string | null;
+  subtitle?: string | null;
+  author?: string | null;
+  category?: string | null;
+  description?: string | null;
+  languageId?: string | null;
+  volumeTitle?: string | null;
+  printedPageStartPage?: number | null;
+  sections?: EditionVolumeInput["sections"];
+  confidence?: "low" | "medium" | "high";
+  notes?: string;
+};
+
+export type AiAnalysisResult = {
+  ok: boolean;
+  pageCount?: number;
+  analyzedPages?: number;
+  extractableTextPages?: number;
+  aiEnabled?: boolean;
+  draft?: AiAnalysisDraft;
+};
+
 export type PublishEventRecord = {
   $id: string;
   jobId: string;
@@ -539,4 +562,33 @@ export async function republishBookMetadata(payload: MetadataRepublishPayload) {
   }
 
   return response.json().catch(() => ({}));
+}
+
+export async function analyzeBookWithAi({
+  sourceFileId,
+  context,
+  maxPages,
+}: {
+  sourceFileId: string;
+  context: Record<string, unknown>;
+  maxPages?: number;
+}) {
+  const workerApiUrl = requireWorkerEnv("WORKER_API_URL");
+  const workerApiToken = requireWorkerEnv("WORKER_API_TOKEN");
+
+  const response = await fetch(`${workerApiUrl.replace(/\/$/, "")}/ai/analyze`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${workerApiToken}`,
+    },
+    body: JSON.stringify({ sourceFileId, context, maxPages }),
+  });
+
+  if (!response.ok) {
+    const message = await response.text();
+    throw new Error(`AI analysis failed: ${message}`);
+  }
+
+  return (await response.json()) as AiAnalysisResult;
 }
