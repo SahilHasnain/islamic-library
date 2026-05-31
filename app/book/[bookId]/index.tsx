@@ -11,6 +11,10 @@ import { useRemoteBookData } from "../../../hooks/useRemoteBookData";
 import { useReadingPlans } from "../../../hooks/useReadingPlans";
 import { useReadingProgress } from "../../../hooks/useReadingProgress";
 import { useVolumeDownload } from "../../../hooks/useVolumeDownload";
+import {
+  loadLibraryLanguagePreference,
+  type LibraryLanguagePreference,
+} from "../../../lib/library-language-preference";
 
 function SkeletonBlock({
   width,
@@ -148,16 +152,20 @@ export default function BookHomeScreen() {
     volumeId?: string;
   }>();
   const readingBookId = Array.isArray(bookId) ? bookId[0] : bookId ?? "";
-  const { progress } = useReadingProgress(readingBookId);
+  const { isLoaded: isProgressLoaded, progress } = useReadingProgress(readingBookId);
   const [selectedLanguageId, setSelectedLanguageId] = useState<string | undefined>(
     Array.isArray(routeLanguageId) ? routeLanguageId[0] : routeLanguageId,
   );
   const [selectedVolumeId, setSelectedVolumeId] = useState<string | undefined>(
     Array.isArray(routeVolumeId) ? routeVolumeId[0] : routeVolumeId,
   );
+  const [libraryLanguagePreference, setLibraryLanguagePreference] =
+    useState<LibraryLanguagePreference | null>(null);
+  const [isLanguagePreferenceLoaded, setIsLanguagePreferenceLoaded] = useState(false);
+  const effectiveLanguageId = selectedLanguageId ?? libraryLanguagePreference?.id ?? progress?.languageId;
   const { activePlan } = useReadingPlans(
     readingBookId,
-    selectedLanguageId ?? progress?.languageId,
+    effectiveLanguageId,
     selectedVolumeId ?? progress?.volumeId,
   );
   const {
@@ -174,7 +182,7 @@ export default function BookHomeScreen() {
     selectedVolume,
   } = useRemoteBookData(
     readingBookId,
-    selectedLanguageId ?? progress?.languageId,
+    effectiveLanguageId,
     selectedVolumeId ?? progress?.volumeId,
   );
   const {
@@ -227,19 +235,40 @@ export default function BookHomeScreen() {
   }, [selectedLanguage?.volumes]);
 
   useEffect(() => {
-    if (!selectedLanguageId && resolvedLanguageId) {
-      setSelectedLanguageId(resolvedLanguageId);
-    }
-  }, [resolvedLanguageId, selectedLanguageId]);
+    let isMounted = true;
+
+    void loadLibraryLanguagePreference().then((preference) => {
+      if (!isMounted) {
+        return;
+      }
+
+      setLibraryLanguagePreference(preference);
+      setIsLanguagePreferenceLoaded(true);
+    });
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
 
   useEffect(() => {
-    if (!selectedVolumeId && resolvedVolumeId) {
-      setSelectedVolumeId(resolvedVolumeId);
+    if (selectedLanguageId || !libraryLanguagePreference || !metadata?.languages.length) {
+      return;
     }
-  }, [resolvedVolumeId, selectedVolumeId]);
+
+    const preferredLanguage = metadata.languages.find(
+      (language) =>
+        language.id === libraryLanguagePreference.id ||
+        language.title === libraryLanguagePreference.title,
+    );
+
+    if (preferredLanguage) {
+      setSelectedLanguageId(preferredLanguage.id);
+    }
+  }, [libraryLanguagePreference, metadata?.languages, selectedLanguageId]);
 
   useEffect(() => {
-    if (!selectedLanguage?.id) {
+    if (!selectedLanguageId || !selectedLanguage?.id) {
       return;
     }
 
@@ -260,7 +289,7 @@ export default function BookHomeScreen() {
     if (!volumeStillExists) {
       setSelectedVolumeId(nextDefaultVolumeId);
     }
-  }, [selectedLanguage, selectedVolumeId]);
+  }, [selectedLanguage, selectedLanguageId, selectedVolumeId]);
   const totalPages = manifest?.totalPages ?? 1;
   const resumePage = Math.min(editionProgress?.page ?? 1, totalPages);
   const displayTitle = metadata?.title ?? catalogBook?.title ?? "Book";
@@ -306,9 +335,12 @@ export default function BookHomeScreen() {
     isFullyDownloaded,
     progressPercent: downloadProgressPercent,
   });
-  const isBookDataLoading = isCatalogLoading || isMetadataLoading || isManifestLoading;
+  const isBookDataLoading =
+    isCatalogLoading || isMetadataLoading || isManifestLoading || !isProgressLoaded || !isLanguagePreferenceLoaded;
   const shouldShowInitialSkeleton =
-    isBookDataLoading && !metadata && !manifest && !metadataError && !manifestError;
+    !isProgressLoaded ||
+    !isLanguagePreferenceLoaded ||
+    (isBookDataLoading && !metadata && !manifest && !metadataError && !manifestError);
   const toggleBookCompletion = async () => {
     if (isCompleted) {
       await removeCompletion(readingBookId, resolvedLanguageId, resolvedVolumeId);

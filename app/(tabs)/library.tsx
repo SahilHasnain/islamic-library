@@ -20,6 +20,11 @@ import { useReadingProgress } from "../../hooks/useReadingProgress";
 import { useRemoteBookData } from "../../hooks/useRemoteBookData";
 import { useRemoteCatalog } from "../../hooks/useRemoteCatalog";
 import { useVolumeDownload } from "../../hooks/useVolumeDownload";
+import {
+  loadLibraryLanguagePreference,
+  saveLibraryLanguagePreference,
+  type LibraryLanguagePreference,
+} from "../../lib/library-language-preference";
 
 function getContinueLine(page?: number) {
   return page ? `Page ${page}` : "Not started yet";
@@ -629,31 +634,25 @@ function ResumeReadingHero({
 function LibraryBookCard({
   bookId,
   title,
-  subtitle,
-  category,
-  page,
-  languageId,
-  volumeId,
   coverImage,
+  preferredLanguageId,
 }: {
   bookId: string;
   title: string;
-  subtitle?: string;
-  category?: string;
-  page?: number;
-  languageId?: string;
-  volumeId?: string;
   coverImage?: string;
+  preferredLanguageId?: string;
 }) {
   const { colors } = useAppTheme();
-  const { metadata, selectedLanguage, selectedVolume } = useRemoteBookData(
-    bookId,
-    languageId,
-    volumeId,
-  );
 
   return (
-    <Link href={`/book/${bookId}` as const} asChild>
+    <Link
+      href={
+        preferredLanguageId
+          ? (`/book/${bookId}?languageId=${preferredLanguageId}` as const)
+          : (`/book/${bookId}` as const)
+      }
+      asChild
+    >
       <Pressable
         style={{
           overflow: "hidden",
@@ -709,19 +708,6 @@ function LibraryBookCard({
           >
             {title}
           </Text>
-          {subtitle ? (
-            <Text
-              style={{
-                color: colors.textMuted,
-                fontSize: typography.caption,
-                lineHeight: 18,
-                textAlign: "center",
-              }}
-              numberOfLines={2}
-            >
-              {subtitle}
-            </Text>
-          ) : null}
         </View>
       </Pressable>
     </Link>
@@ -746,8 +732,9 @@ export default function LibraryScreen() {
   const [sortBy, setSortBy] = useState<LibrarySortMode>("forYou");
   const [searchQuery, setSearchQuery] = useState<string>("");
   const [showLanguageMenu, setShowLanguageMenu] = useState<boolean>(false);
-  const [bookMetadataMap, setBookMetadataMap] = useState<Record<string, { languages: string[] }>>({});
+  const [bookMetadataMap, setBookMetadataMap] = useState<Record<string, { languages: LibraryLanguagePreference[] }>>({});
   const [resumeIndex, setResumeIndex] = useState(0);
+  const hasLoadedLanguagePreferenceRef = useRef(false);
   const allCategoryPillColors = getSelectablePillColors({
     selected: selectedCategory === "all",
     colors,
@@ -761,6 +748,26 @@ export default function LibraryScreen() {
       void refreshPlans();
     }, [refreshCompletions, refreshPlans, refreshProgress]),
   );
+
+  useEffect(() => {
+    let isMounted = true;
+
+    void loadLibraryLanguagePreference().then((preference) => {
+      if (!isMounted) {
+        return;
+      }
+
+      if (preference?.title) {
+        setSelectedLanguage(preference.title);
+      }
+
+      hasLoadedLanguagePreferenceRef.current = true;
+    });
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
 
   const remoteBooks = useMemo(() => catalog?.books ?? [], [catalog?.books]);
   const completedBookIdSet = useMemo(() => new Set(completedBookIds), [completedBookIds]);
@@ -801,7 +808,11 @@ export default function LibraryScreen() {
           const metadata = await response.json();
           return {
             bookId: book.id,
-            languages: metadata.languages?.map((lang: { id: string; title: string }) => lang.title) || [],
+            languages:
+              metadata.languages?.map((lang: { id: string; title: string }) => ({
+                id: lang.id,
+                title: lang.title,
+              })) || [],
           };
         } catch {
           return null;
@@ -809,7 +820,7 @@ export default function LibraryScreen() {
       });
 
       const results = await Promise.all(metadataPromises);
-      const metadataMap: Record<string, { languages: string[] }> = {};
+      const metadataMap: Record<string, { languages: LibraryLanguagePreference[] }> = {};
       results.forEach((result) => {
         if (result) {
           metadataMap[result.bookId] = { languages: result.languages };
@@ -838,12 +849,29 @@ export default function LibraryScreen() {
 
   // Extract unique languages from loaded metadata
   const uniqueLanguages = useMemo(() => {
-    const languages = new Set<string>();
+    const languagesByTitle = new Map<string, LibraryLanguagePreference>();
     Object.values(bookMetadataMap).forEach((metadata) => {
-      metadata.languages.forEach((lang) => languages.add(lang));
+      metadata.languages.forEach((language) => {
+        languagesByTitle.set(language.title, language);
+      });
     });
-    return Array.from(languages).sort();
+    return Array.from(languagesByTitle.values()).sort((left, right) =>
+      left.title.localeCompare(right.title),
+    );
   }, [bookMetadataMap]);
+
+  useEffect(() => {
+    if (!hasLoadedLanguagePreferenceRef.current) {
+      return;
+    }
+
+    if (selectedLanguage !== "all" && uniqueLanguages.length === 0) {
+      return;
+    }
+
+    const preference = uniqueLanguages.find((language) => language.title === selectedLanguage);
+    void saveLibraryLanguagePreference(preference ?? null);
+  }, [selectedLanguage, uniqueLanguages]);
 
   // Filter and sort books
   const filteredAndSortedBooks = useMemo(() => {
@@ -882,7 +910,7 @@ export default function LibraryScreen() {
     if (selectedLanguage !== "all") {
       books = books.filter((book) => {
         const metadata = bookMetadataMap[book.id];
-        return metadata?.languages.includes(selectedLanguage);
+        return metadata?.languages.some((language) => language.title === selectedLanguage);
       });
     }
 
@@ -1084,28 +1112,28 @@ export default function LibraryScreen() {
                           All Languages
                         </Text>
                       </Pressable>
-                      {uniqueLanguages.map((lang) => (
+                      {uniqueLanguages.map((language) => (
                         <Pressable
-                          key={lang}
+                          key={language.id}
                           onPress={() => {
-                            setSelectedLanguage(lang);
+                            setSelectedLanguage(language.title);
                             setShowLanguageMenu(false);
                           }}
                           style={{
                             paddingHorizontal: 16,
                             paddingVertical: 10,
                             backgroundColor:
-                              selectedLanguage === lang ? colors.surfaceMuted : "transparent",
+                              selectedLanguage === language.title ? colors.surfaceMuted : "transparent",
                           }}
                         >
                           <Text
                             style={{
                               color: colors.text,
                               fontSize: typography.bodySmall,
-                              fontWeight: selectedLanguage === lang ? "800" : "400",
+                              fontWeight: selectedLanguage === language.title ? "800" : "400",
                             }}
                           >
-                            {lang}
+                            {language.title}
                           </Text>
                         </Pressable>
                       ))}
@@ -1200,15 +1228,12 @@ export default function LibraryScreen() {
                   <LibraryBookCard
                     bookId={book.id}
                     title={book.title}
-                    subtitle={book.subtitle}
-                    category={getCategoryDisplayLabel({
-                      category: book.category,
-                      categoryLabel: book.categoryLabel,
-                    })}
-                    page={latestProgressByBook[book.id]?.page}
-                    languageId={latestProgressByBook[book.id]?.languageId}
-                    volumeId={latestProgressByBook[book.id]?.volumeId}
                     coverImage={book.coverImage}
+                    preferredLanguageId={
+                      bookMetadataMap[book.id]?.languages.find(
+                        (language) => language.title === selectedLanguage,
+                      )?.id
+                    }
                   />
                 </View>
               )}

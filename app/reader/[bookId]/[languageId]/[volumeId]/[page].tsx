@@ -133,7 +133,8 @@ export default function ReaderScreen() {
   const { progress, saveProgress } = useReadingProgress(readingBookId, languageId, volumeId);
   const { addBookmark, getBookmarkForPage, removeBookmark } = useBookmarks(readingBookId);
   const colors = getReaderColors(resolvedTheme);
-  const totalPages = manifest?.totalPages ?? 1;
+  const requestedPage = Number(page ?? 1) || 1;
+  const totalPages = manifest?.totalPages ?? Math.max(requestedPage, 1);
   const resolvedLanguageId = selectedLanguage?.id ?? languageId;
   const resolvedVolumeId = selectedVolume?.id ?? volumeId;
   const { isCompleted, markAsCompleted } = useBookCompletions(
@@ -146,9 +147,8 @@ export default function ReaderScreen() {
     [totalPages],
   );
   const initialPage = useMemo(() => {
-    const pageNum = Number(page ?? 1) || 1;
-    return Math.min(Math.max(pageNum, 1), totalPages);
-  }, [page, totalPages]);
+    return Math.min(Math.max(requestedPage, 1), totalPages);
+  }, [requestedPage, totalPages]);
   const [currentPage, setCurrentPage] = useState(initialPage);
   const [pageInput, setPageInput] = useState(String(initialPage));
   const [isZoomed, setIsZoomed] = useState(false);
@@ -212,6 +212,10 @@ export default function ReaderScreen() {
   }, [currentPage, progress?.pagesViewed]);
 
   useEffect(() => {
+    if (!manifest || remoteState !== "ready") {
+      return;
+    }
+
     void saveProgress({
       bookId: readingBookId,
       languageId: resolvedLanguageId,
@@ -223,9 +227,11 @@ export default function ReaderScreen() {
     });
   }, [
     currentPage,
+    manifest,
     pagesViewed,
     progress?.sessionCount,
     readingBookId,
+    remoteState,
     resolvedLanguageId,
     resolvedVolumeId,
     saveProgress,
@@ -244,8 +250,7 @@ export default function ReaderScreen() {
   }, [currentPage, manifest]);
 
   useEffect(() => {
-    const pageNum = Number(page ?? 1) || 1;
-    const targetPage = Math.min(Math.max(pageNum, 1), totalPages);
+    const targetPage = Math.min(Math.max(requestedPage, 1), totalPages);
 
     setCurrentPage((previousPage) => {
       if (previousPage === targetPage) {
@@ -258,7 +263,7 @@ export default function ReaderScreen() {
       });
       return targetPage;
     });
-  }, [page, totalPages]);
+  }, [requestedPage, totalPages]);
 
   useEffect(() => {
     setPageInput(String(currentPage));
