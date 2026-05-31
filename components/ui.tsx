@@ -24,8 +24,6 @@ export function SectionCard({
     <View
       style={{
         backgroundColor: backgroundColor ?? colors.surface,
-        borderWidth: 1,
-        borderColor: colors.border,
         borderRadius: radii.lg,
         padding: spacing.page,
         gap,
@@ -46,8 +44,6 @@ export function HeroCard({
     <View
       style={{
         backgroundColor: backgroundColor ?? colors.hero,
-        borderWidth: 1,
-        borderColor: colors.border,
         borderRadius: radii.xl,
         padding: spacing.hero,
         gap: spacing.gapLg,

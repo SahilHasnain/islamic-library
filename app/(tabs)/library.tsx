@@ -299,8 +299,6 @@ function LibrarySkeleton() {
             flexDirection: "row",
             alignItems: "center",
             gap: 12,
-            borderWidth: 1,
-            borderColor: colors.border,
           }}
         >
           <SkeletonBlock width={18} height={18} color={skeletonText} />
@@ -441,10 +439,17 @@ function ResumeReadingHero({
   }, [canAdvance, candidates.length, contentWidth, index, onChangeIndex, translateX]);
 
   return (
-    <HeroCard>
+    <View
+      style={{
+        backgroundColor: colors.surface,
+        borderRadius: radii.xl,
+        padding: spacing.hero,
+        gap: spacing.gapLg,
+      }}
+    >
       <Text
         style={{
-          color: colors.textOnDark,
+          color: colors.accent,
           fontSize: typography.label,
           fontWeight: "700",
           textTransform: "uppercase",
@@ -467,10 +472,10 @@ function ResumeReadingHero({
               <View
                 style={{
                   shadowColor: "#000",
-                  shadowOffset: { width: 0, height: 4 },
-                  shadowOpacity: 0.3,
-                  shadowRadius: 8,
-                  elevation: 6,
+                  shadowOffset: { width: 0, height: 2 },
+                  shadowOpacity: 0.16,
+                  shadowRadius: 5,
+                  elevation: 3,
                 }}
               >
                 {heroCoverImage ? (
@@ -502,7 +507,7 @@ function ResumeReadingHero({
                 <View style={{ gap: 8 }}>
                   <Text
                     style={{
-                      color: colors.textOnDark,
+                      color: colors.text,
                       fontSize: typography.title,
                       fontWeight: "800",
                     }}
@@ -512,7 +517,7 @@ function ResumeReadingHero({
                   </Text>
                   <Text
                     style={{
-                      color: colors.textOnDarkMuted,
+                      color: colors.textMuted,
                       fontSize: typography.body,
                       lineHeight: 22,
                     }}
@@ -522,7 +527,7 @@ function ResumeReadingHero({
                   </Text>
                   <Text
                     style={{
-                      color: colors.textOnDarkSubtle,
+                      color: colors.textMuted,
                       fontSize: typography.bodySmall,
                       lineHeight: 22,
                     }}
@@ -548,14 +553,12 @@ function ResumeReadingHero({
               borderRadius: 20,
               alignItems: "center",
               justifyContent: "center",
-              backgroundColor: colors.overlayLight,
-              borderWidth: 1,
-              borderColor: colors.overlayMuted,
+              backgroundColor: colors.surfaceMuted,
             }}
             accessibilityRole="button"
             accessibilityLabel="Next in-progress book"
           >
-            <Ionicons name="chevron-forward" size={22} color={colors.textOnDark} />
+            <Ionicons name="chevron-forward" size={22} color={colors.text} />
           </Pressable>
         ) : null}
       </View>
@@ -596,15 +599,14 @@ function ResumeReadingHero({
           <Pressable
             style={{
               borderRadius: radii.pill,
-              borderWidth: 1,
-              borderColor: colors.textOnDarkMuted,
+              backgroundColor: colors.surfaceMuted,
               paddingHorizontal: 16,
               paddingVertical: 13,
             }}
           >
             <Text
               style={{
-                color: colors.textOnDark,
+                color: colors.text,
                 fontSize: typography.control,
                 fontWeight: "800",
               }}
@@ -621,15 +623,14 @@ function ResumeReadingHero({
             }}
             style={{
               borderRadius: radii.pill,
-              borderWidth: 1,
-              borderColor: colors.textOnDarkMuted,
+              backgroundColor: colors.surfaceMuted,
               paddingHorizontal: 16,
               paddingVertical: 13,
             }}
           >
             <Text
               style={{
-                color: colors.textOnDark,
+                color: colors.text,
                 fontSize: typography.control,
                 fontWeight: "800",
               }}
@@ -639,7 +640,7 @@ function ResumeReadingHero({
           </Pressable>
         ) : null}
       </View>
-    </HeroCard>
+    </View>
   );
 }
 
@@ -740,9 +741,11 @@ export default function LibraryScreen() {
   } = useRemoteCatalog();
   const insets = useSafeAreaInsets();
   const [selectedCategory, setSelectedCategory] = useState<string>("all");
+  const [selectedAuthor, setSelectedAuthor] = useState<string>("all");
   const [selectedLanguage, setSelectedLanguage] = useState<string>("all");
   const [sortBy, setSortBy] = useState<LibrarySortMode>("forYou");
   const [searchQuery, setSearchQuery] = useState<string>("");
+  const [showAuthorMenu, setShowAuthorMenu] = useState<boolean>(false);
   const [showLanguageMenu, setShowLanguageMenu] = useState<boolean>(false);
   const [bookMetadataMap, setBookMetadataMap] = useState<Record<string, { languages: LibraryLanguageOption[] }>>({});
   const [resumeIndex, setResumeIndex] = useState(0);
@@ -915,6 +918,17 @@ export default function LibraryScreen() {
     return Array.from(categories).sort();
   }, [remoteBooks]);
 
+  const uniqueAuthors = useMemo(() => {
+    const authors = new Set<string>();
+    remoteBooks.forEach((book) => {
+      const author = book.author?.trim();
+      if (author) {
+        authors.add(author);
+      }
+    });
+    return Array.from(authors).sort();
+  }, [remoteBooks]);
+
   // Extract unique languages from loaded metadata
   const uniqueLanguages = useMemo(() => {
     const languagesByTitle = new Map<string, LibraryLanguagePreference>();
@@ -974,6 +988,10 @@ export default function LibraryScreen() {
       });
     }
 
+    if (selectedAuthor !== "all") {
+      books = books.filter((book) => book.author?.trim() === selectedAuthor);
+    }
+
     // Language filter
     if (selectedLanguage !== "all") {
       books = books.filter((book) => {
@@ -1002,6 +1020,7 @@ export default function LibraryScreen() {
   }, [
     remoteBooks,
     searchQuery,
+    selectedAuthor,
     selectedCategory,
     selectedLanguage,
     sortBy,
@@ -1023,10 +1042,13 @@ export default function LibraryScreen() {
         }}
         showsVerticalScrollIndicator={false}
       >
-        {/* Language menu overlay - close menu when tapping outside */}
-        {showLanguageMenu ? (
+        {/* Filter menu overlay - close menus when tapping outside */}
+        {showLanguageMenu || showAuthorMenu ? (
           <Pressable
-            onPress={() => setShowLanguageMenu(false)}
+            onPress={() => {
+              setShowAuthorMenu(false);
+              setShowLanguageMenu(false);
+            }}
             style={{
               position: "absolute",
               top: 0,
@@ -1073,19 +1095,24 @@ export default function LibraryScreen() {
 
 
         {!shouldShowLibrarySkeleton ? (
-          <View style={{ gap: 14, paddingHorizontal: spacing.page }}>
+          <View
+            style={{
+              gap: 14,
+              paddingHorizontal: 12,
+              position: "relative",
+              zIndex: showAuthorMenu || showLanguageMenu ? 2000 : 1,
+            }}
+          >
           {/* Search Bar */}
           <View
             style={{
               backgroundColor: colors.surface,
               borderRadius: radii.lg,
-              paddingHorizontal: 18,
+              paddingHorizontal: 16,
               paddingVertical: 14,
               flexDirection: "row",
               alignItems: "center",
               gap: 12,
-              borderWidth: 1,
-              borderColor: colors.border,
             }}
           >
             <Text style={{ color: colors.textMuted, fontSize: 18 }}>🔍</Text>
@@ -1108,10 +1135,80 @@ export default function LibraryScreen() {
             ) : null}
           </View>
 
+          {/* Category Filter Chips */}
+          <View
+            style={{
+              backgroundColor: colors.surface,
+              marginHorizontal: -(spacing.page + 12),
+              paddingVertical: 10,
+            }}
+          >
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={{
+                gap: 10,
+                paddingLeft: spacing.page + 12,
+                paddingRight: spacing.page + 12,
+              }}
+            >
+              <Pressable
+                onPress={() => setSelectedCategory("all")}
+                style={{
+                  borderRadius: radii.pill,
+                  backgroundColor: allCategoryPillColors.backgroundColor,
+                  paddingHorizontal: 16,
+                  paddingVertical: 10,
+                }}
+              >
+                <Text
+                  style={{
+                    color: allCategoryPillColors.textColor,
+                    fontSize: typography.control,
+                    fontWeight: "800",
+                  }}
+                >
+                  All
+                </Text>
+              </Pressable>
+              {uniqueCategories.map((category) => {
+                const pillColors = getSelectablePillColors({
+                  selected: selectedCategory === category,
+                  colors,
+                });
+
+                return (
+                  <Pressable
+                    key={category}
+                    onPress={() => setSelectedCategory(category)}
+                    style={{
+                      borderRadius: radii.pill,
+                      backgroundColor: pillColors.backgroundColor,
+                      paddingHorizontal: 16,
+                      paddingVertical: 10,
+                    }}
+                  >
+                    <Text
+                      style={{
+                        color: pillColors.textColor,
+                        fontSize: typography.control,
+                        fontWeight: "800",
+                      }}
+                    >
+                      {category}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </ScrollView>
+          </View>
+
           {/* Filters and Sort */}
-          <View style={{ flexDirection: "row", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
-            <MetaText>{filteredAndSortedBooks.length} books</MetaText>
-            <Text style={{ color: colors.textMuted, fontSize: typography.caption }}>•</Text>
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={{ alignItems: "center", gap: 10, paddingRight: 4 }}
+          >
             <Pressable
               onPress={() => {
                 setSortBy(getNextLibrarySortMode(sortBy));
@@ -1122,154 +1219,184 @@ export default function LibraryScreen() {
                 gap: 4,
               }}
             >
+              <Text style={{ color: colors.textMuted, fontSize: typography.caption }}>↕️</Text>
               <MetaText>{librarySortLabels[sortBy]}</MetaText>
               <Text style={{ color: colors.textMuted, fontSize: typography.caption }}>▾</Text>
             </Pressable>
             {uniqueLanguages.length > 0 ? (
-              <>
-                <Text style={{ color: colors.textMuted, fontSize: typography.caption }}>•</Text>
-                <View style={{ position: "relative" }}>
+              <View>
                   <Pressable
-                    onPress={() => setShowLanguageMenu(!showLanguageMenu)}
+                    hitSlop={10}
+                    onPress={() => {
+                      setShowLanguageMenu(!showLanguageMenu);
+                      setShowAuthorMenu(false);
+                    }}
                     style={{
                       flexDirection: "row",
                       alignItems: "center",
                       gap: 4,
                     }}
                   >
-                    <MetaText>{selectedLanguage === "all" ? "All" : selectedLanguage}</MetaText>
+                    <Text style={{ color: colors.textMuted, fontSize: typography.caption }}>🌐</Text>
+                    <MetaText>{selectedLanguage === "all" ? "All Lang." : selectedLanguage}</MetaText>
                     <Text style={{ color: colors.textMuted, fontSize: typography.caption }}>▾</Text>
                   </Pressable>
-                  {showLanguageMenu ? (
-                    <View
-                      style={{
-                        position: "absolute",
-                        top: 24,
-                        right: 0,
-                        backgroundColor: colors.surface,
-                        borderRadius: radii.md,
-                        paddingVertical: 8,
-                        minWidth: 120,
-                        shadowColor: "#000",
-                        shadowOffset: { width: 0, height: 2 },
-                        shadowOpacity: 0.1,
-                        shadowRadius: 8,
-                        elevation: 4,
-                        zIndex: 1000,
-                      }}
-                    >
-                      <Pressable
-                        onPress={() => {
-                          setSelectedLanguage("all");
-                          setShowLanguageMenu(false);
-                        }}
-                        style={{
-                          paddingHorizontal: 16,
-                          paddingVertical: 10,
-                          backgroundColor:
-                            selectedLanguage === "all" ? colors.surfaceMuted : "transparent",
-                        }}
-                      >
-                        <Text
-                          style={{
-                            color: colors.text,
-                            fontSize: typography.bodySmall,
-                            fontWeight: selectedLanguage === "all" ? "800" : "400",
-                          }}
-                        >
-                          All Languages
-                        </Text>
-                      </Pressable>
-                      {uniqueLanguages.map((language) => (
-                        <Pressable
-                          key={language.id}
-                          onPress={() => {
-                            setSelectedLanguage(language.title);
-                            setShowLanguageMenu(false);
-                          }}
-                          style={{
-                            paddingHorizontal: 16,
-                            paddingVertical: 10,
-                            backgroundColor:
-                              selectedLanguage === language.title ? colors.surfaceMuted : "transparent",
-                          }}
-                        >
-                          <Text
-                            style={{
-                              color: colors.text,
-                              fontSize: typography.bodySmall,
-                              fontWeight: selectedLanguage === language.title ? "800" : "400",
-                            }}
-                          >
-                            {language.title}
-                          </Text>
-                        </Pressable>
-                      ))}
-                    </View>
-                  ) : null}
-                </View>
-              </>
+              </View>
             ) : null}
-          </View>
-          </View>
-        ) : null}
-
-        {/* Category Filter Chips */}
-        {!shouldShowLibrarySkeleton ? (
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={{ gap: 10, paddingLeft: spacing.page, paddingRight: spacing.page }}
-          >
-            <Pressable
-              onPress={() => setSelectedCategory("all")}
+            {uniqueAuthors.length > 0 ? (
+              <View>
+                <Pressable
+                  hitSlop={10}
+                  onPress={() => {
+                    setShowAuthorMenu(!showAuthorMenu);
+                    setShowLanguageMenu(false);
+                  }}
+                  style={{
+                    flexDirection: "row",
+                    alignItems: "center",
+                    gap: 4,
+                  }}
+                >
+                  <Text style={{ color: colors.textMuted, fontSize: typography.caption }}>✍️</Text>
+                  <MetaText>{selectedAuthor === "all" ? "Author" : selectedAuthor}</MetaText>
+                  <Text style={{ color: colors.textMuted, fontSize: typography.caption }}>▾</Text>
+                </Pressable>
+              </View>
+            ) : null}
+          </ScrollView>
+          {showAuthorMenu ? (
+            <View
               style={{
-                borderRadius: radii.pill,
-                backgroundColor: allCategoryPillColors.backgroundColor,
-                paddingHorizontal: 16,
-                paddingVertical: 10,
+                position: "absolute",
+                top: 176,
+                right: spacing.page,
+                backgroundColor: colors.surface,
+                borderRadius: radii.md,
+                paddingVertical: 8,
+                minWidth: 180,
+                shadowColor: "#000",
+                shadowOffset: { width: 0, height: 2 },
+                shadowOpacity: 0.1,
+                shadowRadius: 8,
+                elevation: 8,
+                zIndex: 3000,
               }}
             >
-              <Text
+              <Pressable
+                onPress={() => {
+                  setSelectedAuthor("all");
+                  setShowAuthorMenu(false);
+                }}
                 style={{
-                  color: allCategoryPillColors.textColor,
-                  fontSize: typography.control,
-                  fontWeight: "800",
+                  paddingHorizontal: 16,
+                  paddingVertical: 10,
+                  backgroundColor: selectedAuthor === "all" ? colors.surfaceMuted : "transparent",
                 }}
               >
-                All
-              </Text>
-            </Pressable>
-            {uniqueCategories.map((category) => {
-              const pillColors = getSelectablePillColors({
-                selected: selectedCategory === category,
-                colors,
-              });
-
-              return (
-                <Pressable
-                  key={category}
-                  onPress={() => setSelectedCategory(category)}
+                <Text
                   style={{
-                    borderRadius: radii.pill,
-                    backgroundColor: pillColors.backgroundColor,
+                    color: colors.text,
+                    fontSize: typography.bodySmall,
+                    fontWeight: selectedAuthor === "all" ? "800" : "400",
+                  }}
+                >
+                  All Authors
+                </Text>
+              </Pressable>
+              {uniqueAuthors.map((author) => (
+                <Pressable
+                  key={author}
+                  onPress={() => {
+                    setSelectedAuthor(author);
+                    setShowAuthorMenu(false);
+                  }}
+                  style={{
                     paddingHorizontal: 16,
                     paddingVertical: 10,
+                    backgroundColor: selectedAuthor === author ? colors.surfaceMuted : "transparent",
                   }}
                 >
                   <Text
                     style={{
-                      color: pillColors.textColor,
-                      fontSize: typography.control,
-                      fontWeight: "800",
+                      color: colors.text,
+                      fontSize: typography.bodySmall,
+                      fontWeight: selectedAuthor === author ? "800" : "400",
                     }}
+                    numberOfLines={1}
                   >
-                    {category}
+                    {author}
                   </Text>
                 </Pressable>
-              );
-            })}
-          </ScrollView>
+              ))}
+            </View>
+          ) : null}
+          {showLanguageMenu ? (
+            <View
+              style={{
+                position: "absolute",
+                top: 176,
+                right: spacing.page,
+                backgroundColor: colors.surface,
+                borderRadius: radii.md,
+                paddingVertical: 8,
+                minWidth: 120,
+                shadowColor: "#000",
+                shadowOffset: { width: 0, height: 2 },
+                shadowOpacity: 0.1,
+                shadowRadius: 8,
+                elevation: 8,
+                zIndex: 3000,
+              }}
+            >
+              <Pressable
+                onPress={() => {
+                  setSelectedLanguage("all");
+                  setShowLanguageMenu(false);
+                }}
+                style={{
+                  paddingHorizontal: 16,
+                  paddingVertical: 10,
+                  backgroundColor: selectedLanguage === "all" ? colors.surfaceMuted : "transparent",
+                }}
+              >
+                <Text
+                  style={{
+                    color: colors.text,
+                    fontSize: typography.bodySmall,
+                    fontWeight: selectedLanguage === "all" ? "800" : "400",
+                  }}
+                >
+                  All Languages
+                </Text>
+              </Pressable>
+              {uniqueLanguages.map((language) => (
+                <Pressable
+                  key={language.id}
+                  onPress={() => {
+                    setSelectedLanguage(language.title);
+                    setShowLanguageMenu(false);
+                  }}
+                  style={{
+                    paddingHorizontal: 16,
+                    paddingVertical: 10,
+                    backgroundColor:
+                      selectedLanguage === language.title ? colors.surfaceMuted : "transparent",
+                  }}
+                >
+                  <Text
+                    style={{
+                      color: colors.text,
+                      fontSize: typography.bodySmall,
+                      fontWeight: selectedLanguage === language.title ? "800" : "400",
+                    }}
+                  >
+                    {language.title}
+                  </Text>
+                </Pressable>
+              ))}
+            </View>
+          ) : null}
+          </View>
         ) : null}
 
         {!shouldShowLibrarySkeleton ? (

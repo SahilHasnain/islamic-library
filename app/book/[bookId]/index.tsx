@@ -694,8 +694,7 @@ export default function BookHomeScreen() {
                   }}
                   style={{
                     borderRadius: 999,
-                    borderWidth: 1.5,
-                    borderColor: colors.text,
+                    backgroundColor: colors.surfaceMuted,
                     paddingHorizontal: 14,
                     paddingVertical: 10,
                     justifyContent: "center",
@@ -711,10 +710,9 @@ export default function BookHomeScreen() {
                 onPress={() => {
                   void toggleBookCompletion();
                 }}
-                style={{
+                  style={{
                   borderRadius: 999,
-                  borderWidth: 1.5,
-                  borderColor: colors.text,
+                  backgroundColor: colors.surfaceMuted,
                   paddingHorizontal: 14,
                   paddingVertical: 10,
                   justifyContent: "center",
@@ -816,8 +814,7 @@ export default function BookHomeScreen() {
                     style={{
                       alignSelf: "flex-start",
                       borderRadius: 999,
-                      borderWidth: 1.5,
-                      borderColor: colors.accent,
+                      backgroundColor: colors.surfaceMuted,
                       paddingHorizontal: 16,
                       paddingVertical: 10,
                     }}

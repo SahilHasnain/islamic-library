@@ -169,8 +169,6 @@ export function SessionCompletionModal({
                 alignItems: "center",
                 justifyContent: "center",
                 backgroundColor: secondaryActionColor,
-                borderWidth: 1,
-                borderColor: outlineColor,
                 opacity: pressed ? 0.75 : 1,
               })}
             >

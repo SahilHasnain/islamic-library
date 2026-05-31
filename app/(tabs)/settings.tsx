@@ -145,9 +145,7 @@ function ThemeOptionButton({
       style={{
         flex: 1,
         borderRadius: radii.pill,
-        borderWidth: 1,
-        borderColor: selected ? colors.accent : colors.border,
-        backgroundColor: selected ? colors.primaryButton : colors.surface,
+        backgroundColor: selected ? colors.primaryButton : colors.surfaceMuted,
         paddingHorizontal: 14,
         paddingVertical: 12,
       }}
