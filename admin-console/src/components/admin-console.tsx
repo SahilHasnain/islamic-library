@@ -529,6 +529,7 @@ export function AdminConsole({ initialSnapshot }: { initialSnapshot: MonitoringS
   const [jobFilter, setJobFilter] = useState<(typeof jobFilters)[number]["value"]>("all");
   const [searchQuery, setSearchQuery] = useState("");
   const [isRepublishingMetadata, setIsRepublishingMetadata] = useState(false);
+  const [showAdvancedMetadata, setShowAdvancedMetadata] = useState(false);
   const [metadataState, setMetadataState] = useState<SubmissionState>({});
   const [metadataForm, setMetadataForm] = useState<MetadataFormState>({
     bookSlug: "",
@@ -1156,30 +1157,92 @@ export function AdminConsole({ initialSnapshot }: { initialSnapshot: MonitoringS
                   }));
                 }}
                 className="w-full rounded-3xl border border-stone-700 bg-stone-950 px-4 py-3 text-sm leading-6 outline-none transition focus:border-amber-300"
-              />
+                />
             </label>
+
+            {metadataForm.languages.length > 0 ? (
+              <div className="space-y-4 rounded-3xl border border-amber-900/40 bg-amber-950/10 p-4">
+                <div>
+                  <span className="text-sm text-amber-200">Page numbering</span>
+                  <p className="mt-1 text-xs leading-5 text-stone-400">
+                    For existing books, set where printed page 1 starts. Example: if rendered page 7 is printed page 1, enter 7.
+                  </p>
+                </div>
+                <div className="grid gap-4 md:grid-cols-2">
+                  {metadataForm.languages.flatMap((language, languageIndex) =>
+                    language.volumes.map((volume, volumeIndex) => (
+                      <label key={`${language.id}-${volume.id}-${volumeIndex}-page-start`} className="space-y-2">
+                        <span className="text-xs text-stone-300">
+                          {language.title || language.id} / {volume.title || volume.id}
+                        </span>
+                        <input
+                          inputMode="numeric"
+                          value={volume.printedPageStartPage}
+                          onChange={(event) => {
+                            const value = event.target.value;
+                            setMetadataForm((current) => ({
+                              ...current,
+                              languages: current.languages.map((item, currentIndex) =>
+                                currentIndex === languageIndex
+                                  ? {
+                                    ...item,
+                                    volumes: item.volumes.map((currentVolume, currentVolumeIndex) =>
+                                      currentVolumeIndex === volumeIndex
+                                        ? { ...currentVolume, printedPageStartPage: value }
+                                        : currentVolume,
+                                    ),
+                                  }
+                                  : item,
+                              ),
+                            }));
+                          }}
+                          className="w-full rounded-2xl border border-stone-700 bg-stone-950 px-4 py-3 text-sm outline-none transition focus:border-amber-300"
+                          placeholder="Leave empty for rendered numbering"
+                        />
+                      </label>
+                    )),
+                  )}
+                </div>
+              </div>
+            ) : null}
 
             <div className="space-y-4 rounded-3xl border border-stone-800 bg-stone-950/40 p-4">
               <div className="flex items-start justify-between gap-4">
                 <div>
-                  <span className="text-sm text-stone-200">Languages and Volumes</span>
+                  <span className="text-sm text-stone-200">Advanced edition structure</span>
                   <p className="mt-1 text-xs leading-5 text-stone-400">
-                    Define which languages exist under this book and which volumes belong to each language.
+                    Only open this when adding languages, adding volumes, or editing sections/plans.
                   </p>
                 </div>
                 <button
                   type="button"
-                  onClick={() => {
-                    setMetadataForm((current) => ({
-                      ...current,
-                      languages: [...current.languages, createEmptyLanguage()],
-                    }));
-                  }}
+                  onClick={() => setShowAdvancedMetadata((current) => !current)}
                   className="rounded-full border border-stone-700 px-4 py-2 text-xs font-medium text-stone-200 transition hover:border-amber-300 hover:text-amber-200"
                 >
-                  Add language
+                  {showAdvancedMetadata ? "Hide advanced" : "Show advanced"}
                 </button>
               </div>
+
+              {!showAdvancedMetadata ? (
+                <div className="rounded-2xl border border-stone-800 bg-stone-950/60 p-4 text-sm leading-6 text-stone-400">
+                  Current structure: {metadataForm.languages.length || 0} language(s), {metadataForm.languages.reduce((count, language) => count + language.volumes.length, 0)} volume(s). Page numbering can be edited above without opening this section.
+                </div>
+              ) : (
+                <>
+                  <div className="flex justify-end">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setMetadataForm((current) => ({
+                          ...current,
+                          languages: [...current.languages, createEmptyLanguage()],
+                        }));
+                      }}
+                      className="rounded-full border border-stone-700 px-4 py-2 text-xs font-medium text-stone-200 transition hover:border-amber-300 hover:text-amber-200"
+                    >
+                      Add language
+                    </button>
+                  </div>
 
               <label className="block space-y-2">
                 <span className="text-xs text-stone-300">Default language ID</span>
@@ -2244,6 +2307,8 @@ export function AdminConsole({ initialSnapshot }: { initialSnapshot: MonitoringS
                     </div>
                   ))}
                 </div>
+              )}
+                </>
               )}
             </div>
 

@@ -10,12 +10,31 @@ import type {
 import { useRemoteCatalog } from "./useRemoteCatalog";
 
 async function fetchJson<T>(url: string) {
-  const response = await fetch(url);
+  const response = await fetch(normalizeJsonAssetUrl(url), {
+    headers: {
+      "Cache-Control": "no-cache",
+    },
+  });
   if (!response.ok) {
     throw new Error(`request-failed:${response.status}`);
   }
 
   return (await response.json()) as T;
+}
+
+function normalizeJsonAssetUrl(url: string) {
+  const match = url.match(/^https:\/\/cdn\.jsdelivr\.net\/gh\/([^/]+)\/([^@/]+)@([^/]+)\/(.+)$/);
+  if (!match) {
+    return url;
+  }
+
+  const [, owner, repo, branch, assetPath] = match;
+  return `https://raw.githubusercontent.com/${owner}/${repo}/${branch}/${assetPath}`;
+}
+
+function withCacheBust(url: string, cacheKey: string) {
+  const separator = url.includes("?") ? "&" : "?";
+  return `${url}${separator}v=${encodeURIComponent(cacheKey)}`;
 }
 
 function getOrderedLanguages(languages: PublicBookMetadataLanguage[]) {
@@ -152,7 +171,11 @@ export function useRemoteBookData(
 
       try {
         setIsMetadataLoading(true);
-        const nextMetadata = await fetchJson<PublicBookMetadata>(catalogBook.metadataUrl);
+        const metadataUrl = withCacheBust(
+          catalogBook.metadataUrl,
+          catalog?.version ?? catalog?.generatedAt ?? "metadata",
+        );
+        const nextMetadata = await fetchJson<PublicBookMetadata>(metadataUrl);
         if (!isMounted) {
           return;
         }
@@ -178,7 +201,7 @@ export function useRemoteBookData(
     return () => {
       isMounted = false;
     };
-  }, [catalogBook?.metadataUrl]);
+  }, [catalog?.generatedAt, catalog?.version, catalogBook?.metadataUrl]);
 
   useEffect(() => {
     let isMounted = true;
@@ -195,7 +218,11 @@ export function useRemoteBookData(
 
       try {
         setIsManifestLoading(true);
-        const nextManifest = await fetchJson<PublicVolumeManifest>(selectedVolume.manifestUrl);
+        const manifestUrl = withCacheBust(
+          selectedVolume.manifestUrl,
+          catalog?.version ?? catalog?.generatedAt ?? `${metadata?.id ?? bookId ?? "book"}-${metadata?.defaultLanguageId ?? "language"}`,
+        );
+        const nextManifest = await fetchJson<PublicVolumeManifest>(manifestUrl);
         if (!isMounted) {
           return;
         }
@@ -221,7 +248,7 @@ export function useRemoteBookData(
     return () => {
       isMounted = false;
     };
-  }, [selectedVolume?.manifestUrl]);
+  }, [bookId, catalog?.generatedAt, catalog?.version, metadata?.defaultLanguageId, metadata?.id, selectedVolume?.manifestUrl]);
 
   return {
     catalogBook,

@@ -135,6 +135,12 @@ function parseLanguages(value: unknown) {
             volumeItem.order === undefined || volumeItem.order === null || volumeItem.order === ""
               ? undefined
               : Number(volumeItem.order),
+          printedPageStartPage:
+            volumeItem.printedPageStartPage === undefined ||
+            volumeItem.printedPageStartPage === null ||
+            volumeItem.printedPageStartPage === ""
+              ? undefined
+              : Number(volumeItem.printedPageStartPage),
           manifestUrl: String(volumeItem.manifestUrl || "").trim() || undefined,
           introNote: String(volumeItem.introNote || "").trim() || undefined,
           todayTarget: String(volumeItem.todayTarget || "").trim() || undefined,
