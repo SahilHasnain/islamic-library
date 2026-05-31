@@ -26,6 +26,15 @@ import {
   type LibraryLanguagePreference,
 } from "../../lib/library-language-preference";
 
+type LibraryLanguageOption = LibraryLanguagePreference & {
+  coverImage?: string;
+};
+
+function withCacheBust(url: string, cacheKey: string) {
+  const separator = url.includes("?") ? "&" : "?";
+  return `${url}${separator}v=${encodeURIComponent(cacheKey)}`;
+}
+
 function getContinueLine(page?: number) {
   return page ? `Page ${page}` : "Not started yet";
 }
@@ -388,6 +397,9 @@ function ResumeReadingHero({
     metadata?.languages[0]?.volumes[0]?.id ??
     "volume1";
   const readerPage = activeProgress?.page ?? 1;
+  const heroCoverImage = manifest?.coverImage
+    ? withCacheBust(manifest.coverImage, `${manifest.version}-${readerLanguageId}-${readerVolumeId}`)
+    : activeBook?.coverImage;
 
   const advance = useCallback(() => {
     if (!canAdvance) {
@@ -461,9 +473,9 @@ function ResumeReadingHero({
                   elevation: 6,
                 }}
               >
-                {activeBook?.coverImage ? (
+                {heroCoverImage ? (
                   <Image
-                    source={{ uri: activeBook.coverImage }}
+                    source={{ uri: heroCoverImage }}
                     contentFit="cover"
                     transition={120}
                     style={{
@@ -732,7 +744,7 @@ export default function LibraryScreen() {
   const [sortBy, setSortBy] = useState<LibrarySortMode>("forYou");
   const [searchQuery, setSearchQuery] = useState<string>("");
   const [showLanguageMenu, setShowLanguageMenu] = useState<boolean>(false);
-  const [bookMetadataMap, setBookMetadataMap] = useState<Record<string, { languages: LibraryLanguagePreference[] }>>({});
+  const [bookMetadataMap, setBookMetadataMap] = useState<Record<string, { languages: LibraryLanguageOption[] }>>({});
   const [resumeIndex, setResumeIndex] = useState(0);
   const hasLoadedLanguagePreferenceRef = useRef(false);
   const allCategoryPillColors = getSelectablePillColors({
@@ -770,6 +782,7 @@ export default function LibraryScreen() {
   }, []);
 
   const remoteBooks = useMemo(() => catalog?.books ?? [], [catalog?.books]);
+  const catalogCacheKey = catalog?.version ?? catalog?.generatedAt ?? "library";
   const completedBookIdSet = useMemo(() => new Set(completedBookIds), [completedBookIds]);
   const activePlanBookIds = useMemo(
     () => new Set(Object.values(activePlanMap).map((plan) => plan.bookId)),
@@ -804,15 +817,70 @@ export default function LibraryScreen() {
       const metadataPromises = remoteBooks.map(async (book) => {
         if (!book.metadataUrl) return null;
         try {
-          const response = await fetch(book.metadataUrl);
+          const response = await fetch(withCacheBust(book.metadataUrl, catalogCacheKey), {
+            headers: {
+              Accept: "application/json",
+              "Cache-Control": "no-cache",
+            },
+          });
           const metadata = await response.json();
+          const languages = await Promise.all(
+            (metadata.languages ?? []).map(
+              async (language: {
+                id: string;
+                title: string;
+                defaultVolumeId?: string;
+                volumes?: { id: string; manifestUrl?: string; order?: number }[];
+              }) => {
+                const orderedVolumes = [...(language.volumes ?? [])].sort((left, right) => {
+                  const leftOrder = left.order ?? Number.MAX_SAFE_INTEGER;
+                  const rightOrder = right.order ?? Number.MAX_SAFE_INTEGER;
+                  if (leftOrder !== rightOrder) {
+                    return leftOrder - rightOrder;
+                  }
+
+                  return left.id.localeCompare(right.id);
+                });
+                const volume =
+                  orderedVolumes.find((candidate) => candidate.id === language.defaultVolumeId) ??
+                  orderedVolumes[0];
+
+                if (!volume?.manifestUrl) {
+                  return { id: language.id, title: language.title };
+                }
+
+                try {
+                  const manifestResponse = await fetch(
+                    withCacheBust(volume.manifestUrl, catalogCacheKey),
+                    {
+                      headers: {
+                        Accept: "application/json",
+                        "Cache-Control": "no-cache",
+                      },
+                    },
+                  );
+                  const manifest = await manifestResponse.json();
+                  const coverImage = manifest.coverImage
+                    ? withCacheBust(
+                        manifest.coverImage as string,
+                        `${manifest.version ?? catalogCacheKey}-${language.id}`,
+                      )
+                    : undefined;
+                  return {
+                    id: language.id,
+                    title: language.title,
+                    coverImage,
+                  };
+                } catch {
+                  return { id: language.id, title: language.title };
+                }
+              },
+            ),
+          );
+
           return {
             bookId: book.id,
-            languages:
-              metadata.languages?.map((lang: { id: string; title: string }) => ({
-                id: lang.id,
-                title: lang.title,
-              })) || [],
+            languages,
           };
         } catch {
           return null;
@@ -820,7 +888,7 @@ export default function LibraryScreen() {
       });
 
       const results = await Promise.all(metadataPromises);
-      const metadataMap: Record<string, { languages: LibraryLanguagePreference[] }> = {};
+      const metadataMap: Record<string, { languages: LibraryLanguageOption[] }> = {};
       results.forEach((result) => {
         if (result) {
           metadataMap[result.bookId] = { languages: result.languages };
@@ -832,7 +900,7 @@ export default function LibraryScreen() {
     if (remoteBooks.length > 0) {
       void loadAllMetadata();
     }
-  }, [remoteBooks]);
+  }, [catalogCacheKey, remoteBooks]);
 
   // Extract unique categories
   const uniqueCategories = useMemo(() => {
@@ -1225,16 +1293,20 @@ export default function LibraryScreen() {
               }
               renderItem={({ item: book }: { item: PublicCatalogBook }) => (
                 <View style={{ flex: 1 }}>
-                  <LibraryBookCard
-                    bookId={book.id}
-                    title={book.title}
-                    coverImage={book.coverImage}
-                    preferredLanguageId={
-                      bookMetadataMap[book.id]?.languages.find(
-                        (language) => language.title === selectedLanguage,
-                      )?.id
-                    }
-                  />
+                  {(() => {
+                    const preferredLanguage = bookMetadataMap[book.id]?.languages.find(
+                      (language) => language.title === selectedLanguage,
+                    );
+
+                    return (
+                      <LibraryBookCard
+                        bookId={book.id}
+                        title={book.title}
+                        coverImage={preferredLanguage?.coverImage ?? book.coverImage}
+                        preferredLanguageId={preferredLanguage?.id}
+                      />
+                    );
+                  })()}
                 </View>
               )}
             />

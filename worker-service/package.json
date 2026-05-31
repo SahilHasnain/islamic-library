@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "node --watch src/server.mjs",
+    "repair-volume-covers": "node scripts/repair-volume-covers.mjs",
     "start": "node src/server.mjs"
   }
 }

@@ -11,7 +11,13 @@ import { useAppTheme } from "../../hooks/useAppTheme";
 import { useBookCompletions } from "../../hooks/useBookCompletions";
 import { useReadingPlans } from "../../hooks/useReadingPlans";
 import { useReadingProgress } from "../../hooks/useReadingProgress";
+import { useRemoteBookData } from "../../hooks/useRemoteBookData";
 import { useRemoteCatalog } from "../../hooks/useRemoteCatalog";
+
+function withCacheBust(url: string, cacheKey: string) {
+  const separator = url.includes("?") ? "&" : "?";
+  return `${url}${separator}v=${encodeURIComponent(cacheKey)}`;
+}
 
 function CompletedBookCard({
   bookId,
@@ -19,14 +25,22 @@ function CompletedBookCard({
   subtitle,
   completedDate,
   coverImage,
+  languageId,
+  volumeId,
 }: {
   bookId: string;
   title: string;
   subtitle?: string;
   completedDate?: string;
   coverImage?: string;
+  languageId?: string;
+  volumeId?: string;
 }) {
   const { colors } = useAppTheme();
+  const { manifest } = useRemoteBookData(bookId, languageId, volumeId);
+  const resolvedCoverImage = manifest?.coverImage
+    ? withCacheBust(manifest.coverImage, `${manifest.version}-${languageId}-${volumeId}`)
+    : coverImage;
 
   return (
     <Link href={`/book/${bookId}` as const} asChild>
@@ -50,9 +64,9 @@ function CompletedBookCard({
             elevation: 4,
           }}
         >
-          {coverImage ? (
+          {resolvedCoverImage ? (
             <Image
-              source={{ uri: coverImage }}
+              source={{ uri: resolvedCoverImage }}
               contentFit="cover"
               transition={120}
               style={{
@@ -272,6 +286,8 @@ export default function JourneyScreen() {
                           : undefined
                       }
                       coverImage={book.coverImage}
+                      languageId={completion?.languageId}
+                      volumeId={completion?.volumeId}
                     />
                   </View>
                 );

@@ -115,7 +115,7 @@ Important files:
 
 Assets repo location:
 
-- [islamic-library-assets](C:/Users/MD%20SAHIL%20HASNAIN/desktop/projects/islamic-library-assets)
+- [islamic-library-assets](D:/Projects/islamic-library-assets)
 
 Purpose:
 

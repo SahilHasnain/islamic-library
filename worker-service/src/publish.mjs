@@ -12,7 +12,7 @@ function requireEnv(name, fallback) {
 
 const assetsRepoPath = requireEnv(
   "ASSETS_REPO_PATH",
-  "C:/Users/MD SAHIL HASNAIN/desktop/projects/islamic-library-assets",
+  "D:/Projects/islamic-library-assets",
 );
 const assetsRepoBranch = requireEnv("ASSETS_REPO_BRANCH", "main");
 const assetsRepoOwner = requireEnv("ASSETS_REPO_OWNER", "your-github-user");
@@ -141,7 +141,8 @@ export async function publishWorkspace({
   const relativeVolumeRoot = path.join(relativeBookRoot, languageId, volumeId);
   const metadataRelativePath = path.join(relativeBookRoot, "metadata.json");
   const manifestRelativePath = path.join(relativeVolumeRoot, "manifest.json");
-  const coverRelativePath = path.join(relativeBookRoot, coverFileName);
+  const rootCoverRelativePath = path.join(relativeBookRoot, coverFileName);
+  const volumeCoverRelativePath = path.join(relativeVolumeRoot, coverFileName);
 
   await fs.mkdir(volumeRoot, { recursive: true });
 
@@ -158,12 +159,13 @@ export async function publishWorkspace({
   );
 
   await copyFile(workspace.coverImagePath, path.join(bookRoot, coverFileName));
+  await copyFile(workspace.coverImagePath, path.join(volumeRoot, coverFileName));
 
   const publishedManifest = {
     ...manifest,
     version,
     baseUrl: jsdelivrUrl(relativeVolumeRoot),
-    coverImage: jsdelivrUrl(coverRelativePath),
+    coverImage: jsdelivrUrl(volumeCoverRelativePath),
     pages: pageCopies,
   };
 
@@ -230,7 +232,7 @@ export async function publishWorkspace({
   const publishedMetadata = {
     ...existingMetadata,
     ...metadata,
-    coverImage: jsdelivrUrl(coverRelativePath),
+    coverImage: existingMetadata.coverImage || jsdelivrUrl(rootCoverRelativePath),
     languages: updatedLanguages,
   };
 
@@ -313,7 +315,7 @@ export async function publishWorkspace({
     assetBasePath: `${relativeVolumeRoot.replace(/\\/g, "/")}/`,
     metadataUrl,
     manifestUrl: jsdelivrUrl(manifestRelativePath),
-    coverImageUrl: jsdelivrUrl(coverRelativePath),
+    coverImageUrl: jsdelivrUrl(volumeCoverRelativePath),
     commitSummary: commit.stdout.trim() || commit.stderr.trim(),
     ...buildPushResult(
       pushRemote.pushConfigured,

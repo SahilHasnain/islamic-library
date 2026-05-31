@@ -77,7 +77,7 @@ without waiting on `PyMuPDF`.
 
 Default local publish target:
 
-- `C:/Users/MD SAHIL HASNAIN/desktop/projects/islamic-library-assets`
+- `D:/Projects/islamic-library-assets`
 
 Expected env values:
 
