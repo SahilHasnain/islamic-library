@@ -184,6 +184,18 @@ export type AiAnalysisResult = {
   draft?: AiAnalysisDraft;
 };
 
+export type AiAnalysisJob = {
+  ok: boolean;
+  id?: string;
+  analysisId?: string;
+  status: "queued" | "processing" | "completed" | "failed";
+  phase?: string;
+  createdAt?: string;
+  updatedAt?: string;
+  result?: AiAnalysisResult;
+  error?: string;
+};
+
 export type PublishEventRecord = {
   $id: string;
   jobId: string;
@@ -591,4 +603,53 @@ export async function analyzeBookWithAi({
   }
 
   return (await response.json()) as AiAnalysisResult;
+}
+
+export async function startBookAiAnalysis({
+  sourceFileId,
+  context,
+  maxPages,
+}: {
+  sourceFileId: string;
+  context: Record<string, unknown>;
+  maxPages?: number;
+}) {
+  const workerApiUrl = requireWorkerEnv("WORKER_API_URL");
+  const workerApiToken = requireWorkerEnv("WORKER_API_TOKEN");
+
+  const response = await fetch(`${workerApiUrl.replace(/\/$/, "")}/ai/analyze/start`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${workerApiToken}`,
+    },
+    body: JSON.stringify({ sourceFileId, context, maxPages }),
+  });
+
+  if (!response.ok) {
+    const message = await response.text();
+    throw new Error(`AI analysis start failed: ${message}`);
+  }
+
+  return (await response.json()) as AiAnalysisJob;
+}
+
+export async function getBookAiAnalysisStatus(analysisId: string) {
+  const workerApiUrl = requireWorkerEnv("WORKER_API_URL");
+  const workerApiToken = requireWorkerEnv("WORKER_API_TOKEN");
+  const url = new URL(`${workerApiUrl.replace(/\/$/, "")}/ai/analyze/status`);
+  url.searchParams.set("id", analysisId);
+
+  const response = await fetch(url, {
+    headers: {
+      Authorization: `Bearer ${workerApiToken}`,
+    },
+  });
+
+  if (!response.ok) {
+    const message = await response.text();
+    throw new Error(`AI analysis status failed: ${message}`);
+  }
+
+  return (await response.json()) as AiAnalysisJob;
 }

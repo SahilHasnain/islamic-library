@@ -38,6 +38,7 @@ const workerVersion = requireEnv("WORKER_VERSION", "v1");
 const renderDpi = Number(requireEnv("RENDER_DPI", "144"));
 const maxRetryAttempts = Number(requireEnv("MAX_RETRY_ATTEMPTS", "3"));
 const mockRenderEnabled = requireEnv("MOCK_RENDER_ENABLED", "false") === "true";
+const aiAnalysisJobs = new Map();
 
 if (!workerApiToken) {
   throw new Error("Missing required environment variable: WORKER_API_TOKEN");
@@ -529,6 +530,77 @@ async function handleAiAnalyze(request, response) {
   sendJson(response, 200, { ok: true, ...result });
 }
 
+async function handleAiAnalyzeStart(request, response) {
+  if (!isAuthorized(request)) {
+    sendJson(response, 401, { error: "Unauthorized" });
+    return;
+  }
+
+  const payload = await readJsonBody(request);
+  const { sourceFileId, context = {}, maxPages } = payload || {};
+  if (!sourceFileId) {
+    sendJson(response, 400, { error: "Missing sourceFileId." });
+    return;
+  }
+
+  const analysisId = `ai_${Date.now()}_${Math.random().toString(16).slice(2)}`;
+  const now = new Date().toISOString();
+  aiAnalysisJobs.set(analysisId, {
+    id: analysisId,
+    status: "queued",
+    phase: "queued",
+    createdAt: now,
+    updatedAt: now,
+  });
+
+  setImmediate(async () => {
+    aiAnalysisJobs.set(analysisId, {
+      ...aiAnalysisJobs.get(analysisId),
+      status: "processing",
+      phase: "analyzing",
+      updatedAt: new Date().toISOString(),
+    });
+
+    try {
+      const result = await analyzeSourcePdf({ sourceFileId, context, maxPages });
+      aiAnalysisJobs.set(analysisId, {
+        ...aiAnalysisJobs.get(analysisId),
+        status: "completed",
+        phase: "completed",
+        result,
+        updatedAt: new Date().toISOString(),
+      });
+    } catch (error) {
+      aiAnalysisJobs.set(analysisId, {
+        ...aiAnalysisJobs.get(analysisId),
+        status: "failed",
+        phase: "failed",
+        error: error instanceof Error ? error.message : "AI analysis failed.",
+        updatedAt: new Date().toISOString(),
+      });
+    }
+  });
+
+  sendJson(response, 202, { ok: true, analysisId, status: "queued" });
+}
+
+async function handleAiAnalyzeStatus(request, response) {
+  if (!isAuthorized(request)) {
+    sendJson(response, 401, { error: "Unauthorized" });
+    return;
+  }
+
+  const url = new URL(request.url || "", `http://${request.headers.host || "localhost"}`);
+  const analysisId = url.searchParams.get("id");
+  const job = analysisId ? aiAnalysisJobs.get(analysisId) : undefined;
+  if (!job) {
+    sendJson(response, 404, { error: "AI analysis job not found." });
+    return;
+  }
+
+  sendJson(response, 200, { ok: true, ...job });
+}
+
 const server = http.createServer(async (request, response) => {
   try {
     if (request.method === "GET" && request.url === "/health") {
@@ -553,6 +625,16 @@ const server = http.createServer(async (request, response) => {
 
     if (request.method === "POST" && request.url === "/ai/analyze") {
       await handleAiAnalyze(request, response);
+      return;
+    }
+
+    if (request.method === "POST" && request.url === "/ai/analyze/start") {
+      await handleAiAnalyzeStart(request, response);
+      return;
+    }
+
+    if (request.method === "GET" && request.url?.startsWith("/ai/analyze/status")) {
+      await handleAiAnalyzeStatus(request, response);
       return;
     }
 

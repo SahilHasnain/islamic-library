@@ -367,11 +367,43 @@ function buildFallbackDraft({ title, category, languageId, volumeId, extracted }
   };
 }
 
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function fetchWithRetry(url, options) {
+  const attempts = Number(process.env.AI_PROVIDER_RETRY_ATTEMPTS || 2);
+  const timeoutMs = Number(process.env.AI_PROVIDER_TIMEOUT_MS || 90000);
+  let lastError;
+
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), timeoutMs);
+
+    try {
+      return await fetch(url, { ...options, signal: controller.signal });
+    } catch (error) {
+      lastError = error;
+      if (attempt < attempts) {
+        await sleep(700 * attempt);
+      }
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+
+  throw new Error(
+    lastError instanceof Error
+      ? `AI provider fetch failed: ${lastError.message}`
+      : "AI provider fetch failed.",
+  );
+}
+
 async function callOpenAiCompatible({ config, prompt }) {
   const baseUrl = (config.baseUrl || "https://api.openai.com/v1").replace(/\/$/, "");
   const model = config.model || "gpt-4o-mini";
 
-  const response = await fetch(`${baseUrl}/chat/completions`, {
+  const response = await fetchWithRetry(`${baseUrl}/chat/completions`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -404,7 +436,7 @@ async function callOpenAiCompatible({ config, prompt }) {
 
 async function callGemini({ config, prompt }) {
   const model = config.model || "gemini-1.5-flash";
-  const response = await fetch(
+  const response = await fetchWithRetry(
     `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(config.apiKey)}`,
     {
       method: "POST",
@@ -485,11 +517,19 @@ async function buildChunkedDraft({ extracted, context }) {
   const chunkSize = Number(process.env.AI_ANALYSIS_CHUNK_PAGES || 50);
   const chunks = chunkPages(extracted.pages, chunkSize);
   const sectionCandidates = [];
+  const chunkWarnings = [];
 
-  for (const pages of chunks) {
-    const chunkDraft = await callAiProviderPrompt(buildSectionChunkPrompt({ pages, context }));
-    if (Array.isArray(chunkDraft?.sections)) {
-      sectionCandidates.push(...chunkDraft.sections);
+  for (let index = 0; index < chunks.length; index += 1) {
+    const pages = chunks[index];
+    try {
+      const chunkDraft = await callAiProviderPrompt(buildSectionChunkPrompt({ pages, context }));
+      if (Array.isArray(chunkDraft?.sections)) {
+        sectionCandidates.push(...chunkDraft.sections);
+      }
+    } catch (error) {
+      chunkWarnings.push(
+        `Chunk ${index + 1} (${pages[0]?.page}-${pages[pages.length - 1]?.page}) failed: ${error instanceof Error ? error.message : "unknown error"}`,
+      );
     }
   }
 
@@ -497,10 +537,31 @@ async function buildChunkedDraft({ extracted, context }) {
     return baseDraft;
   }
 
-  return normalizeDraft(
-    await callAiProviderPrompt(buildMergePrompt({ baseDraft, sectionCandidates, context })),
-    extracted.pageCount,
-  );
+  try {
+    const mergedDraft = normalizeDraft(
+      await callAiProviderPrompt(buildMergePrompt({ baseDraft, sectionCandidates, context })),
+      extracted.pageCount,
+    );
+
+    return {
+      ...mergedDraft,
+      notes: [mergedDraft?.notes, chunkWarnings.length ? `Skipped chunks: ${chunkWarnings.join(" | ")}` : ""]
+        .filter(Boolean)
+        .join("\n"),
+    };
+  } catch (error) {
+    return {
+      ...baseDraft,
+      sections: cleanSections(sectionCandidates, extracted.pageCount),
+      notes: [
+        baseDraft.notes,
+        `Final merge failed, returned cleaned chunk sections instead: ${error instanceof Error ? error.message : "unknown error"}`,
+        chunkWarnings.length ? `Skipped chunks: ${chunkWarnings.join(" | ")}` : "",
+      ]
+        .filter(Boolean)
+        .join("\n"),
+    };
+  }
 }
 
 function normalizeDraft(draft, totalPages = 100000) {

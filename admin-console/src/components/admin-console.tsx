@@ -4,6 +4,7 @@ import { FormEvent, useEffect, useMemo, useState } from "react";
 
 import { uploadPdfWithProgress } from "@/lib/appwrite-client";
 import type {
+  AiAnalysisJob,
   AiAnalysisResult,
   JobListItem,
   MonitoringSnapshot,
@@ -38,6 +39,10 @@ const jobFilters = [
   { label: "Failed", value: "failed" },
   { label: "Published", value: "published" },
 ] as const;
+
+function wait(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
 
 type SubmissionState = {
   error?: string;
@@ -584,6 +589,7 @@ export function AdminConsole({ initialSnapshot }: { initialSnapshot: MonitoringS
   const [isRepublishingMetadata, setIsRepublishingMetadata] = useState(false);
   const [isAnalyzingMetadata, setIsAnalyzingMetadata] = useState(false);
   const [aiAnalysisDepth, setAiAnalysisDepth] = useState<"quick" | "full">("quick");
+  const [aiAnalysisJobStatus, setAiAnalysisJobStatus] = useState<string>();
   const [showAdvancedMetadata, setShowAdvancedMetadata] = useState(false);
   const [selectedAdvancedLanguageIndex, setSelectedAdvancedLanguageIndex] = useState(0);
   const [selectedAdvancedVolumeIndex, setSelectedAdvancedVolumeIndex] = useState(0);
@@ -954,22 +960,73 @@ export function AdminConsole({ initialSnapshot }: { initialSnapshot: MonitoringS
     setAiAnalysis(null);
 
     try {
+      const requestBody = {
+        sourceFileId: knownBook.sourceFileId,
+        maxPages: aiAnalysisDepth === "full" ? 0 : 40,
+        context: {
+          bookSlug: slug,
+          title: metadataForm.title,
+          subtitle: metadataForm.subtitle,
+          author: metadataForm.author,
+          category: metadataForm.category,
+          languageId: knownBook.languageId,
+          volumeId: knownBook.volumeId,
+        },
+      };
+
+      if (aiAnalysisDepth === "full") {
+        setAiAnalysisJobStatus("Starting full analysis...");
+        const startResponse = await fetch("/api/ai/analyze/start", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(requestBody),
+        });
+        const startPayload = (await startResponse.json()) as AiAnalysisJob & { error?: string };
+        if (!startResponse.ok) {
+          setMetadataState({ error: startPayload.error || "AI analysis failed." });
+          return;
+        }
+
+        const analysisId = startPayload.analysisId || startPayload.id;
+        if (!analysisId) {
+          setMetadataState({ error: "AI analysis did not return a job ID." });
+          return;
+        }
+
+        for (let attempt = 0; attempt < 600; attempt += 1) {
+          await wait(3000);
+          const statusResponse = await fetch(`/api/ai/analyze/status?id=${encodeURIComponent(analysisId)}`);
+          const statusPayload = (await statusResponse.json()) as AiAnalysisJob & { error?: string };
+          if (!statusResponse.ok) {
+            setMetadataState({ error: statusPayload.error || "AI analysis status failed." });
+            return;
+          }
+
+          setAiAnalysisJobStatus(`Full analysis ${statusPayload.phase || statusPayload.status}...`);
+          if (statusPayload.status === "completed" && statusPayload.result) {
+            setAiAnalysis(statusPayload.result);
+            setMetadataState({
+              message: statusPayload.result.aiEnabled
+                ? "AI draft generated."
+                : "PDF analyzed. Configure OPENAI_API_KEY for richer AI drafts.",
+            });
+            return;
+          }
+
+          if (statusPayload.status === "failed") {
+            setMetadataState({ error: statusPayload.error || "AI analysis failed." });
+            return;
+          }
+        }
+
+        setMetadataState({ error: "AI analysis timed out while waiting for the worker." });
+        return;
+      }
+
       const response = await fetch("/api/ai/analyze", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          sourceFileId: knownBook.sourceFileId,
-          maxPages: aiAnalysisDepth === "full" ? 0 : 40,
-          context: {
-            bookSlug: slug,
-            title: metadataForm.title,
-            subtitle: metadataForm.subtitle,
-            author: metadataForm.author,
-            category: metadataForm.category,
-            languageId: knownBook.languageId,
-            volumeId: knownBook.volumeId,
-          },
-        }),
+        body: JSON.stringify(requestBody),
       });
       const payload = (await response.json()) as AiAnalysisResult & { error?: string };
       if (!response.ok) {
@@ -983,6 +1040,7 @@ export function AdminConsole({ initialSnapshot }: { initialSnapshot: MonitoringS
       setMetadataState({ error: error instanceof Error ? error.message : "AI analysis failed." });
     } finally {
       setIsAnalyzingMetadata(false);
+      setAiAnalysisJobStatus(undefined);
     }
   }
 
@@ -1413,6 +1471,9 @@ export function AdminConsole({ initialSnapshot }: { initialSnapshot: MonitoringS
                   <p className="mt-1 text-xs leading-5 text-stone-400">
                     Analyze the original source PDF and draft metadata, page numbering, and sections. Review before publishing.
                   </p>
+                  {aiAnalysisJobStatus ? (
+                    <p className="mt-2 text-xs text-emerald-300">{aiAnalysisJobStatus}</p>
+                  ) : null}
                 </div>
                 <div className="flex flex-wrap items-center gap-3">
                   <select
