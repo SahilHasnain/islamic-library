@@ -595,6 +595,7 @@ export function AdminConsole({ initialSnapshot }: { initialSnapshot: MonitoringS
   const [selectedAdvancedVolumeIndex, setSelectedAdvancedVolumeIndex] = useState(0);
   const [metadataState, setMetadataState] = useState<SubmissionState>({});
   const [aiAnalysis, setAiAnalysis] = useState<AiAnalysisResult | null>(null);
+  const [aiDraftJson, setAiDraftJson] = useState("");
   const [metadataForm, setMetadataForm] = useState<MetadataFormState>({
     bookSlug: "",
     title: "",
@@ -958,6 +959,7 @@ export function AdminConsole({ initialSnapshot }: { initialSnapshot: MonitoringS
     setIsAnalyzingMetadata(true);
     setMetadataState({});
     setAiAnalysis(null);
+    setAiDraftJson("");
 
     try {
       const requestBody = {
@@ -1005,6 +1007,7 @@ export function AdminConsole({ initialSnapshot }: { initialSnapshot: MonitoringS
           setAiAnalysisJobStatus(`Full analysis ${statusPayload.phase || statusPayload.status}...`);
           if (statusPayload.status === "completed" && statusPayload.result) {
             setAiAnalysis(statusPayload.result);
+            setAiDraftJson(statusPayload.result.draft ? JSON.stringify(statusPayload.result.draft, null, 2) : "");
             setMetadataState({
               message: statusPayload.result.aiEnabled
                 ? "AI draft generated."
@@ -1035,6 +1038,7 @@ export function AdminConsole({ initialSnapshot }: { initialSnapshot: MonitoringS
       }
 
       setAiAnalysis(payload);
+      setAiDraftJson(payload.draft ? JSON.stringify(payload.draft, null, 2) : "");
       setMetadataState({ message: payload.aiEnabled ? "AI draft generated." : "PDF analyzed. Configure OPENAI_API_KEY for richer AI drafts." });
     } catch (error) {
       setMetadataState({ error: error instanceof Error ? error.message : "AI analysis failed." });
@@ -1056,8 +1060,34 @@ export function AdminConsole({ initialSnapshot }: { initialSnapshot: MonitoringS
     }));
   }
 
+  function getEditableAiDraft() {
+    if (!aiDraftJson.trim()) {
+      return null;
+    }
+
+    try {
+      return JSON.parse(aiDraftJson) as NonNullable<AiAnalysisResult["draft"]>;
+    } catch {
+      setMetadataState({ error: "AI draft JSON is not valid. Fix it before applying." });
+      return null;
+    }
+  }
+
+  async function copyAiDraftJson() {
+    if (!aiDraftJson.trim()) {
+      return;
+    }
+
+    try {
+      await navigator.clipboard.writeText(aiDraftJson);
+      setMetadataState({ message: "Copied AI draft JSON." });
+    } catch {
+      setMetadataState({ error: "Could not copy AI draft JSON." });
+    }
+  }
+
   function applyAiMetadataDraft() {
-    const draft = aiAnalysis?.draft;
+    const draft = getEditableAiDraft();
     if (!draft) {
       return;
     }
@@ -1086,7 +1116,7 @@ export function AdminConsole({ initialSnapshot }: { initialSnapshot: MonitoringS
   }
 
   function applyAiPageNumberingDraft() {
-    const startPage = aiAnalysis?.draft?.printedPageStartPage;
+    const startPage = getEditableAiDraft()?.printedPageStartPage;
     if (!startPage) {
       setMetadataState({ error: "AI draft does not include printed page start." });
       return;
@@ -1097,7 +1127,7 @@ export function AdminConsole({ initialSnapshot }: { initialSnapshot: MonitoringS
   }
 
   function applyAiSectionsDraft() {
-    const { sections, warnings } = validateAiSections(aiAnalysis?.draft?.sections);
+    const { sections, warnings } = validateAiSections(getEditableAiDraft()?.sections);
     if (sections.length === 0) {
       setMetadataState({ error: warnings.join(" ") || "AI draft does not include valid sections." });
       return;
@@ -1502,9 +1532,24 @@ export function AdminConsole({ initialSnapshot }: { initialSnapshot: MonitoringS
                     <span>Text pages: {aiAnalysis.extractableTextPages ?? "?"}</span>
                     <span>Confidence: {aiAnalysis.draft.confidence || "unknown"}</span>
                   </div>
-                  <pre className="max-h-72 overflow-auto rounded-2xl bg-stone-950 p-3 text-xs text-stone-300">
-                    {JSON.stringify(aiAnalysis.draft, null, 2)}
-                  </pre>
+                  <div className="space-y-2">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <span className="text-xs font-medium text-stone-300">Editable response JSON</span>
+                      <button
+                        type="button"
+                        onClick={() => void copyAiDraftJson()}
+                        className="rounded-full border border-stone-700 px-3 py-1.5 text-xs font-medium text-stone-200 transition hover:border-emerald-300"
+                      >
+                        Copy JSON
+                      </button>
+                    </div>
+                    <textarea
+                      value={aiDraftJson}
+                      onChange={(event) => setAiDraftJson(event.target.value)}
+                      spellCheck={false}
+                      className="min-h-72 w-full rounded-2xl border border-stone-800 bg-stone-950 p-3 font-mono text-xs leading-5 text-stone-300 outline-none transition focus:border-emerald-400"
+                    />
+                  </div>
                   {aiAnalysis.extractedTextPreview?.length ? (
                     <details className="rounded-2xl border border-stone-800 bg-stone-950/80 p-3">
                       <summary className="cursor-pointer text-xs font-medium text-emerald-200">

@@ -52,10 +52,15 @@ function cleanSections(sections, totalPages) {
   const normalized = sections
     .map((section, index) => {
       const title = String(section?.title || "").trim();
+      const normalizedTitle = title.toLowerCase();
       const startPage = Math.max(1, Math.floor(Number(section?.startPage)));
       const endPage = Math.min(totalPages, Math.floor(Number(section?.endPage)));
 
       if (!title || !Number.isFinite(startPage) || !Number.isFinite(endPage) || endPage < startPage) {
+        return null;
+      }
+
+      if (["contents", "content", "index", "fehrist", "fahrist"].includes(normalizedTitle)) {
         return null;
       }
 
@@ -253,6 +258,7 @@ ${sampledText}
 PDF stats:
 - total rendered pages in book: ${extracted.pageCount || extracted.pages.length || "unknown"}
 - rendered pages included in this extract: ${extracted.pages.length}
+- The full PDF exists and has the total rendered page count above. This text extract is only an early-page sample for analysis.
 
 Return shape:
 {
@@ -277,9 +283,14 @@ ${buildLanguageRules(context)}
 - Target around ${targetSections} major sections and do not exceed ${maxSections} sections.
 - Prefer table-of-contents/main chapter entries over every subheading.
 - If the early extract contains a table of contents/index, use it to draft app navigation sections for the full book, even when the chapter body pages are outside this extract.
+- Never output the table of contents/index page itself as a section. Do not create sections titled Contents, Index, Fehrist, Fahrist, فہرست, or فهرس.
+- If a TOC is present, extract the actual TOC entries and use those entries as the primary sections.
+- A 315 page book should not have only 2-3 app sections when a clear TOC is present; create a practical set of major TOC sections across the whole book.
 - Treat common TOC labels in the book language, such as Urdu or Arabic words for index/table of contents, as table-of-contents evidence.
 - Do not stop app sections at the last extracted page when a TOC clearly lists later content.
+- Do not say the full book is not present. Say only that the text sample is limited if needed.
 - When using TOC entries, convert printed page references to rendered page indexes using printedPageStartPage if you can infer it; otherwise make the best conservative rendered-page estimate and explain uncertainty in notes.
+- If printedPageStartPage is uncertain, still produce TOC-based sections using the best rendered-page estimate rather than dropping later TOC entries.
 - App sections should represent major TOC chapters/topics, not every minor heading in the TOC.
 - For TOC-derived sections, choose each endPage as the page before the next section starts; use total rendered pages (${extracted.pageCount || "pageCount"}) for the final section when known.
 - Merge small adjacent topics; avoid sections shorter than 3 pages unless they are clearly important.
