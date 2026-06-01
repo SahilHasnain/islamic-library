@@ -183,18 +183,6 @@ function createEmptyPlan(): PlanEditorItem {
   };
 }
 
-function createEmptyLanguage(): EditionLanguageEditorItem {
-  return {
-    id: "",
-    title: "",
-    nativeTitle: "",
-    summary: "",
-    order: "",
-    defaultVolumeId: "",
-    volumes: [createEmptyVolume()],
-  };
-}
-
 function createEmptySection(): SectionEditorItem {
   return {
     id: "",
@@ -592,10 +580,13 @@ export function AdminConsole({ initialSnapshot }: { initialSnapshot: MonitoringS
   const [retryingPushJobId, setRetryingPushJobId] = useState<string>();
   const [jobFilter, setJobFilter] = useState<(typeof jobFilters)[number]["value"]>("all");
   const [searchQuery, setSearchQuery] = useState("");
+  const [activeWorkspace, setActiveWorkspace] = useState<"upload" | "edit" | "jobs" | "events">("edit");
   const [isRepublishingMetadata, setIsRepublishingMetadata] = useState(false);
   const [isAnalyzingMetadata, setIsAnalyzingMetadata] = useState(false);
   const [aiAnalysisDepth, setAiAnalysisDepth] = useState<"quick" | "full">("quick");
   const [showAdvancedMetadata, setShowAdvancedMetadata] = useState(false);
+  const [selectedAdvancedLanguageIndex, setSelectedAdvancedLanguageIndex] = useState(0);
+  const [selectedAdvancedVolumeIndex, setSelectedAdvancedVolumeIndex] = useState(0);
   const [metadataState, setMetadataState] = useState<SubmissionState>({});
   const [aiAnalysis, setAiAnalysis] = useState<AiAnalysisResult | null>(null);
   const [metadataForm, setMetadataForm] = useState<MetadataFormState>({
@@ -1084,6 +1075,28 @@ export function AdminConsole({ initialSnapshot }: { initialSnapshot: MonitoringS
           </p>
         </div>
 
+        <nav className="mb-8 flex flex-wrap gap-2 rounded-3xl border border-stone-800 bg-stone-900/70 p-2">
+          {[
+            { id: "edit", label: "Edit Book" },
+            { id: "upload", label: "Upload PDF" },
+            { id: "jobs", label: "Jobs" },
+            { id: "events", label: "Publish Events" },
+          ].map((tab) => (
+            <button
+              key={tab.id}
+              type="button"
+              onClick={() => setActiveWorkspace(tab.id as typeof activeWorkspace)}
+              className={`rounded-full px-4 py-2 text-sm font-medium transition ${activeWorkspace === tab.id
+                ? "bg-amber-300 text-stone-950"
+                : "text-stone-300 hover:bg-stone-800 hover:text-amber-200"
+              }`}
+            >
+              {tab.label}
+            </button>
+          ))}
+        </nav>
+
+        {activeWorkspace === "upload" ? (
         <div className="grid gap-8 xl:grid-cols-[1.05fr_0.95fr]">
           <section className="rounded-3xl border border-stone-800 bg-stone-900/80 p-6 shadow-2xl shadow-black/20">
             <form className="space-y-6" onSubmit={handleSubmit}>
@@ -1203,8 +1216,10 @@ export function AdminConsole({ initialSnapshot }: { initialSnapshot: MonitoringS
             </div>
           </aside>
         </div>
+        ) : null}
 
-        <section className="mt-8 rounded-3xl border border-stone-800 bg-stone-900/80 p-6 shadow-2xl shadow-black/20">
+        {activeWorkspace === "edit" ? (
+        <section className="rounded-3xl border border-stone-800 bg-stone-900/80 p-6 shadow-2xl shadow-black/20">
           <div className="mb-6">
             <p className="text-xs uppercase tracking-[0.24em] text-stone-400">Published Metadata</p>
             <h2 className="mt-2 text-2xl font-semibold text-stone-50">Update title or subtitle without re-rendering</h2>
@@ -1466,9 +1481,9 @@ export function AdminConsole({ initialSnapshot }: { initialSnapshot: MonitoringS
             <div className="space-y-4 rounded-3xl border border-stone-800 bg-stone-950/40 p-4">
               <div className="flex items-start justify-between gap-4">
                 <div>
-                  <span className="text-sm text-stone-200">Advanced edition structure</span>
+                  <span className="text-sm text-stone-200">Existing edition details</span>
                   <p className="mt-1 text-xs leading-5 text-stone-400">
-                    Only open this when adding languages, adding volumes, or editing sections/plans.
+                    Edit details for languages and volumes that already exist. Add new editions from Upload PDF.
                   </p>
                 </div>
                 <button
@@ -1482,23 +1497,49 @@ export function AdminConsole({ initialSnapshot }: { initialSnapshot: MonitoringS
 
               {!showAdvancedMetadata ? (
                 <div className="rounded-2xl border border-stone-800 bg-stone-950/60 p-4 text-sm leading-6 text-stone-400">
-                  Current structure: {metadataForm.languages.length || 0} language(s), {metadataForm.languages.reduce((count, language) => count + language.volumes.length, 0)} volume(s). Page numbering can be edited above without opening this section.
+                  Current structure: {metadataForm.languages.length || 0} existing language(s), {metadataForm.languages.reduce((count, language) => count + language.volumes.length, 0)} existing volume(s). Add new languages or volumes from Upload PDF using the existing book slug.
                 </div>
               ) : (
                 <>
-                  <div className="flex justify-end">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setMetadataForm((current) => ({
-                          ...current,
-                          languages: [...current.languages, createEmptyLanguage()],
-                        }));
-                      }}
-                      className="rounded-full border border-stone-700 px-4 py-2 text-xs font-medium text-stone-200 transition hover:border-amber-300 hover:text-amber-200"
-                    >
-                      Add language
-                    </button>
+                  <div className="grid gap-4 rounded-2xl border border-stone-800 bg-stone-950/60 p-4 md:grid-cols-2">
+                    <label className="space-y-2">
+                      <span className="text-xs text-stone-300">Language to edit</span>
+                      <select
+                        value={Math.min(selectedAdvancedLanguageIndex, Math.max(0, metadataForm.languages.length - 1))}
+                        onChange={(event) => {
+                          setSelectedAdvancedLanguageIndex(Number(event.target.value));
+                          setSelectedAdvancedVolumeIndex(0);
+                        }}
+                        className="w-full rounded-2xl border border-stone-700 bg-stone-950 px-4 py-3 text-sm outline-none transition focus:border-amber-300"
+                      >
+                        {metadataForm.languages.map((language, index) => (
+                          <option key={`${language.id || "language"}-${index}`} value={index}>
+                            {language.title || language.id || `Language ${index + 1}`}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <label className="space-y-2">
+                      <span className="text-xs text-stone-300">Volume to edit</span>
+                      <select
+                        value={Math.min(
+                          selectedAdvancedVolumeIndex,
+                          Math.max(0, (metadataForm.languages[selectedAdvancedLanguageIndex]?.volumes.length ?? 1) - 1),
+                        )}
+                        onChange={(event) => setSelectedAdvancedVolumeIndex(Number(event.target.value))}
+                        className="w-full rounded-2xl border border-stone-700 bg-stone-950 px-4 py-3 text-sm outline-none transition focus:border-amber-300"
+                      >
+                        {(metadataForm.languages[selectedAdvancedLanguageIndex]?.volumes ?? []).map((volume, index) => (
+                          <option key={`${volume.id || "volume"}-${index}`} value={index}>
+                            {volume.title || volume.id || `Volume ${index + 1}`}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  </div>
+
+                  <div className="rounded-2xl border border-amber-900/40 bg-amber-950/20 p-4 text-xs leading-5 text-amber-100/80">
+                    To add a new language or volume, go to <strong>Upload PDF</strong>, enter this book slug, set the new language/volume ID, and upload the source PDF. This editor only updates existing published editions.
                   </div>
 
               <label className="block space-y-2">
@@ -1522,7 +1563,12 @@ export function AdminConsole({ initialSnapshot }: { initialSnapshot: MonitoringS
                 </div>
               ) : (
                 <div className="space-y-5">
-                  {metadataForm.languages.map((language, languageIndex) => (
+                  {metadataForm.languages.map((language, languageIndex) => {
+                    if (languageIndex !== selectedAdvancedLanguageIndex) {
+                      return null;
+                    }
+
+                    return (
                     <div
                       key={`${language.id || "language"}-${languageIndex}`}
                       className="rounded-3xl border border-stone-800 bg-stone-950/60 p-4"
@@ -1531,21 +1577,9 @@ export function AdminConsole({ initialSnapshot }: { initialSnapshot: MonitoringS
                         <div>
                           <p className="text-sm font-medium text-stone-100">Language {languageIndex + 1}</p>
                           <p className="text-xs text-stone-400">
-                            One reading edition family with its own default volume and ordering.
+                            Existing language edition. Use Upload PDF to add a new language.
                           </p>
                         </div>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setMetadataForm((current) => ({
-                              ...current,
-                              languages: current.languages.filter((_, currentIndex) => currentIndex !== languageIndex),
-                            }));
-                          }}
-                          className="rounded-full border border-rose-900/60 px-4 py-2 text-xs font-medium text-rose-200 transition hover:border-rose-400 hover:text-rose-100"
-                        >
-                          Remove
-                        </button>
                       </div>
 
                       <div className="grid gap-4 md:grid-cols-2">
@@ -1655,30 +1689,19 @@ export function AdminConsole({ initialSnapshot }: { initialSnapshot: MonitoringS
                       <div className="mt-5 space-y-4">
                         <div className="flex items-center justify-between gap-4">
                           <div>
-                            <span className="text-xs uppercase tracking-[0.18em] text-stone-400">Volumes</span>
+                            <span className="text-xs uppercase tracking-[0.18em] text-stone-400">Selected volume</span>
                             <p className="mt-1 text-xs text-stone-500">
-                              Each language can carry one or more publishable reading volumes.
+                              Existing readable unit for this language. Use Upload PDF to add another volume.
                             </p>
                           </div>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setMetadataForm((current) => ({
-                                ...current,
-                                languages: current.languages.map((item, currentIndex) =>
-                                  currentIndex === languageIndex
-                                    ? { ...item, volumes: [...item.volumes, createEmptyVolume()] }
-                                    : item,
-                                ),
-                              }));
-                            }}
-                            className="rounded-full border border-stone-700 px-4 py-2 text-xs font-medium text-stone-200 transition hover:border-amber-300 hover:text-amber-200"
-                          >
-                            Add volume
-                          </button>
                         </div>
 
-                        {language.volumes.map((volume, volumeIndex) => (
+                        {language.volumes.map((volume, volumeIndex) => {
+                          if (volumeIndex !== selectedAdvancedVolumeIndex) {
+                            return null;
+                          }
+
+                          return (
                           <div
                             key={`${volume.id || "volume"}-${volumeIndex}`}
                             className="rounded-2xl border border-stone-800 bg-stone-900/40 p-4"
@@ -1687,28 +1710,9 @@ export function AdminConsole({ initialSnapshot }: { initialSnapshot: MonitoringS
                               <div>
                                 <p className="text-sm font-medium text-stone-100">Volume {volumeIndex + 1}</p>
                                 <p className="text-xs text-stone-400">
-                                  This is the concrete readable unit for the selected language.
+                                  Existing volume details, sections, and plans.
                                 </p>
                               </div>
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setMetadataForm((current) => ({
-                                    ...current,
-                                    languages: current.languages.map((item, currentIndex) =>
-                                      currentIndex === languageIndex
-                                        ? {
-                                          ...item,
-                                          volumes: item.volumes.filter((_, currentVolumeIndex) => currentVolumeIndex !== volumeIndex),
-                                        }
-                                        : item,
-                                    ),
-                                  }));
-                                }}
-                                className="rounded-full border border-rose-900/60 px-4 py-2 text-xs font-medium text-rose-200 transition hover:border-rose-400 hover:text-rose-100"
-                              >
-                                Remove
-                              </button>
                             </div>
 
                             <div className="grid gap-4 md:grid-cols-2">
@@ -2559,10 +2563,12 @@ export function AdminConsole({ initialSnapshot }: { initialSnapshot: MonitoringS
                               )}
                             </div>
                           </div>
-                        ))}
+                          );
+                        })}
                       </div>
                     </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
                 </>
@@ -2594,8 +2600,11 @@ export function AdminConsole({ initialSnapshot }: { initialSnapshot: MonitoringS
             )}
           </div>
         </section>
+        ) : null}
 
-        <section className="mt-8 grid gap-4 md:grid-cols-2 xl:grid-cols-5">
+        {activeWorkspace === "jobs" ? (
+        <>
+        <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
           <div className="rounded-2xl border border-stone-800 bg-stone-900/70 p-4">
             <p className="text-xs uppercase tracking-[0.24em] text-stone-500">Queue</p>
             <p className="mt-3 text-3xl font-semibold text-stone-50">{summary.queuedJobs}</p>
@@ -2791,8 +2800,11 @@ export function AdminConsole({ initialSnapshot }: { initialSnapshot: MonitoringS
             </div>
           )}
         </section>
+        </>
+        ) : null}
 
-        <section className="mt-8 rounded-3xl border border-stone-800 bg-stone-900/70 p-6">
+        {activeWorkspace === "events" ? (
+        <section className="rounded-3xl border border-stone-800 bg-stone-900/70 p-6">
           <div>
             <p className="text-xs uppercase tracking-[0.24em] text-stone-400">Publish Events</p>
             <h2 className="mt-2 text-2xl font-semibold text-stone-50">Recent publish activity</h2>
@@ -2832,6 +2844,7 @@ export function AdminConsole({ initialSnapshot }: { initialSnapshot: MonitoringS
             </div>
           )}
         </section>
+        ) : null}
       </div>
     </main>
   );
