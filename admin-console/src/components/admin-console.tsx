@@ -2726,6 +2726,16 @@ export function AdminConsole({ initialSnapshot }: { initialSnapshot: MonitoringS
                         <span className="text-xs text-emerald-300">Pushed</span>
                       </div>
                     ) : null}
+                    {book?.metadataUrl ? (
+                      <a
+                        href={`/viewer?metadataUrl=${encodeURIComponent(book.metadataUrl)}&language=${encodeURIComponent(job.languageId)}&volume=${encodeURIComponent(job.volumeId)}`}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="mt-2 inline-flex rounded-full border border-stone-700 px-3 py-1.5 text-xs font-medium text-stone-200 transition hover:border-amber-300 hover:text-amber-200"
+                      >
+                        View book
+                      </a>
+                    ) : null}
                   </div>
                   <span className={`inline-flex w-fit rounded-full border px-3 py-1 text-xs font-medium ${getStatusTone(job.status)}`}>
                     {job.status}

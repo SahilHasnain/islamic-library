@@ -25,6 +25,97 @@ const allowedCategories = [
   "Zubaano Bayaan",
 ];
 
+function getSectionTargets(totalPages) {
+  return {
+    targetSections: Math.max(3, Math.ceil(totalPages / 10)),
+    maxSections: Math.max(5, Math.ceil(totalPages / 7)),
+  };
+}
+
+function slugifyTitle(title, fallback) {
+  const slug = String(title || "")
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 80);
+
+  return slug || fallback;
+}
+
+function cleanSections(sections, totalPages) {
+  if (!Array.isArray(sections)) {
+    return [];
+  }
+
+  const { maxSections } = getSectionTargets(totalPages);
+  const normalized = sections
+    .map((section, index) => {
+      const title = String(section?.title || "").trim();
+      const startPage = Math.max(1, Math.floor(Number(section?.startPage)));
+      const endPage = Math.min(totalPages, Math.floor(Number(section?.endPage)));
+
+      if (!title || !Number.isFinite(startPage) || !Number.isFinite(endPage) || endPage < startPage) {
+        return null;
+      }
+
+      return {
+        id: slugifyTitle(title, `section-${index + 1}`),
+        title: title.replace(/\s+\(continued\)$/i, ""),
+        kind: String(section?.kind || "chapter").trim() || "chapter",
+        startPage,
+        endPage,
+        estimatedMinutes: Math.max(3, Math.floor(Number(section?.estimatedMinutes) || (endPage - startPage + 1) * 2)),
+      };
+    })
+    .filter(Boolean)
+    .sort((left, right) => left.startPage - right.startPage);
+
+  const deduped = [];
+  for (const section of normalized) {
+    const previous = deduped[deduped.length - 1];
+    if (previous && previous.title.toLowerCase() === section.title.toLowerCase()) {
+      previous.endPage = Math.max(previous.endPage, section.endPage);
+      previous.estimatedMinutes += section.estimatedMinutes;
+      continue;
+    }
+
+    if (previous && section.startPage <= previous.endPage) {
+      previous.endPage = Math.max(previous.startPage, section.startPage - 1);
+    }
+
+    deduped.push(section);
+  }
+
+  let compacted = deduped.filter((section) => section.endPage >= section.startPage);
+
+  while (compacted.length > maxSections) {
+    let mergeIndex = 0;
+    let smallestSpan = Number.MAX_SAFE_INTEGER;
+
+    for (let index = 0; index < compacted.length - 1; index += 1) {
+      const span = compacted[index].endPage - compacted[index].startPage + 1;
+      if (span < smallestSpan) {
+        smallestSpan = span;
+        mergeIndex = index;
+      }
+    }
+
+    const current = compacted[mergeIndex];
+    const next = compacted[mergeIndex + 1];
+    compacted[mergeIndex] = {
+      ...current,
+      title: `${current.title} / ${next.title}`,
+      id: slugifyTitle(`${current.title}-${next.title}`, current.id),
+      endPage: next.endPage,
+      estimatedMinutes: current.estimatedMinutes + next.estimatedMinutes,
+    };
+    compacted.splice(mergeIndex + 1, 1);
+  }
+
+  return compacted;
+}
+
 function runPython(scriptPath, args) {
   return new Promise((resolve, reject) => {
     const child = spawn("python", [scriptPath, ...args], { stdio: ["ignore", "pipe", "pipe"] });
@@ -50,16 +141,66 @@ function runPython(scriptPath, args) {
 
 function extractJson(text) {
   const trimmed = text.trim();
-  if (trimmed.startsWith("{")) {
-    return JSON.parse(trimmed);
+  const fencedMatch = trimmed.match(/```(?:json)?\s*([\s\S]*?)```/);
+  const source = fencedMatch ? fencedMatch[1].trim() : trimmed;
+
+  if (source.startsWith("{")) {
+    try {
+      return JSON.parse(source);
+    } catch {
+      const balanced = extractFirstJsonObject(source);
+      if (balanced) {
+        return JSON.parse(balanced);
+      }
+    }
   }
 
-  const match = trimmed.match(/```(?:json)?\s*([\s\S]*?)```/);
-  if (match) {
-    return JSON.parse(match[1]);
+  const objectStart = source.indexOf("{");
+  if (objectStart >= 0) {
+    const balanced = extractFirstJsonObject(source.slice(objectStart));
+    if (balanced) {
+      return JSON.parse(balanced);
+    }
   }
 
   throw new Error("AI response did not contain JSON.");
+}
+
+function extractFirstJsonObject(text) {
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+
+  for (let index = 0; index < text.length; index += 1) {
+    const character = text[index];
+
+    if (inString) {
+      if (escaped) {
+        escaped = false;
+      } else if (character === "\\") {
+        escaped = true;
+      } else if (character === '"') {
+        inString = false;
+      }
+      continue;
+    }
+
+    if (character === '"') {
+      inString = true;
+      continue;
+    }
+
+    if (character === "{") {
+      depth += 1;
+    } else if (character === "}") {
+      depth -= 1;
+      if (depth === 0) {
+        return text.slice(0, index + 1);
+      }
+    }
+  }
+
+  return null;
 }
 
 function getAiConfig() {
@@ -84,6 +225,7 @@ function getAiConfig() {
 }
 
 function buildPrompt({ extracted, context }) {
+  const { targetSections, maxSections } = getSectionTargets(extracted.pageCount || extracted.pages.length || 1);
   const sampledText = extracted.pages
     .map((page) => `--- Rendered page ${page.page} ---\n${page.text || "[no extractable text]"}`)
     .join("\n\n")
@@ -116,11 +258,17 @@ Rules:
 - rendered page means image/PDF index, not printed page number.
 - printedPageStartPage should be the rendered page where printed page 1 begins.
 - category must be exactly one item from this list: ${allowedCategories.join(", ")}.
+- Target around ${targetSections} major sections and do not exceed ${maxSections} sections.
+- Prefer table-of-contents/main chapter entries over every subheading.
+- Merge small adjacent topics; avoid sections shorter than 3 pages unless they are clearly important.
+- Do not use generic IDs like sec-01 when a title-based ID is possible.
+- Do not mention OCR unless OCR text was explicitly provided.
 - If unsure, use null and explain in notes.
 - Keep sections conservative; only include sections clearly supported by the extract.`;
 }
 
 function buildSectionChunkPrompt({ pages, context }) {
+  const { targetSections, maxSections } = getSectionTargets(pages.length);
   const chunkText = pages
     .map((page) => `--- Rendered page ${page.page} ---\n${page.text || "[no extractable text]"}`)
     .join("\n\n")
@@ -143,11 +291,18 @@ Return shape:
 Rules:
 - Page numbers are rendered image/PDF indexes.
 - Only include sections clearly supported by this chunk.
+- Target around ${targetSections} major sections for this chunk and do not exceed ${maxSections}.
+- Prefer main chapter/TOC entries over subheadings.
+- Merge small adjacent topics; avoid sections shorter than 3 pages unless clearly important.
+- Do not use generic IDs like sec-01 when a title-based ID is possible.
+- Do not mention OCR unless OCR text was explicitly provided.
 - Use conservative start/end pages.
 - Do not invent metadata outside this chunk.`;
 }
 
 function buildMergePrompt({ baseDraft, sectionCandidates, context }) {
+  const totalPages = Math.max(...sectionCandidates.map((section) => Number(section.endPage) || 1), 1);
+  const { targetSections, maxSections } = getSectionTargets(totalPages);
   return `Merge these AI section candidates into one clean metadata draft. Return ONLY valid JSON.
 
 Context:
@@ -178,6 +333,11 @@ Rules:
 - Preserve good fields from base draft.
 - category must be exactly one item from: ${allowedCategories.join(", ")}.
 - Merge duplicates and overlapping section candidates.
+- Target around ${targetSections} major sections and do not exceed ${maxSections} sections.
+- Prefer TOC/main chapter sections over every subheading.
+- Merge small adjacent topics; avoid sections shorter than 3 pages unless clearly important.
+- Do not use generic IDs like sec-01 when a title-based ID is possible.
+- Do not mention OCR unless OCR text was explicitly provided.
 - Sort sections by startPage.
 - Do not invent sections not supported by candidates.`;
 }
@@ -317,7 +477,7 @@ async function callAiProvider({ extracted, context }) {
 
 async function buildChunkedDraft({ extracted, context }) {
   const basePages = { ...extracted, pages: extracted.pages.slice(0, Math.min(40, extracted.pages.length)) };
-  const baseDraft = normalizeDraft(await callAiProvider({ extracted: basePages, context }));
+  const baseDraft = normalizeDraft(await callAiProvider({ extracted: basePages, context }), extracted.pageCount);
   if (!baseDraft) {
     return null;
   }
@@ -339,10 +499,11 @@ async function buildChunkedDraft({ extracted, context }) {
 
   return normalizeDraft(
     await callAiProviderPrompt(buildMergePrompt({ baseDraft, sectionCandidates, context })),
+    extracted.pageCount,
   );
 }
 
-function normalizeDraft(draft) {
+function normalizeDraft(draft, totalPages = 100000) {
   if (!draft) {
     return draft;
   }
@@ -350,6 +511,7 @@ function normalizeDraft(draft) {
   return {
     ...draft,
     category: allowedCategories.includes(draft.category) ? draft.category : null,
+    sections: cleanSections(draft.sections, totalPages),
   };
 }
 
@@ -368,7 +530,7 @@ export async function analyzeSourcePdf({ sourceFileId, context, maxPages }) {
     const isFullAnalysis = resolvedMaxPages <= 0;
     const aiDraft = isFullAnalysis
       ? await buildChunkedDraft({ extracted, context })
-      : normalizeDraft(await callAiProvider({ extracted, context }));
+      : normalizeDraft(await callAiProvider({ extracted, context }), extracted.pageCount);
 
     return {
       pageCount: extracted.pageCount,
