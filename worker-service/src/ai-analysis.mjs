@@ -219,6 +219,14 @@ function buildLanguageRules(context) {
 - Keep section id values URL-safe ASCII slugs, even when section titles use Urdu/Arabic/Hindi script.`;
 }
 
+function getPromptTextCharLimit() {
+  return Number(process.env.AI_PROMPT_TEXT_CHAR_LIMIT || 60000);
+}
+
+function getMergePromptCharLimit() {
+  return Number(process.env.AI_MERGE_PROMPT_CHAR_LIMIT || 70000);
+}
+
 function getAiConfig() {
   const provider = (process.env.AI_PROVIDER || "").toLowerCase().trim();
   const legacyOpenAiKey = process.env.OPENAI_API_KEY;
@@ -245,7 +253,7 @@ function buildPrompt({ extracted, context }) {
   const sampledText = extracted.pages
     .map((page) => `--- Rendered page ${page.page} ---\n${page.text || "[no extractable text]"}`)
     .join("\n\n")
-    .slice(0, 60000);
+    .slice(0, getPromptTextCharLimit());
 
   return `Analyze this Islamic library book PDF extract and return ONLY valid JSON.
 
@@ -305,7 +313,7 @@ function buildSectionChunkPrompt({ pages, context }) {
   const chunkText = pages
     .map((page) => `--- Rendered page ${page.page} ---\n${page.text || "[no extractable text]"}`)
     .join("\n\n")
-    .slice(0, 60000);
+    .slice(0, getPromptTextCharLimit());
 
   return `Extract section/chapter candidates from this PDF chunk. Return ONLY valid JSON.
 
@@ -346,7 +354,7 @@ Base draft:
 ${JSON.stringify(baseDraft, null, 2)}
 
 Section candidates:
-${JSON.stringify(sectionCandidates, null, 2).slice(0, 70000)}
+${JSON.stringify(sectionCandidates, null, 2).slice(0, getMergePromptCharLimit())}
 
 Return shape:
 {

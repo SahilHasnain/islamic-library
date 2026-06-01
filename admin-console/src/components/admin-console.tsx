@@ -40,6 +40,8 @@ const jobFilters = [
   { label: "Published", value: "published" },
 ] as const;
 
+const quickAnalysisAsJob = process.env.NEXT_PUBLIC_AI_QUICK_ANALYSIS_AS_JOB === "true";
+
 function wait(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -964,7 +966,7 @@ export function AdminConsole({ initialSnapshot }: { initialSnapshot: MonitoringS
     try {
       const requestBody = {
         sourceFileId: knownBook.sourceFileId,
-        maxPages: aiAnalysisDepth === "full" ? 0 : 40,
+        maxPages: aiAnalysisDepth === "full" ? 0 : 15,
         context: {
           bookSlug: slug,
           title: metadataForm.title,
@@ -976,8 +978,9 @@ export function AdminConsole({ initialSnapshot }: { initialSnapshot: MonitoringS
         },
       };
 
-      if (aiAnalysisDepth === "full") {
-        setAiAnalysisJobStatus("Starting full analysis...");
+      if (aiAnalysisDepth === "full" || quickAnalysisAsJob) {
+        const modeLabel = aiAnalysisDepth === "full" ? "Full" : "Quick";
+        setAiAnalysisJobStatus(`Starting ${modeLabel.toLowerCase()} analysis...`);
         const startResponse = await fetch("/api/ai/analyze/start", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -1004,7 +1007,7 @@ export function AdminConsole({ initialSnapshot }: { initialSnapshot: MonitoringS
             return;
           }
 
-          setAiAnalysisJobStatus(`Full analysis ${statusPayload.phase || statusPayload.status}...`);
+          setAiAnalysisJobStatus(`${modeLabel} analysis ${statusPayload.phase || statusPayload.status}...`);
           if (statusPayload.status === "completed" && statusPayload.result) {
             setAiAnalysis(statusPayload.result);
             setAiDraftJson(statusPayload.result.draft ? JSON.stringify(statusPayload.result.draft, null, 2) : "");
@@ -1511,7 +1514,7 @@ export function AdminConsole({ initialSnapshot }: { initialSnapshot: MonitoringS
                     onChange={(event) => setAiAnalysisDepth(event.target.value as "quick" | "full")}
                     className="rounded-full border border-emerald-900 bg-stone-950 px-4 py-2 text-xs font-medium text-emerald-100 outline-none transition focus:border-emerald-300"
                   >
-                    <option value="quick">Quick: first 40 pages</option>
+                    <option value="quick">Quick: first 15 pages</option>
                     <option value="full">Full: all pages</option>
                   </select>
                   <button
