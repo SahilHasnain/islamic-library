@@ -203,6 +203,17 @@ function extractFirstJsonObject(text) {
   return null;
 }
 
+function buildLanguageRules(context) {
+  const languageId = String(context?.languageId || "").trim() || "the PDF's primary language";
+  return `Language rules:
+- First determine the book's primary language/script from the PDF text and context languageId (${languageId}).
+- Write user-facing fields in that same language/script: title, subtitle, author, description, volumeTitle, section titles, and notes.
+- Do not translate Urdu, Arabic, Persian, or Hindi content into English unless the source book itself is English.
+- Keep category exactly from the controlled English category list.
+- Keep languageId as a lowercase identifier such as urdu, roman-urdu, arabic, hindi, or english.
+- Keep section id values URL-safe ASCII slugs, even when section titles use Urdu/Arabic/Hindi script.`;
+}
+
 function getAiConfig() {
   const provider = (process.env.AI_PROVIDER || "").toLowerCase().trim();
   const legacyOpenAiKey = process.env.OPENAI_API_KEY;
@@ -239,6 +250,10 @@ ${JSON.stringify(context, null, 2)}
 PDF extract from the first pages:
 ${sampledText}
 
+PDF stats:
+- total rendered pages in book: ${extracted.pageCount || extracted.pages.length || "unknown"}
+- rendered pages included in this extract: ${extracted.pages.length}
+
 Return shape:
 {
   "title": string | null,
@@ -255,16 +270,23 @@ Return shape:
 }
 
 Rules:
+${buildLanguageRules(context)}
 - rendered page means image/PDF index, not printed page number.
 - printedPageStartPage should be the rendered page where printed page 1 begins.
 - category must be exactly one item from this list: ${allowedCategories.join(", ")}.
 - Target around ${targetSections} major sections and do not exceed ${maxSections} sections.
 - Prefer table-of-contents/main chapter entries over every subheading.
+- If the early extract contains a table of contents/index, use it to draft app navigation sections for the full book, even when the chapter body pages are outside this extract.
+- Treat common TOC labels in the book language, such as Urdu or Arabic words for index/table of contents, as table-of-contents evidence.
+- Do not stop app sections at the last extracted page when a TOC clearly lists later content.
+- When using TOC entries, convert printed page references to rendered page indexes using printedPageStartPage if you can infer it; otherwise make the best conservative rendered-page estimate and explain uncertainty in notes.
+- App sections should represent major TOC chapters/topics, not every minor heading in the TOC.
+- For TOC-derived sections, choose each endPage as the page before the next section starts; use total rendered pages (${extracted.pageCount || "pageCount"}) for the final section when known.
 - Merge small adjacent topics; avoid sections shorter than 3 pages unless they are clearly important.
 - Do not use generic IDs like sec-01 when a title-based ID is possible.
 - Do not mention OCR unless OCR text was explicitly provided.
 - If unsure, use null and explain in notes.
-- Keep sections conservative; only include sections clearly supported by the extract.`;
+- Keep sections conservative; include sections supported by body pages or clearly listed in the TOC.`;
 }
 
 function buildSectionChunkPrompt({ pages, context }) {
@@ -289,6 +311,7 @@ Return shape:
 }
 
 Rules:
+${buildLanguageRules(context)}
 - Page numbers are rendered image/PDF indexes.
 - Only include sections clearly supported by this chunk.
 - Target around ${targetSections} major sections for this chunk and do not exceed ${maxSections}.
@@ -330,6 +353,7 @@ Return shape:
 }
 
 Rules:
+${buildLanguageRules(context)}
 - Preserve good fields from base draft.
 - category must be exactly one item from: ${allowedCategories.join(", ")}.
 - Merge duplicates and overlapping section candidates.
@@ -399,39 +423,63 @@ async function fetchWithRetry(url, options) {
   );
 }
 
+function getRetryDelayMs(response, bodyText) {
+  const retryAfter = Number(response.headers.get("retry-after"));
+  if (Number.isFinite(retryAfter) && retryAfter > 0) {
+    return Math.ceil(retryAfter * 1000) + 500;
+  }
+
+  const messageDelay = bodyText.match(/try again in\s+([0-9.]+)s/i)?.[1];
+  const parsedDelay = Number(messageDelay);
+  if (Number.isFinite(parsedDelay) && parsedDelay > 0) {
+    return Math.ceil(parsedDelay * 1000) + 500;
+  }
+
+  return 5000;
+}
+
 async function callOpenAiCompatible({ config, prompt }) {
   const baseUrl = (config.baseUrl || "https://api.openai.com/v1").replace(/\/$/, "");
   const model = config.model || "gpt-4o-mini";
+  const attempts = Number(process.env.AI_PROVIDER_RETRY_ATTEMPTS || 3);
 
-  const response = await fetchWithRetry(`${baseUrl}/chat/completions`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${config.apiKey || "ollama"}`,
-      ...(config.provider === "openrouter"
-        ? {
-            "HTTP-Referer": process.env.AI_HTTP_REFERER || "http://localhost",
-            "X-Title": process.env.AI_APP_TITLE || "Islamic Library Admin",
-          }
-        : {}),
-    },
-    body: JSON.stringify({
-      model,
-      temperature: 0.2,
-      messages: [
-        { role: "system", content: "You produce careful editorial metadata drafts for an Islamic library admin console." },
-        { role: "user", content: prompt },
-      ],
-    }),
-  });
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    const response = await fetchWithRetry(`${baseUrl}/chat/completions`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${config.apiKey || "ollama"}`,
+        ...(config.provider === "openrouter"
+          ? {
+              "HTTP-Referer": process.env.AI_HTTP_REFERER || "http://localhost",
+              "X-Title": process.env.AI_APP_TITLE || "Islamic Library Admin",
+            }
+          : {}),
+      },
+      body: JSON.stringify({
+        model,
+        temperature: 0.2,
+        messages: [
+          { role: "system", content: "You produce careful editorial metadata drafts for an Islamic library admin console." },
+          { role: "user", content: prompt },
+        ],
+      }),
+    });
 
-  if (!response.ok) {
-    const text = await response.text();
-    throw new Error(`AI request failed (${response.status}): ${text}`);
+    if (!response.ok) {
+      const text = await response.text();
+      if (response.status === 429 && attempt < attempts) {
+        await sleep(getRetryDelayMs(response, text));
+        continue;
+      }
+      throw new Error(`AI request failed (${response.status}): ${text}`);
+    }
+
+    const result = await response.json();
+    return extractJson(result.choices?.[0]?.message?.content ?? "");
   }
 
-  const result = await response.json();
-  return extractJson(result.choices?.[0]?.message?.content ?? "");
+  throw new Error("AI request failed after retries.");
 }
 
 async function callGemini({ config, prompt }) {
@@ -522,6 +570,10 @@ async function buildChunkedDraft({ extracted, context }) {
   for (let index = 0; index < chunks.length; index += 1) {
     const pages = chunks[index];
     try {
+      const chunkDelayMs = Number(process.env.AI_ANALYSIS_CHUNK_DELAY_MS || 5000);
+      if (index > 0 && chunkDelayMs > 0) {
+        await sleep(chunkDelayMs);
+      }
       const chunkDraft = await callAiProviderPrompt(buildSectionChunkPrompt({ pages, context }));
       if (Array.isArray(chunkDraft?.sections)) {
         sectionCandidates.push(...chunkDraft.sections);
@@ -576,6 +628,17 @@ function normalizeDraft(draft, totalPages = 100000) {
   };
 }
 
+function buildExtractedTextPreview(extracted) {
+  const maxPages = Number(process.env.AI_EXTRACT_PREVIEW_PAGES || 20);
+  const maxCharsPerPage = Number(process.env.AI_EXTRACT_PREVIEW_CHARS_PER_PAGE || 2500);
+
+  return extracted.pages.slice(0, maxPages).map((page) => ({
+    page: page.page,
+    text: String(page.text || "").slice(0, maxCharsPerPage),
+    textLength: String(page.text || "").length,
+  }));
+}
+
 export async function analyzeSourcePdf({ sourceFileId, context, maxPages }) {
   const pdfBuffer = await downloadSourcePdf(sourceFileId);
   const tempPdfPath = path.join(os.tmpdir(), `ai-analysis-${sourceFileId}-${Date.now()}.pdf`);
@@ -597,6 +660,7 @@ export async function analyzeSourcePdf({ sourceFileId, context, maxPages }) {
       pageCount: extracted.pageCount,
       analyzedPages: extracted.pages.length,
       extractableTextPages: extracted.pages.filter((page) => page.text).length,
+      extractedTextPreview: buildExtractedTextPreview(extracted),
       draft: aiDraft ?? buildFallbackDraft({ ...context, extracted }),
       aiEnabled: Boolean(aiDraft),
     };

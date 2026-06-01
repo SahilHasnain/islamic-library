@@ -1505,6 +1505,26 @@ export function AdminConsole({ initialSnapshot }: { initialSnapshot: MonitoringS
                   <pre className="max-h-72 overflow-auto rounded-2xl bg-stone-950 p-3 text-xs text-stone-300">
                     {JSON.stringify(aiAnalysis.draft, null, 2)}
                   </pre>
+                  {aiAnalysis.extractedTextPreview?.length ? (
+                    <details className="rounded-2xl border border-stone-800 bg-stone-950/80 p-3">
+                      <summary className="cursor-pointer text-xs font-medium text-emerald-200">
+                        View extracted text preview
+                      </summary>
+                      <div className="mt-3 max-h-96 space-y-3 overflow-auto text-xs leading-5 text-stone-300">
+                        {aiAnalysis.extractedTextPreview.map((page) => (
+                          <div key={page.page} className="rounded-xl bg-stone-900/70 p-3">
+                            <div className="mb-2 flex flex-wrap gap-2 text-[11px] uppercase tracking-[0.18em] text-stone-500">
+                              <span>Rendered page {page.page}</span>
+                              <span>{page.textLength} chars extracted</span>
+                            </div>
+                            <pre className="whitespace-pre-wrap font-sans text-xs leading-5 text-stone-300">
+                              {page.text || "[no extractable text]"}
+                            </pre>
+                          </div>
+                        ))}
+                      </div>
+                    </details>
+                  ) : null}
                   <div className="flex flex-wrap gap-2">
                     <button
                       type="button"

@@ -180,6 +180,11 @@ export type AiAnalysisResult = {
   pageCount?: number;
   analyzedPages?: number;
   extractableTextPages?: number;
+  extractedTextPreview?: {
+    page: number;
+    text: string;
+    textLength: number;
+  }[];
   aiEnabled?: boolean;
   draft?: AiAnalysisDraft;
 };
