@@ -1,6 +1,6 @@
 import { Link, Stack, useLocalSearchParams } from "expo-router";
 import { useEffect, useMemo, useState } from "react";
-import { Image, Pressable, ScrollView, Text, View } from "react-native";
+import { Pressable, ScrollView, Text, View } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { ErrorCard } from "../../../components/ui";
@@ -35,32 +35,6 @@ function SkeletonBlock({
       }}
     />
   );
-}
-
-function getDownloadButtonLabel({
-  canDownload,
-  isDownloading,
-  isFullyDownloaded,
-  progressPercent,
-}: {
-  canDownload: boolean;
-  isDownloading: boolean;
-  isFullyDownloaded: boolean;
-  progressPercent: number;
-}) {
-  if (!canDownload) {
-    return "";
-  }
-
-  if (isDownloading) {
-    return progressPercent > 0 ? `Saving... ${progressPercent}%` : "Saving...";
-  }
-
-  if (isFullyDownloaded) {
-    return "Remove Download";
-  }
-
-  return "Save Offline";
 }
 
 function buildFallbackPlans(totalPages: number): PublicBookPlan[] {
@@ -204,9 +178,7 @@ export default function BookHomeScreen() {
   const {
     canDownload,
     downloadAll,
-    isDownloading,
     isFullyDownloaded,
-    progressPercent: downloadProgressPercent,
     removeDownload,
   } = useVolumeDownload(manifest);
 
@@ -309,7 +281,6 @@ export default function BookHomeScreen() {
   const totalPages = manifest?.totalPages ?? 1;
   const resumePage = Math.min(editionProgress?.page ?? 1, totalPages);
   const displayTitle = metadata?.title ?? catalogBook?.title ?? "Book";
-  const displaySubtitle = metadata?.subtitle ?? catalogBook?.subtitle ?? "Reading edition";
   const displayDescription =
     metadata?.description ?? "Open the book and continue with steady reading.";
   const displayAuthor = metadata?.author ?? catalogBook?.author;
@@ -351,23 +322,10 @@ export default function BookHomeScreen() {
   const progressPercent = activeRemotePlan
     ? Math.min(100, Math.round((currentDay / activeRemotePlan.totalDays) * 100))
     : 0;
-  const devotionalContext =
-    selectedVolume?.introNote ??
-    metadata?.devotionalContext ??
-    "Keep the reading calm, steady, and devotional.";
   const todayTarget =
     selectedVolume?.todayTarget ??
     metadata?.todayPrompt ??
     "Read 2 pages from your current place. The goal is consistency, not speed.";
-  const featuredQuote =
-    metadata?.featuredQuote ??
-    "Begin with calm. Continue with steadiness. Let the reading remain the focus.";
-  const downloadButtonLabel = getDownloadButtonLabel({
-    canDownload,
-    isDownloading,
-    isFullyDownloaded,
-    progressPercent: downloadProgressPercent,
-  });
   const isBookDataLoading =
     isCatalogLoading || isMetadataLoading || isManifestLoading || !isProgressLoaded || !isLanguagePreferenceLoaded;
   const shouldShowInitialSkeleton =

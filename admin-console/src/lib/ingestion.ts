@@ -2,7 +2,7 @@ import "server-only";
 
 import { Query } from "node-appwrite";
 
-import { APPWRITE_IDS, appwriteDatabases } from "@/lib/appwrite";
+import { APPWRITE_IDS, ID, appwriteDatabases } from "@/lib/appwrite";
 
 export type JobStatus =
   | "draft"
@@ -205,6 +205,27 @@ export type AiAnalysisResult = {
   draft?: AiAnalysisDraft;
 };
 
+export type AiRecommendationCandidate = {
+  slug: string;
+  title: string;
+  subtitle?: string;
+  author?: string;
+  category?: string;
+  description?: string;
+  score?: number;
+  reasons?: string[];
+};
+
+export type AiRecommendationRerankResult = {
+  ok: boolean;
+  recommendations: {
+    bookId: string;
+    reason?: string;
+    type?: "same-author" | "same-topic" | "same-category" | "next-reading" | "foundational" | "advanced";
+    score?: number;
+  }[];
+};
+
 export type AiAnalysisJob = {
   ok: boolean;
   id?: string;
@@ -224,6 +245,14 @@ export type AiAnalysisJob = {
   updatedAt?: string;
   result?: AiAnalysisResult;
   error?: string;
+};
+
+export type AiAnalysisDraftPayload = {
+  savedAt: string;
+  aiAnalysis: AiAnalysisResult | null;
+  aiDraftJson: string;
+  aiTocJson: string;
+  manualTocText: string;
 };
 
 export type PublishEventRecord = {
@@ -635,6 +664,123 @@ export async function analyzeBookWithAi({
   }
 
   return (await response.json()) as AiAnalysisResult;
+}
+
+export async function rerankBookRecommendationsWithAi({
+  currentBook,
+  candidates,
+}: {
+  currentBook: Record<string, unknown>;
+  candidates: AiRecommendationCandidate[];
+}) {
+  const workerApiUrl = requireWorkerEnv("WORKER_API_URL");
+  const workerApiToken = requireWorkerEnv("WORKER_API_TOKEN");
+
+  const response = await fetch(`${workerApiUrl.replace(/\/$/, "")}/ai/recommendations/rerank`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${workerApiToken}`,
+    },
+    body: JSON.stringify({ currentBook, candidates }),
+  });
+
+  if (!response.ok) {
+    const message = await response.text();
+    throw new Error(`AI recommendation rerank failed: ${message}`);
+  }
+
+  return (await response.json()) as AiRecommendationRerankResult;
+}
+
+async function findAiAnalysisDraftDocument(bookSlug: string, sourceKey: string) {
+  const response = await appwriteDatabases.listDocuments(
+    APPWRITE_IDS.databaseId,
+    APPWRITE_IDS.aiAnalysisDraftsCollectionId,
+    [Query.equal("bookSlug", bookSlug), Query.equal("sourceKey", sourceKey), Query.limit(1)],
+  );
+
+  return response.documents[0];
+}
+
+export async function loadAiAnalysisDraft({
+  bookSlug,
+  sourceKey,
+}: {
+  bookSlug: string;
+  sourceKey: string;
+}) {
+  const document = await findAiAnalysisDraftDocument(bookSlug, sourceKey);
+  if (!document) {
+    return null;
+  }
+
+  return JSON.parse(String(document.payloadJson || "{}")) as AiAnalysisDraftPayload;
+}
+
+export async function saveAiAnalysisDraft({
+  bookSlug,
+  sourceKey,
+  sourceFileId,
+  savedBy,
+  payload,
+}: {
+  bookSlug: string;
+  sourceKey: string;
+  sourceFileId?: string;
+  savedBy?: string;
+  payload: AiAnalysisDraftPayload;
+}) {
+  const now = new Date().toISOString();
+  const document = await findAiAnalysisDraftDocument(bookSlug, sourceKey);
+  const data = {
+    bookSlug,
+    sourceKey,
+    sourceFileId: sourceFileId || "",
+    payloadJson: JSON.stringify(payload),
+    savedBy: savedBy || "admin-console",
+    savedAt: payload.savedAt || now,
+    updatedAt: now,
+  };
+
+  if (document) {
+    await appwriteDatabases.updateDocument(
+      APPWRITE_IDS.databaseId,
+      APPWRITE_IDS.aiAnalysisDraftsCollectionId,
+      document.$id,
+      data,
+    );
+  } else {
+    await appwriteDatabases.createDocument(
+      APPWRITE_IDS.databaseId,
+      APPWRITE_IDS.aiAnalysisDraftsCollectionId,
+      ID.unique(),
+      data,
+    );
+  }
+
+  return { ok: true, savedAt: data.savedAt, updatedAt: data.updatedAt };
+}
+
+export async function clearAiAnalysisDraft({
+  bookSlug,
+  sourceKey,
+}: {
+  bookSlug: string;
+  sourceKey: string;
+}) {
+  const document = await findAiAnalysisDraftDocument(bookSlug, sourceKey);
+  if (!document) {
+    return { ok: true, deleted: false };
+  }
+
+  await appwriteDatabases.deleteDocument(
+    APPWRITE_IDS.databaseId,
+    APPWRITE_IDS.aiAnalysisDraftsCollectionId,
+    document.$id,
+  );
+
+  return { ok: true, deleted: true };
 }
 
 export async function startBookAiAnalysis({

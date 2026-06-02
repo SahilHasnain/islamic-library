@@ -5,7 +5,9 @@ import { FormEvent, useEffect, useMemo, useState } from "react";
 import { uploadPdfWithProgress } from "@/lib/appwrite-client";
 import type {
   AiAnalysisJob,
+  AiAnalysisDraftPayload,
   AiAnalysisResult,
+  AiRecommendationRerankResult,
   JobListItem,
   MonitoringSnapshot,
   MonitoringSummary,
@@ -288,19 +290,7 @@ type RecommendationCandidate = {
   reasons: string[];
 };
 
-type StoredAiDraft = {
-  savedAt: string;
-  aiAnalysis: AiAnalysisResult | null;
-  aiDraftJson: string;
-  aiTocJson: string;
-  manualTocText: string;
-};
-
-const publicAppwriteConfig = {
-  endpoint: process.env.NEXT_PUBLIC_APPWRITE_ENDPOINT,
-  projectId: process.env.NEXT_PUBLIC_APPWRITE_PROJECT_ID,
-  sourcePdfsBucketId: process.env.NEXT_PUBLIC_APPWRITE_SOURCE_PDFS_BUCKET_ID,
-};
+type StoredAiDraft = AiAnalysisDraftPayload;
 
 type PublishedMetadataPayload = {
   title?: string;
@@ -791,6 +781,7 @@ export function AdminConsole({ initialSnapshot }: { initialSnapshot: MonitoringS
   const [activeWorkspace, setActiveWorkspace] = useState<"upload" | "edit" | "jobs" | "events">("edit");
   const [isRepublishingMetadata, setIsRepublishingMetadata] = useState(false);
   const [isAnalyzingMetadata, setIsAnalyzingMetadata] = useState(false);
+  const [isRerankingRecommendations, setIsRerankingRecommendations] = useState(false);
   const [aiAnalysisDepth, setAiAnalysisDepth] = useState<"quick" | "full">("quick");
   const [aiAnalysisJobStatus, setAiAnalysisJobStatus] = useState<string>();
   const [aiAnalysisJobInfo, setAiAnalysisJobInfo] = useState<AiAnalysisJob | null>(null);
@@ -1565,11 +1556,75 @@ export function AdminConsole({ initialSnapshot }: { initialSnapshot: MonitoringS
     setMetadataState({ message: `Applied ${candidates.length} related recommendation(s).` });
   }
 
+  async function rerankRelatedRecommendations() {
+    const candidates = recommendationCandidates;
+    if (candidates.length === 0) {
+      setMetadataState({ error: "No recommendation candidates available." });
+      return;
+    }
+
+    const allowedSlugs = new Set(candidates.map((candidate) => candidate.slug));
+    setIsRerankingRecommendations(true);
+    setMetadataState({ message: "Reranking recommendation candidates with AI..." });
+
+    try {
+      const response = await fetch("/api/ai/recommendations/rerank", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          currentBook: {
+            slug: metadataForm.bookSlug.trim(),
+            title: aiDraftForReview?.title || metadataForm.title,
+            subtitle: aiDraftForReview?.subtitle || metadataForm.subtitle,
+            author: aiDraftForReview?.author || metadataForm.author,
+            category: aiDraftForReview?.category || metadataForm.category,
+            description: aiDraftForReview?.description || metadataForm.description,
+            summary: aiDraftForReview?.summary,
+            languageId: aiDraftForReview?.languageId || selectedAiAnalysisSource?.languageId || metadataForm.defaultLanguageId,
+          },
+          candidates,
+        }),
+      });
+      const payload = (await response.json()) as AiRecommendationRerankResult & { error?: string };
+
+      if (!response.ok || payload.error) {
+        throw new Error(payload.error || "AI recommendation rerank failed.");
+      }
+
+      const recommendations = (payload.recommendations || [])
+        .filter((recommendation) => allowedSlugs.has(recommendation.bookId))
+        .slice(0, 5)
+        .map((recommendation) => ({
+          bookId: recommendation.bookId,
+          reason: recommendation.reason || candidates.find((candidate) => candidate.slug === recommendation.bookId)?.reasons.join("; ") || "",
+          type: recommendation.type || "same-topic",
+          score: recommendation.score == null ? "" : String(recommendation.score),
+        }));
+
+      if (recommendations.length === 0) {
+        throw new Error("AI did not return any valid candidate slugs.");
+      }
+
+      setMetadataForm((current) => ({
+        ...current,
+        nextRecommendedBookId: current.nextRecommendedBookId || recommendations[0].bookId,
+        recommendations,
+      }));
+      setSelectedRecommendationSlug(recommendations[0].bookId);
+      setMetadataState({ message: `AI reranked ${recommendations.length} related recommendation(s).` });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "AI recommendation rerank failed.";
+      setMetadataState({ error: message });
+    } finally {
+      setIsRerankingRecommendations(false);
+    }
+  }
+
   function getAiDraftStorageKey() {
     return buildAiDraftStorageKey(metadataForm.bookSlug.trim(), selectedAiAnalysisSource?.key);
   }
 
-  function saveAiDraftToStorage() {
+  async function saveAiDraftToStorage() {
     if (typeof window === "undefined") {
       return;
     }
@@ -1588,12 +1643,61 @@ export function AdminConsole({ initialSnapshot }: { initialSnapshot: MonitoringS
       manualTocText,
     };
     window.localStorage.setItem(getAiDraftStorageKey(), JSON.stringify(payload));
-    setMetadataState({ message: "Saved AI draft in this browser." });
+
+    try {
+      const response = await fetch("/api/ai/drafts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          bookSlug: slug,
+          sourceKey: selectedAiAnalysisSource.key,
+          sourceFileId: selectedAiAnalysisSource.sourceFileId,
+          savedBy: metadataForm.requestedBy,
+          draft: payload,
+        }),
+      });
+      const result = (await response.json()) as { error?: string };
+      if (!response.ok || result.error) {
+        throw new Error(result.error || "Shared save failed.");
+      }
+      setMetadataState({ message: "Saved AI draft to shared storage." });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Shared save failed.";
+      setMetadataState({ message: `Saved AI draft in this browser. Shared save failed: ${message}` });
+    }
   }
 
-  function loadAiDraftFromStorage() {
+  async function loadAiDraftFromStorage() {
     if (typeof window === "undefined") {
       return;
+    }
+
+    const slug = metadataForm.bookSlug.trim();
+    if (!slug || !selectedAiAnalysisSource) {
+      setMetadataState({ error: "Select a book and AI source before loading a draft." });
+      return;
+    }
+
+    try {
+      const url = new URL("/api/ai/drafts", window.location.origin);
+      url.searchParams.set("bookSlug", slug);
+      url.searchParams.set("sourceKey", selectedAiAnalysisSource.key);
+      const response = await fetch(url);
+      const result = (await response.json()) as { draft?: StoredAiDraft | null; error?: string };
+      if (!response.ok || result.error) {
+        throw new Error(result.error || "Shared load failed.");
+      }
+
+      if (result.draft) {
+        setAiAnalysis(result.draft.aiAnalysis);
+        setAiDraftJson(result.draft.aiDraftJson || "");
+        setAiTocJson(result.draft.aiTocJson || "");
+        setManualTocText(result.draft.manualTocText || "");
+        setMetadataState({ message: `Loaded shared AI draft from ${formatDate(result.draft.savedAt)}.` });
+        return;
+      }
+    } catch {
+      // Fall through to browser-local recovery.
     }
 
     const stored = window.localStorage.getItem(getAiDraftStorageKey());
@@ -1614,13 +1718,32 @@ export function AdminConsole({ initialSnapshot }: { initialSnapshot: MonitoringS
     }
   }
 
-  function clearAiDraftFromStorage() {
+  async function clearAiDraftFromStorage() {
     if (typeof window === "undefined") {
       return;
     }
 
+    const slug = metadataForm.bookSlug.trim();
+    if (!slug || !selectedAiAnalysisSource) {
+      setMetadataState({ error: "Select a book and AI source before clearing a draft." });
+      return;
+    }
+
     window.localStorage.removeItem(getAiDraftStorageKey());
-    setMetadataState({ message: "Cleared saved AI draft for this book/source." });
+    try {
+      const url = new URL("/api/ai/drafts", window.location.origin);
+      url.searchParams.set("bookSlug", slug);
+      url.searchParams.set("sourceKey", selectedAiAnalysisSource.key);
+      const response = await fetch(url, { method: "DELETE" });
+      const result = (await response.json()) as { error?: string };
+      if (!response.ok || result.error) {
+        throw new Error(result.error || "Shared clear failed.");
+      }
+      setMetadataState({ message: "Cleared saved AI draft for this book/source." });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Shared clear failed.";
+      setMetadataState({ message: `Cleared browser draft. Shared clear failed: ${message}` });
+    }
   }
 
   function getEditableTocEntries() {
@@ -2432,7 +2555,7 @@ export function AdminConsole({ initialSnapshot }: { initialSnapshot: MonitoringS
                   <button
                     type="button"
                     disabled={!metadataForm.bookSlug.trim() || !selectedAiAnalysisSource}
-                    onClick={loadAiDraftFromStorage}
+                    onClick={() => void loadAiDraftFromStorage()}
                     className="rounded-full border border-stone-700 px-4 py-2 text-xs font-medium text-stone-200 transition hover:border-emerald-300 disabled:cursor-not-allowed disabled:opacity-50"
                   >
                     Load saved
@@ -2440,7 +2563,7 @@ export function AdminConsole({ initialSnapshot }: { initialSnapshot: MonitoringS
                   <button
                     type="button"
                     disabled={!metadataForm.bookSlug.trim() || !selectedAiAnalysisSource || !aiDraftJson.trim()}
-                    onClick={saveAiDraftToStorage}
+                    onClick={() => void saveAiDraftToStorage()}
                     className="rounded-full border border-stone-700 px-4 py-2 text-xs font-medium text-stone-200 transition hover:border-emerald-300 disabled:cursor-not-allowed disabled:opacity-50"
                   >
                     Save draft
@@ -2448,7 +2571,7 @@ export function AdminConsole({ initialSnapshot }: { initialSnapshot: MonitoringS
                   <button
                     type="button"
                     disabled={!metadataForm.bookSlug.trim() || !selectedAiAnalysisSource}
-                    onClick={clearAiDraftFromStorage}
+                    onClick={() => void clearAiDraftFromStorage()}
                     className="rounded-full border border-stone-700 px-4 py-2 text-xs font-medium text-stone-200 transition hover:border-rose-400 hover:text-rose-200 disabled:cursor-not-allowed disabled:opacity-50"
                   >
                     Clear saved
@@ -2575,6 +2698,14 @@ export function AdminConsole({ initialSnapshot }: { initialSnapshot: MonitoringS
                             className="rounded-full border border-emerald-800 px-4 py-2 text-xs font-medium text-emerald-100 transition hover:border-emerald-300"
                           >
                             Apply related shelf
+                          </button>
+                          <button
+                            type="button"
+                            onClick={rerankRelatedRecommendations}
+                            disabled={isRerankingRecommendations}
+                            className="rounded-full border border-sky-800 px-4 py-2 text-xs font-medium text-sky-100 transition hover:border-sky-300 disabled:cursor-not-allowed disabled:opacity-50"
+                          >
+                            {isRerankingRecommendations ? "Reranking..." : "AI rerank shelf"}
                           </button>
                         </div>
                         {metadataForm.recommendations.length > 0 ? (

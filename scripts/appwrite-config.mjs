@@ -3,6 +3,7 @@ export const APPWRITE_IDS = {
   booksCollectionId: "books",
   jobsCollectionId: "ingestion_jobs",
   publishEventsCollectionId: "publish_events",
+  aiAnalysisDraftsCollectionId: "ai_analysis_drafts",
   sourcePdfsBucketId: "source_pdfs",
   generatedPreviewsBucketId: "generated_previews",
   workerLogsBucketId: "worker_logs",

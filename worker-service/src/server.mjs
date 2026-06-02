@@ -25,7 +25,7 @@ import {
 } from "./publish.mjs";
 import { validateRenderedWorkspace } from "./validate.mjs";
 import { createJobWorkspace, writeWorkspaceSummary } from "./workspace.mjs";
-import { analyzeSourcePdf } from "./ai-analysis.mjs";
+import { analyzeSourcePdf, rerankRecommendationCandidates } from "./ai-analysis.mjs";
 
 function requireEnv(name, fallback) {
   return process.env[name] || fallback;
@@ -556,6 +556,23 @@ async function handleAiAnalyze(request, response) {
   sendJson(response, 200, { ok: true, ...result });
 }
 
+async function handleAiRecommendationsRerank(request, response) {
+  if (!isAuthorized(request)) {
+    sendJson(response, 401, { error: "Unauthorized" });
+    return;
+  }
+
+  const payload = await readJsonBody(request);
+  const { currentBook, candidates } = payload || {};
+  if (!currentBook || !Array.isArray(candidates) || candidates.length === 0) {
+    sendJson(response, 400, { error: "currentBook and candidates are required." });
+    return;
+  }
+
+  const result = await rerankRecommendationCandidates({ currentBook, candidates });
+  sendJson(response, 200, { ok: true, ...result });
+}
+
 async function handleAiAnalyzeStart(request, response) {
   if (!isAuthorized(request)) {
     sendJson(response, 401, { error: "Unauthorized" });
@@ -678,6 +695,11 @@ const server = http.createServer(async (request, response) => {
 
     if (request.method === "POST" && request.url === "/ai/analyze") {
       await handleAiAnalyze(request, response);
+      return;
+    }
+
+    if (request.method === "POST" && request.url === "/ai/recommendations/rerank") {
+      await handleAiRecommendationsRerank(request, response);
       return;
     }
 

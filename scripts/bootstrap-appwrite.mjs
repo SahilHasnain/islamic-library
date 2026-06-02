@@ -323,12 +323,24 @@ async function setupPublishEventsCollection() {
   await ensureStringAttribute(APPWRITE_IDS.publishEventsCollectionId, "triggeredBy", 128, true);
 }
 
+async function setupAiAnalysisDraftsCollection() {
+  await ensureCollection(APPWRITE_IDS.aiAnalysisDraftsCollectionId, "AI Analysis Drafts");
+  await ensureStringAttribute(APPWRITE_IDS.aiAnalysisDraftsCollectionId, "bookSlug", 128, true);
+  await ensureStringAttribute(APPWRITE_IDS.aiAnalysisDraftsCollectionId, "sourceKey", 512, true);
+  await ensureStringAttribute(APPWRITE_IDS.aiAnalysisDraftsCollectionId, "sourceFileId", 128, false);
+  await ensureStringAttribute(APPWRITE_IDS.aiAnalysisDraftsCollectionId, "payloadJson", 100000, true);
+  await ensureStringAttribute(APPWRITE_IDS.aiAnalysisDraftsCollectionId, "savedBy", 128, false);
+  await ensureDatetimeAttribute(APPWRITE_IDS.aiAnalysisDraftsCollectionId, "savedAt", true, undefined);
+  await ensureDatetimeAttribute(APPWRITE_IDS.aiAnalysisDraftsCollectionId, "updatedAt", true, undefined);
+}
+
 async function main() {
   console.log("Bootstrapping Appwrite ingestion resources...");
   await ensureDatabase();
   await setupBooksCollection();
   await setupJobsCollection();
   await setupPublishEventsCollection();
+  await setupAiAnalysisDraftsCollection();
   await ensureBucket(APPWRITE_IDS.sourcePdfsBucketId, "Source PDFs", 100_000_000);
   await ensureBucket(APPWRITE_IDS.generatedPreviewsBucketId, "Generated Previews", 100_000_000);
   await ensureBucket(APPWRITE_IDS.workerLogsBucketId, "Worker Logs", 20_000_000);

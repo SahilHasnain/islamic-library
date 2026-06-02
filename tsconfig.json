@@ -16,6 +16,7 @@
     "nativewind-env.d.ts"
   ],
   "exclude": [
-    "admin-console"
+    "admin-console",
+    "scripts/**/*.ts"
   ]
 }

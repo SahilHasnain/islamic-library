@@ -749,6 +749,52 @@ async function callAiProvider({ extracted, context }) {
   return callAiProviderPrompt(buildPrompt({ extracted, context }));
 }
 
+export async function rerankRecommendationCandidates({ currentBook, candidates }) {
+  const safeCandidates = Array.isArray(candidates) ? candidates.slice(0, 12) : [];
+  const prompt = `Rerank related book candidates for an Islamic library app. Return ONLY valid JSON.
+
+Current book:
+${JSON.stringify(currentBook || {}, null, 2)}
+
+Candidates:
+${JSON.stringify(safeCandidates, null, 2)}
+
+Return shape:
+{
+  "recommendations": [{"bookId": string, "reason": string, "type": "same-author" | "same-topic" | "same-category" | "next-reading" | "foundational" | "advanced", "score": number}]
+}
+
+Rules:
+- Choose only bookId values from the provided candidates.
+- Do not invent book IDs.
+- Return 3 to 5 recommendations when possible.
+- Prefer a diverse useful shelf over duplicates of the same reason.
+- Keep reasons concise and in the same language as the current book title/summary when possible.
+- score should be 1-100.`;
+
+  const result = await callAiProviderPrompt(prompt);
+  const allowedIds = new Set(safeCandidates.map((candidate) => String(candidate.slug || candidate.bookId || "")));
+  const recommendations = Array.isArray(result?.recommendations)
+    ? result.recommendations
+        .map((recommendation) => {
+          const bookId = String(recommendation?.bookId || "").trim();
+          if (!allowedIds.has(bookId)) {
+            return null;
+          }
+
+          return {
+            bookId,
+            reason: String(recommendation?.reason || "").trim(),
+            type: String(recommendation?.type || "same-topic").trim(),
+            score: Math.max(1, Math.min(100, Math.floor(Number(recommendation?.score) || 1))),
+          };
+        })
+        .filter(Boolean)
+    : [];
+
+  return { recommendations };
+}
+
 function normalizeTocEntries(entries) {
   if (!Array.isArray(entries)) {
     return [];
