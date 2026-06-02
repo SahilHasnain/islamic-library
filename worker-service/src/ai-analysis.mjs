@@ -145,9 +145,16 @@ function runPython(scriptPath, args) {
 }
 
 function extractJson(text) {
-  const trimmed = text.trim();
+  const trimmed = String(text || "").trim();
+  if (!trimmed) {
+    throw new Error("AI response did not contain JSON.");
+  }
+
   const fencedMatch = trimmed.match(/```(?:json)?\s*([\s\S]*?)```/);
-  const source = fencedMatch ? fencedMatch[1].trim() : trimmed;
+  const source = (fencedMatch ? fencedMatch[1].trim() : trimmed)
+    .replace(/^Here is the JSON:\s*/i, "")
+    .replace(/^JSON:\s*/i, "")
+    .trim();
 
   if (source.startsWith("{")) {
     try {
@@ -169,6 +176,26 @@ function extractJson(text) {
   }
 
   throw new Error("AI response did not contain JSON.");
+}
+
+function getAiTextResponse(result) {
+  const message = result.choices?.[0]?.message;
+  const content = message?.content;
+  if (typeof content === "string") {
+    return content;
+  }
+
+  if (Array.isArray(content)) {
+    return content
+      .map((part) => (typeof part === "string" ? part : part?.text || part?.content || ""))
+      .join("\n");
+  }
+
+  if (message?.reasoning) {
+    return message.reasoning;
+  }
+
+  return result.choices?.[0]?.text || "";
 }
 
 function extractFirstJsonObject(text) {
@@ -275,10 +302,14 @@ Return shape:
   "author": string | null,
   "category": ${allowedCategories.map((category) => JSON.stringify(category)).join(" | ")} | null,
   "description": string | null,
+  "summary": string | null,
   "languageId": string | null,
   "volumeTitle": string | null,
+  "introNote": string | null,
+  "todayTarget": string | null,
   "printedPageStartPage": number | null,
   "sections": [{"id": string, "title": string, "kind": string, "startPage": number, "endPage": number, "estimatedMinutes": number}],
+  "plans": [{"id": string, "title": string, "description": string, "totalDays": number, "items": [{"day": number, "label": string, "startPage": number, "endPage": number, "estimatedMinutes": number}]}],
   "confidence": "low" | "medium" | "high",
   "notes": string
 }
@@ -305,7 +336,146 @@ ${buildLanguageRules(context)}
 - Do not use generic IDs like sec-01 when a title-based ID is possible.
 - Do not mention OCR unless OCR text was explicitly provided.
 - If unsure, use null and explain in notes.
+- Generate summary, introNote, todayTarget, and reading plans in the book language/script.
+- Reading plans should cover the full book using rendered page ranges and avoid overlaps/gaps.
+- Prefer one practical complete-book plan unless the book is short enough for multiple useful plans.
 - Keep sections conservative; include sections supported by body pages or clearly listed in the TOC.`;
+}
+
+
+function buildMetadataOnlyPrompt({ extracted, context }) {
+  const sampledText = extracted.pages
+    .map((page) => `--- Rendered page ${page.page} ---\n${page.text || "[no extractable text]"}`)
+    .join("\n\n")
+    .slice(0, getPromptTextCharLimit());
+
+  return `Draft metadata only for this Islamic library PDF sample. Return ONLY valid JSON.
+
+Context:
+${JSON.stringify(context, null, 2)}
+
+PDF stats:
+- total rendered pages in book: ${extracted.pageCount || extracted.pages.length || "unknown"}
+- rendered pages included in this sample: ${extracted.pages.length}
+
+PDF sample:
+${sampledText}
+
+Return shape:
+{
+  "title": string | null,
+  "subtitle": string | null,
+  "author": string | null,
+  "category": ${allowedCategories.map((category) => JSON.stringify(category)).join(" | ")} | null,
+  "description": string | null,
+  "summary": string | null,
+  "languageId": string | null,
+  "volumeTitle": string | null,
+  "introNote": string | null,
+  "todayTarget": string | null,
+  "printedPageStartPage": number | null,
+  "sections": [],
+  "plans": [],
+  "confidence": "low" | "medium" | "high",
+  "notes": string
+}
+
+Rules:
+${buildLanguageRules(context)}
+- Do not generate sections or reading plans in this step.
+- category must be exactly one item from this list: ${allowedCategories.join(", ")}.
+- Write description, summary, introNote, todayTarget, and notes in the book language/script.
+- printedPageStartPage should be the rendered page where printed page 1 begins, if inferable.
+- If unsure, use null and explain in notes.`;
+}
+function buildTocExtractionPrompt({ extracted, context }) {
+  const sampledText = extracted.pages
+    .map((page) => `--- Rendered page ${page.page} ---\n${page.text || "[no extractable text]"}`)
+    .join("\n\n")
+    .slice(0, getPromptTextCharLimit());
+
+  return `Extract the table of contents from this Islamic library PDF sample. Return ONLY valid JSON.
+
+Context:
+${JSON.stringify(context, null, 2)}
+
+PDF stats:
+- total rendered pages in book: ${extracted.pageCount || extracted.pages.length || "unknown"}
+- rendered pages included in this sample: ${extracted.pages.length}
+
+PDF sample:
+${sampledText}
+
+Return shape:
+{
+  "hasToc": boolean,
+  "printedPageStartPage": number | null,
+  "tocEntries": [{"title": string, "printedPage": number | null, "renderedPage": number | null, "level": number}],
+  "notes": string
+}
+
+Rules:
+${buildLanguageRules(context)}
+- Detect TOC/index pages, including labels such as Contents, Index, Fehrist, Fahrist, فہرست, or فهرس.
+- Do not include the TOC heading itself as a toc entry.
+- Extract actual chapter/topic entries from the TOC in reading order.
+- Keep entry titles in the book language/script.
+- If the TOC lists printed page numbers, put them in printedPage.
+- If rendered page can be inferred, put it in renderedPage; otherwise null.
+- If printed page 1 appears to start on a rendered page, set printedPageStartPage.
+- Use level 1 for major entries and level 2 for sub-entries.
+- Prefer complete TOC coverage over body headings from later pages.
+- If no TOC is visible, return hasToc false and an empty tocEntries array.`;
+}
+
+function buildDraftFromTocPrompt({ extracted, context, tocResult }) {
+  const { targetSections, maxSections } = getSectionTargets(extracted.pageCount || extracted.pages.length || 1);
+  return `Create an app metadata draft from extracted TOC entries. Return ONLY valid JSON.
+
+Context:
+${JSON.stringify(context, null, 2)}
+
+PDF stats:
+- total rendered pages in book: ${extracted.pageCount || extracted.pages.length || "unknown"}
+- text sample pages analyzed: ${extracted.pages.length}
+
+Extracted TOC result:
+${JSON.stringify(tocResult, null, 2).slice(0, getMergePromptCharLimit())}
+
+Return shape:
+{
+  "title": string | null,
+  "subtitle": string | null,
+  "author": string | null,
+  "category": ${allowedCategories.map((category) => JSON.stringify(category)).join(" | ")} | null,
+  "description": string | null,
+  "summary": string | null,
+  "languageId": string | null,
+  "volumeTitle": string | null,
+  "introNote": string | null,
+  "todayTarget": string | null,
+  "printedPageStartPage": number | null,
+  "sections": [{"id": string, "title": string, "kind": string, "startPage": number, "endPage": number, "estimatedMinutes": number}],
+  "plans": [{"id": string, "title": string, "description": string, "totalDays": number, "items": [{"day": number, "label": string, "startPage": number, "endPage": number, "estimatedMinutes": number}]}],
+  "confidence": "low" | "medium" | "high",
+  "notes": string
+}
+
+Rules:
+${buildLanguageRules(context)}
+- Use TOC entries as the primary source for app sections.
+- Never output the TOC/index page itself as a section.
+- Prefer level 1 TOC entries; merge level 2 entries into nearby parent sections unless they are major topics.
+- Target around ${targetSections} app sections and do not exceed ${maxSections}.
+- Convert printedPage to rendered startPage using printedPageStartPage when available. Formula: renderedPage = printedPage + printedPageStartPage - 1.
+- If printedPageStartPage is uncertain, use renderedPage when supplied; otherwise make a conservative estimate from printedPage and explain uncertainty in notes.
+- Section endPage should be one page before the next section startPage. Final section should end at total rendered pages (${extracted.pageCount || "pageCount"}) when known.
+- Do not stop at the last text sample page. The full PDF exists.
+- Keep category exactly one item from: ${allowedCategories.join(", ")}.
+- Keep title/description/summary/section titles/plan text in the book language/script.
+- Generate introNote and todayTarget for the volume in the same language/script.
+- Generate one complete-book reading plan from page 1 to ${extracted.pageCount || "pageCount"}; use 7, 14, or 30 days depending on book length.
+- Reading plan item ranges must be rendered pages, sorted, and should cover the full book without overlaps.`;
 }
 
 function buildSectionChunkPrompt({ pages, context }) {
@@ -363,10 +533,14 @@ Return shape:
   "author": string | null,
   "category": ${allowedCategories.map((category) => JSON.stringify(category)).join(" | ")} | null,
   "description": string | null,
+  "summary": string | null,
   "languageId": string | null,
   "volumeTitle": string | null,
+  "introNote": string | null,
+  "todayTarget": string | null,
   "printedPageStartPage": number | null,
   "sections": [{"id": string, "title": string, "kind": string, "startPage": number, "endPage": number, "estimatedMinutes": number}],
+  "plans": [{"id": string, "title": string, "description": string, "totalDays": number, "items": [{"day": number, "label": string, "startPage": number, "endPage": number, "estimatedMinutes": number}]}],
   "confidence": "low" | "medium" | "high",
   "notes": string
 }
@@ -478,6 +652,7 @@ async function callOpenAiCompatible({ config, prompt }) {
       body: JSON.stringify({
         model,
         temperature: 0.2,
+        response_format: { type: "json_object" },
         messages: [
           { role: "system", content: "You produce careful editorial metadata drafts for an Islamic library admin console." },
           { role: "user", content: prompt },
@@ -495,7 +670,7 @@ async function callOpenAiCompatible({ config, prompt }) {
     }
 
     const result = await response.json();
-    return extractJson(result.choices?.[0]?.message?.content ?? "");
+    return extractJson(getAiTextResponse(result));
   }
 
   throw new Error("AI request failed after retries.");
@@ -574,6 +749,57 @@ async function callAiProvider({ extracted, context }) {
   return callAiProviderPrompt(buildPrompt({ extracted, context }));
 }
 
+function normalizeTocEntries(entries) {
+  if (!Array.isArray(entries)) {
+    return [];
+  }
+
+  return entries
+    .map((entry) => {
+      const title = String(entry?.title || "").trim();
+      if (!title) {
+        return null;
+      }
+
+      return {
+        title,
+        printedPage: Number.isFinite(Number(entry?.printedPage)) ? Math.floor(Number(entry.printedPage)) : null,
+        renderedPage: Number.isFinite(Number(entry?.renderedPage)) ? Math.floor(Number(entry.renderedPage)) : null,
+        level: Number.isFinite(Number(entry?.level)) ? Math.max(1, Math.floor(Number(entry.level))) : 1,
+      };
+    })
+    .filter(Boolean);
+}
+
+async function buildTocFirstDraft({ extracted, context }) {
+  const tocResult = await callAiProviderPrompt(buildTocExtractionPrompt({ extracted, context }));
+  const tocEntries = normalizeTocEntries(tocResult?.tocEntries);
+  if (!tocResult?.hasToc || tocEntries.length === 0) {
+    const fallbackDraft = normalizeDraft(await callAiProvider({ extracted, context }), extracted.pageCount);
+    return { draft: fallbackDraft, tocEntries };
+  }
+
+  const normalizedTocResult = {
+    ...tocResult,
+    tocEntries,
+  };
+  const draft = normalizeDraft(
+    await callAiProviderPrompt(buildDraftFromTocPrompt({ extracted, context, tocResult: normalizedTocResult })),
+    extracted.pageCount,
+  );
+
+  return {
+    draft: {
+      ...draft,
+      printedPageStartPage: draft?.printedPageStartPage ?? tocResult.printedPageStartPage ?? null,
+      notes: [draft?.notes, tocResult?.notes ? `TOC extraction: ${tocResult.notes}` : ""]
+        .filter(Boolean)
+        .join("\n"),
+    },
+    tocEntries,
+  };
+}
+
 async function buildChunkedDraft({ extracted, context }) {
   const basePages = { ...extracted, pages: extracted.pages.slice(0, Math.min(40, extracted.pages.length)) };
   const baseDraft = normalizeDraft(await callAiProvider({ extracted: basePages, context }), extracted.pageCount);
@@ -644,7 +870,50 @@ function normalizeDraft(draft, totalPages = 100000) {
     ...draft,
     category: allowedCategories.includes(draft.category) ? draft.category : null,
     sections: cleanSections(draft.sections, totalPages),
+    plans: normalizePlans(draft.plans, totalPages),
   };
+}
+
+function normalizePlans(plans, totalPages) {
+  if (!Array.isArray(plans)) {
+    return [];
+  }
+
+  return plans
+    .map((plan, planIndex) => {
+      const title = String(plan?.title || "").trim();
+      const rawItems = Array.isArray(plan?.items) ? plan.items : [];
+      const items = rawItems
+        .map((item, itemIndex) => {
+          const startPage = Math.max(1, Math.floor(Number(item?.startPage)));
+          const endPage = Math.min(totalPages, Math.floor(Number(item?.endPage)));
+          if (!Number.isFinite(startPage) || !Number.isFinite(endPage) || endPage < startPage) {
+            return null;
+          }
+
+          return {
+            day: Math.max(1, Math.floor(Number(item?.day) || itemIndex + 1)),
+            label: String(item?.label || `Day ${itemIndex + 1}`).trim(),
+            startPage,
+            endPage,
+            estimatedMinutes: Math.max(3, Math.floor(Number(item?.estimatedMinutes) || (endPage - startPage + 1) * 2)),
+          };
+        })
+        .filter(Boolean);
+
+      if (!title || items.length === 0) {
+        return null;
+      }
+
+      return {
+        id: slugifyTitle(String(plan?.id || title), `plan-${planIndex + 1}`),
+        title,
+        description: String(plan?.description || "").trim(),
+        totalDays: Math.max(1, Math.floor(Number(plan?.totalDays) || items.length)),
+        items,
+      };
+    })
+    .filter(Boolean);
 }
 
 function buildExtractedTextPreview(extracted) {
@@ -658,7 +927,7 @@ function buildExtractedTextPreview(extracted) {
   }));
 }
 
-export async function analyzeSourcePdf({ sourceFileId, context, maxPages }) {
+export async function analyzeSourcePdf({ sourceFileId, context, maxPages, analysisMode = "draft" }) {
   const pdfBuffer = await downloadSourcePdf(sourceFileId);
   const tempPdfPath = path.join(os.tmpdir(), `ai-analysis-${sourceFileId}-${Date.now()}.pdf`);
   await fs.writeFile(tempPdfPath, pdfBuffer);
@@ -671,15 +940,60 @@ export async function analyzeSourcePdf({ sourceFileId, context, maxPages }) {
     const output = await runPython(scriptPath, [tempPdfPath, String(resolvedMaxPages)]);
     const extracted = JSON.parse(output);
     const isFullAnalysis = resolvedMaxPages <= 0;
+    if (analysisMode === "toc-only") {
+      const tocResult = await callAiProviderPrompt(buildTocExtractionPrompt({ extracted, context }));
+      const tocEntries = normalizeTocEntries(tocResult?.tocEntries);
+      const draft = buildFallbackDraft({ ...context, extracted });
+      return {
+        pageCount: extracted.pageCount,
+        analyzedPages: extracted.pages.length,
+        extractableTextPages: extracted.pages.filter((page) => page.text).length,
+        extractedTextPreview: buildExtractedTextPreview(extracted),
+        tocEntries,
+        draft: {
+          ...draft,
+          printedPageStartPage: tocResult?.printedPageStartPage ?? draft.printedPageStartPage,
+          notes: tocResult?.notes || "TOC-only analysis completed.",
+        },
+        aiEnabled: Boolean(tocResult),
+      };
+    }
+
+    if (analysisMode === "metadata-only") {
+      const aiDraft = normalizeDraft(
+        await callAiProviderPrompt(buildMetadataOnlyPrompt({ extracted, context })),
+        extracted.pageCount,
+      );
+      return {
+        pageCount: extracted.pageCount,
+        analyzedPages: extracted.pages.length,
+        extractableTextPages: extracted.pages.filter((page) => page.text).length,
+        extractedTextPreview: buildExtractedTextPreview(extracted),
+        tocEntries: [],
+        draft: aiDraft ?? buildFallbackDraft({ ...context, extracted }),
+        aiEnabled: Boolean(aiDraft),
+      };
+    }
+
+    const quickAnalysisStrategy = process.env.AI_QUICK_ANALYSIS_STRATEGY || "toc-first";
+    const quickResult = isFullAnalysis
+      ? { draft: null, tocEntries: [] }
+      : quickAnalysisStrategy === "toc-first"
+        ? await buildTocFirstDraft({ extracted, context })
+        : {
+            draft: normalizeDraft(await callAiProvider({ extracted, context }), extracted.pageCount),
+            tocEntries: [],
+          };
     const aiDraft = isFullAnalysis
       ? await buildChunkedDraft({ extracted, context })
-      : normalizeDraft(await callAiProvider({ extracted, context }), extracted.pageCount);
+      : quickResult.draft;
 
     return {
       pageCount: extracted.pageCount,
       analyzedPages: extracted.pages.length,
       extractableTextPages: extracted.pages.filter((page) => page.text).length,
       extractedTextPreview: buildExtractedTextPreview(extracted),
+      tocEntries: quickResult.tocEntries,
       draft: aiDraft ?? buildFallbackDraft({ ...context, extracted }),
       aiEnabled: Boolean(aiDraft),
     };

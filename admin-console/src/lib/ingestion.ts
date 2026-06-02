@@ -167,10 +167,14 @@ export type AiAnalysisDraft = {
   author?: string | null;
   category?: string | null;
   description?: string | null;
+  summary?: string | null;
   languageId?: string | null;
   volumeTitle?: string | null;
+  introNote?: string | null;
+  todayTarget?: string | null;
   printedPageStartPage?: number | null;
   sections?: EditionVolumeInput["sections"];
+  plans?: EditionVolumeInput["plans"];
   confidence?: "low" | "medium" | "high";
   notes?: string;
 };
@@ -180,6 +184,12 @@ export type AiAnalysisResult = {
   pageCount?: number;
   analyzedPages?: number;
   extractableTextPages?: number;
+  tocEntries?: {
+    title: string;
+    printedPage: number | null;
+    renderedPage: number | null;
+    level: number;
+  }[];
   extractedTextPreview?: {
     page: number;
     text: string;
@@ -585,10 +595,12 @@ export async function analyzeBookWithAi({
   sourceFileId,
   context,
   maxPages,
+  analysisMode,
 }: {
   sourceFileId: string;
   context: Record<string, unknown>;
   maxPages?: number;
+  analysisMode?: "draft" | "toc-only" | "metadata-only";
 }) {
   const workerApiUrl = requireWorkerEnv("WORKER_API_URL");
   const workerApiToken = requireWorkerEnv("WORKER_API_TOKEN");
@@ -599,7 +611,7 @@ export async function analyzeBookWithAi({
       "Content-Type": "application/json",
       Authorization: `Bearer ${workerApiToken}`,
     },
-    body: JSON.stringify({ sourceFileId, context, maxPages }),
+    body: JSON.stringify({ sourceFileId, context, maxPages, analysisMode }),
   });
 
   if (!response.ok) {
@@ -614,10 +626,12 @@ export async function startBookAiAnalysis({
   sourceFileId,
   context,
   maxPages,
+  analysisMode,
 }: {
   sourceFileId: string;
   context: Record<string, unknown>;
   maxPages?: number;
+  analysisMode?: "draft" | "toc-only" | "metadata-only";
 }) {
   const workerApiUrl = requireWorkerEnv("WORKER_API_URL");
   const workerApiToken = requireWorkerEnv("WORKER_API_TOKEN");
@@ -628,7 +642,7 @@ export async function startBookAiAnalysis({
       "Content-Type": "application/json",
       Authorization: `Bearer ${workerApiToken}`,
     },
-    body: JSON.stringify({ sourceFileId, context, maxPages }),
+    body: JSON.stringify({ sourceFileId, context, maxPages, analysisMode }),
   });
 
   if (!response.ok) {

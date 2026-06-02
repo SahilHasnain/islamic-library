@@ -46,6 +46,87 @@ function wait(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+function slugifyTitle(value: string, fallback: string) {
+  const slug = value
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 80);
+
+  return slug || fallback;
+}
+
+function validateAiDraftForReview(draft: AiAnalysisResult["draft"] | null | undefined, pageCount?: number) {
+  const issues: AiDraftValidationIssue[] = [];
+  if (!draft) {
+    return issues;
+  }
+
+  if (draft.category && !categories.includes(draft.category)) {
+    issues.push({ severity: "error", message: `Invalid category: ${draft.category}.` });
+  }
+
+  const sections = Array.isArray(draft.sections) ? draft.sections : [];
+  const normalizedSections = sections
+    .map((section) => ({
+      title: String(section?.title || "").trim(),
+      id: String(section?.id || "").trim(),
+      startPage: Number(section?.startPage),
+      endPage: Number(section?.endPage),
+    }))
+    .filter((section) => section.title || section.id || section.startPage || section.endPage)
+    .sort((left, right) => left.startPage - right.startPage);
+
+  if (normalizedSections.length === 0) {
+    issues.push({ severity: "error", message: "Draft has no sections." });
+    return issues;
+  }
+
+  const blockedTitles = new Set(["contents", "content", "index", "fehrist", "fahrist"]);
+  normalizedSections.forEach((section, index) => {
+    if (!section.title || !section.id) {
+      issues.push({ severity: "error", message: `Section ${index + 1} is missing title or id.` });
+    }
+
+    if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(section.id)) {
+      issues.push({ severity: "warning", message: `${section.title || `Section ${index + 1}`} has a non-standard slug id.` });
+    }
+
+    if (blockedTitles.has(section.title.toLowerCase())) {
+      issues.push({ severity: "error", message: `${section.title} is a TOC page, not an app section.` });
+    }
+
+    if (!Number.isFinite(section.startPage) || !Number.isFinite(section.endPage) || section.startPage < 1 || section.endPage < section.startPage) {
+      issues.push({ severity: "error", message: `${section.title || `Section ${index + 1}`} has an invalid page range.` });
+    }
+  });
+
+  for (let index = 1; index < normalizedSections.length; index += 1) {
+    const previous = normalizedSections[index - 1];
+    const current = normalizedSections[index];
+    if (current.startPage <= previous.endPage) {
+      issues.push({ severity: "error", message: `Overlap between ${previous.title} and ${current.title}.` });
+    } else if (current.startPage > previous.endPage + 1) {
+      issues.push({ severity: "warning", message: `Gap between ${previous.title} and ${current.title}.` });
+    }
+  }
+
+  if (pageCount && Number.isFinite(pageCount)) {
+    const targetSections = Math.max(3, Math.ceil(pageCount / 20));
+    if (pageCount >= 100 && normalizedSections.length < targetSections) {
+      issues.push({ severity: "warning", message: `Only ${normalizedSections.length} sections for ${pageCount} pages. Expected around ${targetSections} or more.` });
+    }
+
+    const finalSection = normalizedSections[normalizedSections.length - 1];
+    if (finalSection?.endPage && finalSection.endPage < pageCount - 2) {
+      issues.push({ severity: "warning", message: `Final section ends at page ${finalSection.endPage}, but book has ${pageCount} pages.` });
+    }
+  }
+
+  return issues;
+}
+
 type SubmissionState = {
   error?: string;
   message?: string;
@@ -117,6 +198,18 @@ type SectionEditorItem = {
   order: string;
   estimatedMinutes: string;
   description: string;
+};
+
+type TocEntryEditorItem = {
+  title: string;
+  printedPage: number | null;
+  renderedPage: number | null;
+  level: number;
+};
+
+type AiDraftValidationIssue = {
+  severity: "warning" | "error";
+  message: string;
 };
 
 const publicAppwriteConfig = {
@@ -598,6 +691,9 @@ export function AdminConsole({ initialSnapshot }: { initialSnapshot: MonitoringS
   const [metadataState, setMetadataState] = useState<SubmissionState>({});
   const [aiAnalysis, setAiAnalysis] = useState<AiAnalysisResult | null>(null);
   const [aiDraftJson, setAiDraftJson] = useState("");
+  const [aiTocJson, setAiTocJson] = useState("");
+  const [manualTocText, setManualTocText] = useState("");
+  const [selectedAiSourceKey, setSelectedAiSourceKey] = useState("");
   const [metadataForm, setMetadataForm] = useState<MetadataFormState>({
     bookSlug: "",
     title: "",
@@ -671,6 +767,120 @@ export function AdminConsole({ initialSnapshot }: { initialSnapshot: MonitoringS
     });
     return Array.from(map.values()).filter(Boolean);
   }, [jobs]);
+
+  const aiAnalysisSources = useMemo(() => {
+    const slug = metadataForm.bookSlug.trim();
+    if (!slug) {
+      return [];
+    }
+
+    const map = new Map<string, {
+      key: string;
+      sourceFileId: string;
+      languageId: string;
+      volumeId: string;
+      status: string;
+      label: string;
+    }>();
+
+    jobs.forEach(({ job }) => {
+      if (job.bookSlug !== slug || !job.sourceFileId) {
+        return;
+      }
+
+      const key = `${job.languageId}::${job.volumeId}::${job.sourceFileId}`;
+      if (map.has(key)) {
+        return;
+      }
+
+      map.set(key, {
+        key,
+        sourceFileId: job.sourceFileId,
+        languageId: job.languageId,
+        volumeId: job.volumeId,
+        status: job.status,
+        label: `${job.languageId} / ${job.volumeId} (${job.status})`,
+      });
+    });
+
+    return Array.from(map.values()).sort((left, right) => {
+      if (left.status === "published" && right.status !== "published") {
+        return -1;
+      }
+      if (left.status !== "published" && right.status === "published") {
+        return 1;
+      }
+      return left.label.localeCompare(right.label);
+    });
+  }, [jobs, metadataForm.bookSlug]);
+
+  const selectedAiAnalysisSource = useMemo(
+    () => aiAnalysisSources.find((source) => source.key === selectedAiSourceKey) || aiAnalysisSources[0],
+    [aiAnalysisSources, selectedAiSourceKey],
+  );
+
+  const aiDraftValidationIssues = useMemo(() => {
+    if (!aiDraftJson.trim()) {
+      return [];
+    }
+
+    try {
+      const draft = JSON.parse(aiDraftJson) as AiAnalysisResult["draft"];
+      return validateAiDraftForReview(draft, aiAnalysis?.pageCount);
+    } catch {
+      return [{ severity: "error", message: "AI draft JSON is not valid." }] satisfies AiDraftValidationIssue[];
+    }
+  }, [aiAnalysis, aiDraftJson]);
+
+  const aiDraftSectionsForReview = useMemo(() => {
+    if (!aiDraftJson.trim()) {
+      return [];
+    }
+
+    try {
+      const draft = JSON.parse(aiDraftJson) as AiAnalysisResult["draft"];
+      return Array.isArray(draft?.sections) ? draft.sections : [];
+    } catch {
+      return [];
+    }
+  }, [aiDraftJson]);
+
+  const aiDraftForReview = useMemo(() => {
+    if (!aiDraftJson.trim()) {
+      return null;
+    }
+
+    try {
+      return JSON.parse(aiDraftJson) as AiAnalysisResult["draft"];
+    } catch {
+      return null;
+    }
+  }, [aiDraftJson]);
+
+  const aiTocEntriesForReview = useMemo(() => {
+    if (!aiTocJson.trim()) {
+      return [];
+    }
+
+    try {
+      const parsed = JSON.parse(aiTocJson) as unknown;
+      if (!Array.isArray(parsed)) {
+        return [];
+      }
+
+      return parsed.map((entry) => {
+        const item = entry as Partial<TocEntryEditorItem>;
+        return {
+          title: String(item.title || ""),
+          printedPage: Number.isFinite(Number(item.printedPage)) ? Number(item.printedPage) : null,
+          renderedPage: Number.isFinite(Number(item.renderedPage)) ? Number(item.renderedPage) : null,
+          level: Number.isFinite(Number(item.level)) ? Number(item.level) : 1,
+        } satisfies TocEntryEditorItem;
+      });
+    } catch {
+      return [];
+    }
+  }, [aiTocJson]);
 
   useEffect(() => {
     let isMounted = true;
@@ -950,11 +1160,11 @@ export function AdminConsole({ initialSnapshot }: { initialSnapshot: MonitoringS
     }
   }
 
-  async function handleAiAnalyzeMetadata() {
+  async function handleAiAnalyzeMetadata(analysisMode: "draft" | "toc-only" | "metadata-only" = "draft") {
     const slug = metadataForm.bookSlug.trim();
-    const knownBook = knownBooks.find((book) => book?.slug === slug);
-    if (!knownBook?.sourceFileId) {
-      setMetadataState({ error: "Select a published book with a source PDF before running AI analysis." });
+    const analysisSource = selectedAiAnalysisSource;
+    if (!analysisSource?.sourceFileId) {
+      setMetadataState({ error: "Select a book language/volume with a source PDF before running AI analysis." });
       return;
     }
 
@@ -962,24 +1172,32 @@ export function AdminConsole({ initialSnapshot }: { initialSnapshot: MonitoringS
     setMetadataState({});
     setAiAnalysis(null);
     setAiDraftJson("");
+    setAiTocJson("");
 
     try {
       const requestBody = {
-        sourceFileId: knownBook.sourceFileId,
+        sourceFileId: analysisSource.sourceFileId,
         maxPages: aiAnalysisDepth === "full" ? 0 : 15,
+        analysisMode,
         context: {
           bookSlug: slug,
           title: metadataForm.title,
           subtitle: metadataForm.subtitle,
           author: metadataForm.author,
           category: metadataForm.category,
-          languageId: knownBook.languageId,
-          volumeId: knownBook.volumeId,
+          languageId: analysisSource.languageId,
+          volumeId: analysisSource.volumeId,
         },
       };
 
-      if (aiAnalysisDepth === "full" || quickAnalysisAsJob) {
-        const modeLabel = aiAnalysisDepth === "full" ? "Full" : "Quick";
+      if (aiAnalysisDepth === "full" || quickAnalysisAsJob || analysisMode !== "draft") {
+        const modeLabel = analysisMode === "toc-only"
+          ? "TOC"
+          : analysisMode === "metadata-only"
+            ? "Metadata"
+            : aiAnalysisDepth === "full"
+              ? "Full"
+              : "Quick";
         setAiAnalysisJobStatus(`Starting ${modeLabel.toLowerCase()} analysis...`);
         const startResponse = await fetch("/api/ai/analyze/start", {
           method: "POST",
@@ -1011,6 +1229,7 @@ export function AdminConsole({ initialSnapshot }: { initialSnapshot: MonitoringS
           if (statusPayload.status === "completed" && statusPayload.result) {
             setAiAnalysis(statusPayload.result);
             setAiDraftJson(statusPayload.result.draft ? JSON.stringify(statusPayload.result.draft, null, 2) : "");
+            setAiTocJson(statusPayload.result.tocEntries ? JSON.stringify(statusPayload.result.tocEntries, null, 2) : "");
             setMetadataState({
               message: statusPayload.result.aiEnabled
                 ? "AI draft generated."
@@ -1042,6 +1261,7 @@ export function AdminConsole({ initialSnapshot }: { initialSnapshot: MonitoringS
 
       setAiAnalysis(payload);
       setAiDraftJson(payload.draft ? JSON.stringify(payload.draft, null, 2) : "");
+      setAiTocJson(payload.tocEntries ? JSON.stringify(payload.tocEntries, null, 2) : "");
       setMetadataState({ message: payload.aiEnabled ? "AI draft generated." : "PDF analyzed. Configure OPENAI_API_KEY for richer AI drafts." });
     } catch (error) {
       setMetadataState({ error: error instanceof Error ? error.message : "AI analysis failed." });
@@ -1089,6 +1309,255 @@ export function AdminConsole({ initialSnapshot }: { initialSnapshot: MonitoringS
     }
   }
 
+  function getEditableTocEntries() {
+    if (!aiTocJson.trim()) {
+      return [];
+    }
+
+    try {
+      const parsed = JSON.parse(aiTocJson) as unknown;
+      if (!Array.isArray(parsed)) {
+        setMetadataState({ error: "TOC JSON must be an array." });
+        return [];
+      }
+
+      return parsed
+        .map((entry) => {
+          const item = entry as Partial<TocEntryEditorItem>;
+          const title = String(item.title || "").trim();
+          if (!title) {
+            return null;
+          }
+
+          return {
+            title,
+            printedPage: Number.isFinite(Number(item.printedPage)) ? Number(item.printedPage) : null,
+            renderedPage: Number.isFinite(Number(item.renderedPage)) ? Number(item.renderedPage) : null,
+            level: Number.isFinite(Number(item.level)) ? Math.max(1, Number(item.level)) : 1,
+          } satisfies TocEntryEditorItem;
+        })
+        .filter(Boolean) as TocEntryEditorItem[];
+    } catch {
+      setMetadataState({ error: "TOC JSON is not valid. Fix it before building sections." });
+      return [];
+    }
+  }
+
+  async function copyAiTocJson() {
+    if (!aiTocJson.trim()) {
+      return;
+    }
+
+    try {
+      await navigator.clipboard.writeText(aiTocJson);
+      setMetadataState({ message: "Copied TOC JSON." });
+    } catch {
+      setMetadataState({ error: "Could not copy TOC JSON." });
+    }
+  }
+
+  function updateEditableTocEntry(index: number, field: keyof TocEntryEditorItem, value: string) {
+    const entries = aiTocEntriesForReview.map((entry) => ({ ...entry }));
+    const current = entries[index];
+    if (!current) {
+      return;
+    }
+
+    entries[index] = {
+      ...current,
+      [field]: field === "title" ? value : Number.isFinite(Number(value)) ? Number(value) : null,
+    } as TocEntryEditorItem;
+    setAiTocJson(JSON.stringify(entries, null, 2));
+  }
+
+  function addEditableTocEntry() {
+    const entries = [
+      ...aiTocEntriesForReview,
+      { title: "", printedPage: null, renderedPage: null, level: 1 },
+    ];
+    setAiTocJson(JSON.stringify(entries, null, 2));
+  }
+
+  function removeEditableTocEntry(index: number) {
+    const entries = aiTocEntriesForReview.filter((_, currentIndex) => currentIndex !== index);
+    setAiTocJson(JSON.stringify(entries, null, 2));
+  }
+
+  function convertManualTocText() {
+    const entries = manualTocText
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter(Boolean)
+      .map((line) => {
+        const match = line.match(/^(.*?)\s*[.·•\-–—\s]+(\d{1,4})$/);
+        const title = (match ? match[1] : line).replace(/[.·•\-–—\s]+$/g, "").trim();
+        const printedPage = match ? Number(match[2]) : null;
+        if (!title || ["contents", "content", "index", "fehrist", "fahrist"].includes(title.toLowerCase())) {
+          return null;
+        }
+
+        return {
+          title,
+          printedPage,
+          renderedPage: null,
+          level: /^\s/.test(line) ? 2 : 1,
+        } satisfies TocEntryEditorItem;
+      })
+      .filter(Boolean) as TocEntryEditorItem[];
+
+    if (entries.length === 0) {
+      setMetadataState({ error: "No TOC entries could be parsed from the pasted text." });
+      return;
+    }
+
+    setAiTocJson(JSON.stringify(entries, null, 2));
+    setMetadataState({ message: `Converted ${entries.length} pasted TOC entr${entries.length === 1 ? "y" : "ies"}.` });
+  }
+
+  function updateEditableAiDraft(updater: (draft: NonNullable<AiAnalysisResult["draft"]>) => NonNullable<AiAnalysisResult["draft"]>) {
+    const draft = getEditableAiDraft();
+    if (!draft) {
+      return;
+    }
+
+    setAiDraftJson(JSON.stringify(updater(draft), null, 2));
+  }
+
+  function updateEditableAiSection(index: number, field: string, value: string) {
+    updateEditableAiDraft((draft) => {
+      const sections = Array.isArray(draft.sections) ? [...draft.sections] : [];
+      const current = sections[index];
+      if (!current) {
+        return draft;
+      }
+
+      const numericFields = new Set(["startPage", "endPage", "estimatedMinutes"]);
+      sections[index] = {
+        ...current,
+        [field]: numericFields.has(field) ? Number(value) || 0 : value,
+      };
+
+      return { ...draft, sections };
+    });
+  }
+
+  function autoFixEditableAiSectionRanges() {
+    updateEditableAiDraft((draft) => {
+      const pageCount = Number(aiAnalysis?.pageCount || 0);
+      const sections = Array.isArray(draft.sections)
+        ? draft.sections
+            .map((section, index) => ({
+              ...section,
+              id: section.id || slugifyTitle(String(section.title || ""), `section-${index + 1}`),
+              kind: section.kind || "chapter",
+              title: section.title || `Section ${index + 1}`,
+              startPage: Math.max(1, Math.floor(Number(section.startPage) || 1)),
+              endPage: Math.max(1, Math.floor(Number(section.endPage) || Number(section.startPage) || 1)),
+            }))
+            .sort((left, right) => Number(left.startPage) - Number(right.startPage))
+        : [];
+
+      const fixedSections = sections.map((section, index) => {
+        const previous = index > 0 ? sections[index - 1] : null;
+        const next = sections[index + 1];
+        const startPage = previous
+          ? Math.max(Number(section.startPage), Number(previous.startPage) + 1)
+          : Number(section.startPage);
+        const endPage = next
+          ? Math.max(startPage, Number(next.startPage) - 1)
+          : Math.max(startPage, pageCount || Number(section.endPage));
+
+        return {
+          ...section,
+          id: slugifyTitle(String(section.title), String(section.id || `section-${index + 1}`)),
+          startPage,
+          endPage,
+          estimatedMinutes: Math.max(3, (endPage - startPage + 1) * 2),
+        };
+      });
+
+      return {
+        ...draft,
+        sections: fixedSections,
+        notes: [draft.notes, "Section ranges auto-fixed in admin review."].filter(Boolean).join("\n"),
+      };
+    });
+    setMetadataState({ message: "Auto-fixed section ranges in the editable AI draft." });
+  }
+
+  function buildSectionsFromEditableToc() {
+    const tocEntries = getEditableTocEntries();
+    if (tocEntries.length === 0) {
+      setMetadataState({ error: "No valid TOC entries to build sections from." });
+      return;
+    }
+
+    const draft = getEditableAiDraft() || {};
+    const pageCount = Number(aiAnalysis?.pageCount || 0);
+    const printedPageStartPage = Number(draft.printedPageStartPage || 0);
+    const majorEntries = tocEntries.filter((entry) => entry.level <= 1);
+    const sourceEntries = majorEntries.length >= 3 ? majorEntries : tocEntries;
+    const blockedTitles = new Set(["contents", "content", "index", "fehrist", "fahrist"]);
+
+    const starts = sourceEntries
+      .map((entry, index) => {
+        const normalizedTitle = entry.title.toLowerCase().trim();
+        if (blockedTitles.has(normalizedTitle)) {
+          return null;
+        }
+
+        const renderedPage = entry.renderedPage ||
+          (entry.printedPage && printedPageStartPage
+            ? entry.printedPage + printedPageStartPage - 1
+            : null);
+        if (!renderedPage || renderedPage < 1) {
+          return null;
+        }
+
+        return {
+          title: entry.title,
+          startPage: Math.floor(renderedPage),
+          sourceIndex: index,
+        };
+      })
+      .filter((entry): entry is { title: string; startPage: number; sourceIndex: number } => Boolean(entry))
+      .sort((left, right) => left.startPage - right.startPage);
+
+    if (starts.length === 0) {
+      setMetadataState({ error: "TOC entries need renderedPage values, or printedPage plus printedPageStartPage." });
+      return;
+    }
+
+    const sections = starts.map((entry, index) => {
+      const next = starts[index + 1];
+      const endPage = Math.max(
+        entry.startPage,
+        next ? next.startPage - 1 : pageCount || entry.startPage,
+      );
+      return {
+        id: slugifyTitle(entry.title, `toc-section-${entry.sourceIndex + 1}`),
+        title: entry.title,
+        kind: "chapter",
+        startPage: entry.startPage,
+        endPage,
+        estimatedMinutes: Math.max(3, (endPage - entry.startPage + 1) * 2),
+      };
+    });
+
+    const nextDraft = {
+      ...draft,
+      sections,
+      notes: [
+        draft.notes,
+        `Sections rebuilt from ${sections.length} reviewed TOC entries.`,
+      ]
+        .filter(Boolean)
+        .join("\n"),
+    };
+    setAiDraftJson(JSON.stringify(nextDraft, null, 2));
+    setMetadataState({ message: `Built ${sections.length} sections from reviewed TOC entries.` });
+  }
+
   function applyAiMetadataDraft() {
     const draft = getEditableAiDraft();
     if (!draft) {
@@ -1104,12 +1573,15 @@ export function AdminConsole({ initialSnapshot }: { initialSnapshot: MonitoringS
       description: draft.description || current.description,
       languages: current.languages.map((language, languageIndex) => ({
         ...language,
+        summary: draft.summary && languageIndex === 0 ? draft.summary : language.summary,
         id: draft.languageId && languageIndex === 0 ? draft.languageId : language.id,
         volumes: language.volumes.map((volume, volumeIndex) =>
           languageIndex === 0 && volumeIndex === 0
             ? {
                 ...volume,
                 title: draft.volumeTitle || volume.title,
+                introNote: draft.introNote || volume.introNote,
+                todayTarget: draft.todayTarget || volume.todayTarget,
               }
             : volume,
         ),
@@ -1144,10 +1616,22 @@ export function AdminConsole({ initialSnapshot }: { initialSnapshot: MonitoringS
     });
   }
 
+  function applyAiPlansDraft() {
+    const draft = getEditableAiDraft();
+    if (!draft?.plans?.length) {
+      setMetadataState({ error: "AI draft does not include reading plans." });
+      return;
+    }
+
+    updateFirstVolume((volume) => ({ ...volume, plans: normalizePlans(draft.plans as unknown[] | undefined) }));
+    setMetadataState({ message: `Applied ${draft.plans.length} AI reading plan(s) to the first volume.` });
+  }
+
   function applyAiAnalysisDraft() {
     applyAiMetadataDraft();
     applyAiPageNumberingDraft();
     applyAiSectionsDraft();
+    applyAiPlansDraft();
   }
 
   return (
@@ -1330,6 +1814,7 @@ export function AdminConsole({ initialSnapshot }: { initialSnapshot: MonitoringS
                   onChange={(event) => {
                     const slug = event.target.value;
                     const knownBook = knownBooks.find((book) => book?.slug === slug);
+                    setSelectedAiSourceKey("");
                     setMetadataForm((current) => ({
                       ...current,
                       bookSlug: slug,
@@ -1510,6 +1995,21 @@ export function AdminConsole({ initialSnapshot }: { initialSnapshot: MonitoringS
                 </div>
                 <div className="flex flex-wrap items-center gap-3">
                   <select
+                    value={selectedAiAnalysisSource?.key || ""}
+                    onChange={(event) => setSelectedAiSourceKey(event.target.value)}
+                    disabled={aiAnalysisSources.length === 0}
+                    className="rounded-full border border-emerald-900 bg-stone-950 px-4 py-2 text-xs font-medium text-emerald-100 outline-none transition focus:border-emerald-300 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {aiAnalysisSources.length === 0 ? (
+                      <option value="">No source PDF found</option>
+                    ) : null}
+                    {aiAnalysisSources.map((source) => (
+                      <option key={source.key} value={source.key}>
+                        {source.label}
+                      </option>
+                    ))}
+                  </select>
+                  <select
                     value={aiAnalysisDepth}
                     onChange={(event) => setAiAnalysisDepth(event.target.value as "quick" | "full")}
                     className="rounded-full border border-emerald-900 bg-stone-950 px-4 py-2 text-xs font-medium text-emerald-100 outline-none transition focus:border-emerald-300"
@@ -1519,8 +2019,24 @@ export function AdminConsole({ initialSnapshot }: { initialSnapshot: MonitoringS
                   </select>
                   <button
                     type="button"
-                    disabled={isAnalyzingMetadata || !metadataForm.bookSlug.trim()}
-                    onClick={() => void handleAiAnalyzeMetadata()}
+                    disabled={isAnalyzingMetadata || !metadataForm.bookSlug.trim() || !selectedAiAnalysisSource}
+                    onClick={() => void handleAiAnalyzeMetadata("toc-only")}
+                    className="rounded-full border border-stone-700 px-4 py-2 text-xs font-medium text-stone-200 transition hover:border-emerald-300 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    Extract TOC
+                  </button>
+                  <button
+                    type="button"
+                    disabled={isAnalyzingMetadata || !metadataForm.bookSlug.trim() || !selectedAiAnalysisSource}
+                    onClick={() => void handleAiAnalyzeMetadata("metadata-only")}
+                    className="rounded-full border border-stone-700 px-4 py-2 text-xs font-medium text-stone-200 transition hover:border-emerald-300 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    Metadata only
+                  </button>
+                  <button
+                    type="button"
+                    disabled={isAnalyzingMetadata || !metadataForm.bookSlug.trim() || !selectedAiAnalysisSource}
+                    onClick={() => void handleAiAnalyzeMetadata("draft")}
                     className="rounded-full border border-emerald-800 px-4 py-2 text-xs font-medium text-emerald-100 transition hover:border-emerald-300 disabled:cursor-not-allowed disabled:opacity-50"
                   >
                     {isAnalyzingMetadata ? "Analyzing..." : "Analyze PDF"}
@@ -1535,6 +2051,158 @@ export function AdminConsole({ initialSnapshot }: { initialSnapshot: MonitoringS
                     <span>Text pages: {aiAnalysis.extractableTextPages ?? "?"}</span>
                     <span>Confidence: {aiAnalysis.draft.confidence || "unknown"}</span>
                   </div>
+                  <div className="rounded-2xl border border-stone-800 bg-stone-950/80 p-3">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <span className="text-xs font-medium text-stone-300">Draft validation</span>
+                      <span className={`rounded-full px-2.5 py-1 text-[11px] font-medium ${
+                        aiDraftValidationIssues.some((issue) => issue.severity === "error")
+                          ? "bg-rose-950 text-rose-200"
+                          : aiDraftValidationIssues.length > 0
+                            ? "bg-amber-950 text-amber-200"
+                            : "bg-emerald-950 text-emerald-200"
+                      }`}>
+                        {aiDraftValidationIssues.some((issue) => issue.severity === "error")
+                          ? "Needs fixes"
+                          : aiDraftValidationIssues.length > 0
+                            ? "Warnings"
+                            : "Looks valid"}
+                      </span>
+                    </div>
+                    {aiDraftValidationIssues.length > 0 ? (
+                      <ul className="mt-3 space-y-2 text-xs leading-5">
+                        {aiDraftValidationIssues.map((issue, index) => (
+                          <li
+                            key={`${issue.severity}-${index}`}
+                            className={issue.severity === "error" ? "text-rose-300" : "text-amber-300"}
+                          >
+                            {issue.severity === "error" ? "Error" : "Warning"}: {issue.message}
+                          </li>
+                        ))}
+                      </ul>
+                    ) : (
+                      <p className="mt-2 text-xs text-emerald-300">No obvious section/category issues found.</p>
+                    )}
+                  </div>
+                  {aiDraftSectionsForReview.length > 0 ? (
+                    <details className="rounded-2xl border border-stone-800 bg-stone-950/80 p-3" open>
+                      <summary className="cursor-pointer text-xs font-medium text-emerald-200">
+                        Section review ({aiDraftSectionsForReview.length})
+                      </summary>
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        <button
+                          type="button"
+                          onClick={autoFixEditableAiSectionRanges}
+                          className="rounded-full border border-emerald-800 px-3 py-1.5 text-xs font-medium text-emerald-100 transition hover:border-emerald-300"
+                        >
+                          Auto-fix ranges
+                        </button>
+                      </div>
+                      <div className="mt-3 max-h-96 overflow-auto rounded-xl bg-stone-900/60">
+                        <table className="w-full min-w-[860px] text-left text-xs text-stone-300">
+                          <thead className="sticky top-0 bg-stone-900 text-[11px] uppercase tracking-[0.18em] text-stone-500">
+                            <tr>
+                              <th className="px-3 py-2 font-medium">Title</th>
+                              <th className="px-3 py-2 font-medium">Start</th>
+                              <th className="px-3 py-2 font-medium">End</th>
+                              <th className="px-3 py-2 font-medium">Kind</th>
+                              <th className="px-3 py-2 font-medium">Minutes</th>
+                              <th className="px-3 py-2 font-medium">ID</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {aiDraftSectionsForReview.map((section, index) => (
+                              <tr key={`${section.id || section.title || "section"}-${index}`} className="border-t border-stone-800 align-top">
+                                <td className="px-3 py-2">
+                                  <input
+                                    value={String(section.title || "")}
+                                    onChange={(event) => updateEditableAiSection(index, "title", event.target.value)}
+                                    className="w-56 rounded-xl border border-stone-800 bg-stone-950 px-3 py-2 outline-none transition focus:border-emerald-400"
+                                  />
+                                </td>
+                                <td className="px-3 py-2">
+                                  <input
+                                    inputMode="numeric"
+                                    value={String(section.startPage || "")}
+                                    onChange={(event) => updateEditableAiSection(index, "startPage", event.target.value)}
+                                    className="w-20 rounded-xl border border-stone-800 bg-stone-950 px-3 py-2 outline-none transition focus:border-emerald-400"
+                                  />
+                                </td>
+                                <td className="px-3 py-2">
+                                  <input
+                                    inputMode="numeric"
+                                    value={String(section.endPage || "")}
+                                    onChange={(event) => updateEditableAiSection(index, "endPage", event.target.value)}
+                                    className="w-20 rounded-xl border border-stone-800 bg-stone-950 px-3 py-2 outline-none transition focus:border-emerald-400"
+                                  />
+                                </td>
+                                <td className="px-3 py-2">
+                                  <input
+                                    value={String(section.kind || "chapter")}
+                                    onChange={(event) => updateEditableAiSection(index, "kind", event.target.value)}
+                                    className="w-28 rounded-xl border border-stone-800 bg-stone-950 px-3 py-2 outline-none transition focus:border-emerald-400"
+                                  />
+                                </td>
+                                <td className="px-3 py-2">
+                                  <input
+                                    inputMode="numeric"
+                                    value={String(section.estimatedMinutes || "")}
+                                    onChange={(event) => updateEditableAiSection(index, "estimatedMinutes", event.target.value)}
+                                    className="w-20 rounded-xl border border-stone-800 bg-stone-950 px-3 py-2 outline-none transition focus:border-emerald-400"
+                                  />
+                                </td>
+                                <td className="px-3 py-2">
+                                  <input
+                                    value={String(section.id || "")}
+                                    onChange={(event) => updateEditableAiSection(index, "id", event.target.value)}
+                                    className="w-48 rounded-xl border border-stone-800 bg-stone-950 px-3 py-2 outline-none transition focus:border-emerald-400"
+                                  />
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </details>
+                  ) : null}
+                  {aiDraftForReview?.summary || aiDraftForReview?.introNote || aiDraftForReview?.todayTarget ? (
+                    <details className="rounded-2xl border border-stone-800 bg-stone-950/80 p-3">
+                      <summary className="cursor-pointer text-xs font-medium text-emerald-200">
+                        Summary and volume notes
+                      </summary>
+                      <div className="mt-3 space-y-3 text-xs leading-5 text-stone-300">
+                        {aiDraftForReview.summary ? (
+                          <p><span className="text-stone-500">Summary:</span> {aiDraftForReview.summary}</p>
+                        ) : null}
+                        {aiDraftForReview.introNote ? (
+                          <p><span className="text-stone-500">Intro note:</span> {aiDraftForReview.introNote}</p>
+                        ) : null}
+                        {aiDraftForReview.todayTarget ? (
+                          <p><span className="text-stone-500">Today target:</span> {aiDraftForReview.todayTarget}</p>
+                        ) : null}
+                      </div>
+                    </details>
+                  ) : null}
+                  {aiDraftForReview?.plans?.length ? (
+                    <details className="rounded-2xl border border-stone-800 bg-stone-950/80 p-3">
+                      <summary className="cursor-pointer text-xs font-medium text-emerald-200">
+                        Reading plans ({aiDraftForReview.plans.length})
+                      </summary>
+                      <div className="mt-3 space-y-3 text-xs text-stone-300">
+                        {aiDraftForReview.plans.map((plan) => (
+                          <div key={plan.id} className="rounded-xl bg-stone-900/70 p-3">
+                            <div className="flex flex-wrap items-center gap-2 text-stone-200">
+                              <span className="font-medium">{plan.title}</span>
+                              <span className="text-stone-500">{plan.totalDays} days</span>
+                              <span className="text-stone-500">{plan.items.length} item(s)</span>
+                            </div>
+                            {plan.description ? (
+                              <p className="mt-2 text-stone-400">{plan.description}</p>
+                            ) : null}
+                          </div>
+                        ))}
+                      </div>
+                    </details>
+                  ) : null}
                   <div className="space-y-2">
                     <div className="flex flex-wrap items-center justify-between gap-2">
                       <span className="text-xs font-medium text-stone-300">Editable response JSON</span>
@@ -1553,6 +2221,125 @@ export function AdminConsole({ initialSnapshot }: { initialSnapshot: MonitoringS
                       className="min-h-72 w-full rounded-2xl border border-stone-800 bg-stone-950 p-3 font-mono text-xs leading-5 text-stone-300 outline-none transition focus:border-emerald-400"
                     />
                   </div>
+                  {aiAnalysis ? (
+                    <details className="rounded-2xl border border-stone-800 bg-stone-950/80 p-3" open>
+                      <summary className="cursor-pointer text-xs font-medium text-emerald-200">
+                        TOC review ({aiTocEntriesForReview.length})
+                      </summary>
+                      <div className="mt-3 space-y-2 rounded-2xl border border-stone-800 bg-stone-950/80 p-3">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <span className="text-xs font-medium text-stone-300">Manual TOC paste</span>
+                          <button
+                            type="button"
+                            onClick={convertManualTocText}
+                            className="rounded-full border border-emerald-800 px-3 py-1.5 text-xs font-medium text-emerald-100 transition hover:border-emerald-300"
+                          >
+                            Convert pasted TOC
+                          </button>
+                        </div>
+                        <textarea
+                          value={manualTocText}
+                          onChange={(event) => setManualTocText(event.target.value)}
+                          rows={4}
+                          className="w-full rounded-2xl border border-stone-800 bg-stone-950 p-3 text-xs leading-5 text-stone-300 outline-none transition focus:border-emerald-400"
+                          placeholder="Paste TOC lines, for example: Khutba ........ 12"
+                        />
+                      </div>
+                      <div className="mt-3 space-y-2">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <span className="text-xs font-medium text-stone-300">Editable TOC JSON</span>
+                          <div className="flex flex-wrap gap-2">
+                            <button
+                              type="button"
+                              onClick={addEditableTocEntry}
+                              className="rounded-full border border-stone-700 px-3 py-1.5 text-xs font-medium text-stone-200 transition hover:border-emerald-300"
+                            >
+                              Add row
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => void copyAiTocJson()}
+                              className="rounded-full border border-stone-700 px-3 py-1.5 text-xs font-medium text-stone-200 transition hover:border-emerald-300"
+                            >
+                              Copy TOC
+                            </button>
+                            <button
+                              type="button"
+                              onClick={buildSectionsFromEditableToc}
+                              className="rounded-full border border-emerald-800 px-3 py-1.5 text-xs font-medium text-emerald-100 transition hover:border-emerald-300"
+                            >
+                              Build sections from TOC
+                            </button>
+                          </div>
+                        </div>
+                        <textarea
+                          value={aiTocJson}
+                          onChange={(event) => setAiTocJson(event.target.value)}
+                          spellCheck={false}
+                          className="min-h-48 w-full rounded-2xl border border-stone-800 bg-stone-950 p-3 font-mono text-xs leading-5 text-stone-300 outline-none transition focus:border-emerald-400"
+                        />
+                      </div>
+                      <div className="mt-3 max-h-96 overflow-auto rounded-xl bg-stone-900/60">
+                        <table className="w-full min-w-[760px] text-left text-xs text-stone-300">
+                          <thead className="sticky top-0 bg-stone-900 text-[11px] uppercase tracking-[0.18em] text-stone-500">
+                            <tr>
+                              <th className="px-3 py-2 font-medium">Title</th>
+                              <th className="px-3 py-2 font-medium">Printed</th>
+                              <th className="px-3 py-2 font-medium">Rendered</th>
+                              <th className="px-3 py-2 font-medium">Level</th>
+                              <th className="px-3 py-2 font-medium">Action</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {aiTocEntriesForReview.map((entry, index) => (
+                              <tr key={`${entry.title}-${index}`} className="border-t border-stone-800">
+                                <td className="px-3 py-2">
+                                  <input
+                                    value={entry.title}
+                                    onChange={(event) => updateEditableTocEntry(index, "title", event.target.value)}
+                                    className="w-72 rounded-xl border border-stone-800 bg-stone-950 px-3 py-2 outline-none transition focus:border-emerald-400"
+                                  />
+                                </td>
+                                <td className="px-3 py-2">
+                                  <input
+                                    inputMode="numeric"
+                                    value={entry.printedPage ?? ""}
+                                    onChange={(event) => updateEditableTocEntry(index, "printedPage", event.target.value)}
+                                    className="w-20 rounded-xl border border-stone-800 bg-stone-950 px-3 py-2 outline-none transition focus:border-emerald-400"
+                                  />
+                                </td>
+                                <td className="px-3 py-2">
+                                  <input
+                                    inputMode="numeric"
+                                    value={entry.renderedPage ?? ""}
+                                    onChange={(event) => updateEditableTocEntry(index, "renderedPage", event.target.value)}
+                                    className="w-20 rounded-xl border border-stone-800 bg-stone-950 px-3 py-2 outline-none transition focus:border-emerald-400"
+                                  />
+                                </td>
+                                <td className="px-3 py-2">
+                                  <input
+                                    inputMode="numeric"
+                                    value={entry.level}
+                                    onChange={(event) => updateEditableTocEntry(index, "level", event.target.value)}
+                                    className="w-16 rounded-xl border border-stone-800 bg-stone-950 px-3 py-2 outline-none transition focus:border-emerald-400"
+                                  />
+                                </td>
+                                <td className="px-3 py-2">
+                                  <button
+                                    type="button"
+                                    onClick={() => removeEditableTocEntry(index)}
+                                    className="rounded-full border border-stone-700 px-3 py-1.5 text-xs font-medium text-stone-200 transition hover:border-rose-400 hover:text-rose-200"
+                                  >
+                                    Remove
+                                  </button>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </details>
+                  ) : null}
                   {aiAnalysis.extractedTextPreview?.length ? (
                     <details className="rounded-2xl border border-stone-800 bg-stone-950/80 p-3">
                       <summary className="cursor-pointer text-xs font-medium text-emerald-200">
@@ -1594,6 +2381,13 @@ export function AdminConsole({ initialSnapshot }: { initialSnapshot: MonitoringS
                       className="rounded-full border border-emerald-800 px-4 py-2 text-xs font-medium text-emerald-100 transition hover:border-emerald-300"
                     >
                       Apply sections
+                    </button>
+                    <button
+                      type="button"
+                      onClick={applyAiPlansDraft}
+                      className="rounded-full border border-emerald-800 px-4 py-2 text-xs font-medium text-emerald-100 transition hover:border-emerald-300"
+                    >
+                      Apply plans
                     </button>
                     <button
                       type="button"

@@ -4,7 +4,7 @@ import { getMonitoringSnapshot } from "@/lib/ingestion";
 
 export async function GET() {
   try {
-    const snapshot = await getMonitoringSnapshot(12);
+    const snapshot = await getMonitoringSnapshot(100);
     return NextResponse.json(snapshot);
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown error";

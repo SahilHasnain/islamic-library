@@ -8,6 +8,7 @@ export async function POST(request: Request) {
       sourceFileId?: string;
       context?: Record<string, unknown>;
       maxPages?: number;
+      analysisMode?: "draft" | "toc-only" | "metadata-only";
     };
 
     const sourceFileId = String(payload.sourceFileId || "").trim();
@@ -19,6 +20,7 @@ export async function POST(request: Request) {
       sourceFileId,
       context: payload.context || {},
       maxPages: payload.maxPages,
+      analysisMode: payload.analysisMode,
     });
 
     return NextResponse.json(result);

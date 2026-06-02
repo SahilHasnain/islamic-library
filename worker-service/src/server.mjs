@@ -520,13 +520,13 @@ async function handleAiAnalyze(request, response) {
   }
 
   const payload = await readJsonBody(request);
-  const { sourceFileId, context = {}, maxPages } = payload || {};
+  const { sourceFileId, context = {}, maxPages, analysisMode } = payload || {};
   if (!sourceFileId) {
     sendJson(response, 400, { error: "Missing sourceFileId." });
     return;
   }
 
-  const result = await analyzeSourcePdf({ sourceFileId, context, maxPages });
+  const result = await analyzeSourcePdf({ sourceFileId, context, maxPages, analysisMode });
   sendJson(response, 200, { ok: true, ...result });
 }
 
@@ -537,7 +537,7 @@ async function handleAiAnalyzeStart(request, response) {
   }
 
   const payload = await readJsonBody(request);
-  const { sourceFileId, context = {}, maxPages } = payload || {};
+  const { sourceFileId, context = {}, maxPages, analysisMode } = payload || {};
   if (!sourceFileId) {
     sendJson(response, 400, { error: "Missing sourceFileId." });
     return;
@@ -562,7 +562,7 @@ async function handleAiAnalyzeStart(request, response) {
     });
 
     try {
-      const result = await analyzeSourcePdf({ sourceFileId, context, maxPages });
+      const result = await analyzeSourcePdf({ sourceFileId, context, maxPages, analysisMode });
       aiAnalysisJobs.set(analysisId, {
         ...aiAnalysisJobs.get(analysisId),
         status: "completed",
