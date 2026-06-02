@@ -110,6 +110,14 @@ export type PublicCatalogBook = {
   status: "published";
   metadataUrl: string;
   nextRecommendedBookId?: string;
+  recommendations?: PublicBookRecommendation[];
+};
+
+export type PublicBookRecommendation = {
+  bookId: string;
+  reason?: string;
+  type?: "same-author" | "same-topic" | "same-category" | "next-reading" | "foundational" | "advanced";
+  score?: number;
 };
 
 export type PublicCatalog = {
@@ -155,6 +163,7 @@ export type PublicBookMetadata = {
   todayPrompt?: string;
   devotionalContext?: string;
   readingTone?: "calm-guided" | "study" | "reflective" | "liturgical";
+  recommendations?: PublicBookRecommendation[];
   defaultLanguageId?: string;
   languages: PublicBookMetadataLanguage[];
 };

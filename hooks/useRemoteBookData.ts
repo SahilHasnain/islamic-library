@@ -251,6 +251,7 @@ export function useRemoteBookData(
   }, [bookId, catalog?.generatedAt, catalog?.version, metadata?.defaultLanguageId, metadata?.id, selectedVolume?.manifestUrl]);
 
   return {
+    catalogBooks: catalog?.books ?? [],
     catalogBook,
     catalogError,
     isCatalogLoading,

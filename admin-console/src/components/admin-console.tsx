@@ -202,6 +202,7 @@ type MetadataFormState = {
   description: string;
   category: string;
   nextRecommendedBookId: string;
+  recommendations: RecommendationEditorItem[];
   defaultLanguageId: string;
   requestedBy: string;
   languages: EditionLanguageEditorItem[];
@@ -226,6 +227,13 @@ type PlanEditorItem = {
   description: string;
   totalDays: string;
   items: PlanDayEditorItem[];
+};
+
+type RecommendationEditorItem = {
+  bookId: string;
+  reason: string;
+  type: string;
+  score: string;
 };
 
 type PlanDayEditorItem = {
@@ -301,6 +309,12 @@ type PublishedMetadataPayload = {
   description?: string;
   category?: string;
   nextRecommendedBookId?: string;
+  recommendations?: {
+    bookId?: string;
+    reason?: string;
+    type?: string;
+    score?: number;
+  }[];
   defaultLanguageId?: string;
   languages?: {
     id: string;
@@ -686,6 +700,24 @@ function buildSectionPayload(sections: SectionEditorItem[]) {
     });
 }
 
+function buildRecommendationPayload(recommendations: RecommendationEditorItem[]) {
+  return recommendations
+    .map((recommendation) => {
+      const bookId = recommendation.bookId.trim();
+      if (!bookId) {
+        return null;
+      }
+
+      return {
+        bookId,
+        reason: recommendation.reason.trim() || undefined,
+        type: recommendation.type.trim() || undefined,
+        score: recommendation.score.trim() ? Number(recommendation.score) : undefined,
+      };
+    })
+    .filter(Boolean);
+}
+
 function formatDate(value?: string) {
   if (!value) {
     return "Not yet";
@@ -780,6 +812,7 @@ export function AdminConsole({ initialSnapshot }: { initialSnapshot: MonitoringS
     description: "",
     category: "Knowledge",
     nextRecommendedBookId: "",
+    recommendations: [],
     defaultLanguageId: "",
     requestedBy: "admin-console",
     languages: [],
@@ -1072,6 +1105,14 @@ export function AdminConsole({ initialSnapshot }: { initialSnapshot: MonitoringS
             description: payload.description || "",
             category: payload.category || current.category,
             nextRecommendedBookId: payload.nextRecommendedBookId || "",
+            recommendations: Array.isArray(payload.recommendations)
+              ? payload.recommendations.map((recommendation) => ({
+                  bookId: String(recommendation.bookId || ""),
+                  reason: String(recommendation.reason || ""),
+                  type: String(recommendation.type || ""),
+                  score: recommendation.score == null ? "" : String(recommendation.score),
+                }))
+              : [],
             defaultLanguageId:
               payload.defaultLanguageId ||
               matchingLanguage?.id ||
@@ -1269,11 +1310,17 @@ export function AdminConsole({ initialSnapshot }: { initialSnapshot: MonitoringS
 
     try {
       const languages = buildLanguagePayload(metadataForm.languages);
+      const recommendations = buildRecommendationPayload(metadataForm.recommendations);
       if (
         metadataForm.nextRecommendedBookId &&
         metadataForm.nextRecommendedBookId === metadataForm.bookSlug.trim()
       ) {
         setMetadataState({ error: "Next recommended book cannot be the current book." });
+        return;
+      }
+
+      if (recommendations.some((recommendation) => recommendation?.bookId === metadataForm.bookSlug.trim())) {
+        setMetadataState({ error: "Related recommendations cannot include the current book." });
         return;
       }
 
@@ -1284,6 +1331,7 @@ export function AdminConsole({ initialSnapshot }: { initialSnapshot: MonitoringS
         },
         body: JSON.stringify({
           ...metadataForm,
+          recommendations,
           defaultLanguageId: metadataForm.defaultLanguageId.trim() || undefined,
           languages,
         }),
@@ -1495,6 +1543,26 @@ export function AdminConsole({ initialSnapshot }: { initialSnapshot: MonitoringS
     setSelectedRecommendationSlug(nextSlug);
     setMetadataForm((current) => ({ ...current, nextRecommendedBookId: nextSlug }));
     setMetadataState({ message: `Applied next recommended book: ${nextSlug}.` });
+  }
+
+  function applyRelatedRecommendations() {
+    const candidates = recommendationCandidates.slice(0, 5);
+    if (candidates.length === 0) {
+      setMetadataState({ error: "No recommendation candidates available." });
+      return;
+    }
+
+    setMetadataForm((current) => ({
+      ...current,
+      nextRecommendedBookId: current.nextRecommendedBookId || candidates[0].slug,
+      recommendations: candidates.map((candidate) => ({
+        bookId: candidate.slug,
+        reason: candidate.reasons.join("; "),
+        type: candidate.author === (aiDraftForReview?.author || current.author) ? "same-author" : "same-category",
+        score: String(candidate.score),
+      })),
+    }));
+    setMetadataState({ message: `Applied ${candidates.length} related recommendation(s).` });
   }
 
   function getAiDraftStorageKey() {
@@ -2501,7 +2569,19 @@ export function AdminConsole({ initialSnapshot }: { initialSnapshot: MonitoringS
                           >
                             Apply recommendation
                           </button>
+                          <button
+                            type="button"
+                            onClick={applyRelatedRecommendations}
+                            className="rounded-full border border-emerald-800 px-4 py-2 text-xs font-medium text-emerald-100 transition hover:border-emerald-300"
+                          >
+                            Apply related shelf
+                          </button>
                         </div>
+                        {metadataForm.recommendations.length > 0 ? (
+                          <p className="text-xs text-stone-500">
+                            Related shelf selected: {metadataForm.recommendations.map((recommendation) => recommendation.bookId).join(", ")}
+                          </p>
+                        ) : null}
                         <div className="space-y-2 text-xs leading-5 text-stone-300">
                           {recommendationCandidates.map((candidate) => (
                             <button

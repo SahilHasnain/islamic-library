@@ -95,6 +95,15 @@ function getSharedSignalScore(book: PublicCatalogBook, anchorBook?: PublicCatalo
   return score;
 }
 
+function addWeightedCount(map: Map<string, number>, key: string | undefined, weight: number) {
+  const normalizedKey = key?.trim();
+  if (!normalizedKey) {
+    return;
+  }
+
+  map.set(normalizedKey, (map.get(normalizedKey) ?? 0) + weight);
+}
+
 function sortBooksByTitle(books: PublicCatalogBook[]) {
   return [...books].sort((a, b) => a.title.localeCompare(b.title));
 }
@@ -130,6 +139,16 @@ function sortBooksForYou({
 }) {
   const visibleBookIds = new Set(books.map((book) => book.id));
   const booksById = new Map(remoteBooks.map((book) => [book.id, book]));
+  const catalogRank = new Map(remoteBooks.map((book, index) => [book.id, index]));
+  const incomingRecommendationCount = new Map<string, number>();
+  remoteBooks.forEach((book) => {
+    if (book.nextRecommendedBookId) {
+      incomingRecommendationCount.set(
+        book.nextRecommendedBookId,
+        (incomingRecommendationCount.get(book.nextRecommendedBookId) ?? 0) + 1,
+      );
+    }
+  });
   const shownBookIds = new Set<string>();
 
   const inProgressBooks = sortBooksByRecentProgress(
@@ -143,6 +162,31 @@ function sortBooksForYou({
       .sort((a, b) => getTimeValue(b.completedAt) - getTimeValue(a.completedAt))
       .map((completion) => booksById.get(completion.bookId))
       .find(Boolean);
+  const categoryAffinity = new Map<string, number>();
+  const authorAffinity = new Map<string, number>();
+  const tagAffinity = new Map<string, number>();
+  sortBooksByRecentProgress(
+    remoteBooks.filter((book) => latestProgressByBook[book.id]),
+    latestProgressByBook,
+  )
+    .slice(0, 5)
+    .forEach((book, index) => {
+      const weight = Math.max(1, 5 - index);
+      addWeightedCount(categoryAffinity, book.category, weight * 2);
+      addWeightedCount(authorAffinity, book.author, weight);
+      (book.tags ?? []).forEach((tag) => addWeightedCount(tagAffinity, tag, weight));
+    });
+
+  Object.values(completionMap)
+    .sort((a, b) => getTimeValue(b.completedAt) - getTimeValue(a.completedAt))
+    .slice(0, 5)
+    .forEach((completion, index) => {
+      const book = booksById.get(completion.bookId);
+      const weight = Math.max(1, 4 - index);
+      addWeightedCount(categoryAffinity, book?.category, weight);
+      addWeightedCount(authorAffinity, book?.author, weight * 0.5);
+      (book?.tags ?? []).forEach((tag) => addWeightedCount(tagAffinity, tag, weight * 0.5));
+    });
 
   const orderedBooks: PublicCatalogBook[] = [];
   const pushBook = (book?: PublicCatalogBook) => {
@@ -177,16 +221,22 @@ function sortBooksForYou({
   const remainingBooks = books
     .filter((book) => !shownBookIds.has(book.id))
     .sort((a, b) => {
-      const aCompleted = completedBookIdSet.has(a.id) ? 1 : 0;
-      const bCompleted = completedBookIdSet.has(b.id) ? 1 : 0;
-      if (aCompleted !== bCompleted) return aCompleted - bCompleted;
+      const getForYouScore = (book: PublicCatalogBook) => {
+        let score = 0;
+        if (activePlanBookIds.has(book.id)) score += 30;
+        if (book.nextRecommendedBookId && visibleBookIds.has(book.nextRecommendedBookId)) score += 18;
+        score += (incomingRecommendationCount.get(book.id) ?? 0) * 10;
+        score += getSharedSignalScore(book, anchorBook) * 12;
+        score += book.category ? (categoryAffinity.get(book.category) ?? 0) * 3 : 0;
+        score += book.author ? (authorAffinity.get(book.author) ?? 0) * 2 : 0;
+        score += (book.tags ?? []).reduce((total, tag) => total + (tagAffinity.get(tag) ?? 0), 0);
+        score += Math.max(0, 8 - (catalogRank.get(book.id) ?? 999) * 0.1);
+        if (completedBookIdSet.has(book.id)) score -= 40;
+        return score;
+      };
 
-      const aPlan = activePlanBookIds.has(a.id) ? 1 : 0;
-      const bPlan = activePlanBookIds.has(b.id) ? 1 : 0;
-      if (aPlan !== bPlan) return bPlan - aPlan;
-
-      const sharedSignal = getSharedSignalScore(b, anchorBook) - getSharedSignalScore(a, anchorBook);
-      if (sharedSignal !== 0) return sharedSignal;
+      const scoreDifference = getForYouScore(b) - getForYouScore(a);
+      if (scoreDifference !== 0) return scoreDifference;
 
       return a.title.localeCompare(b.title);
     });

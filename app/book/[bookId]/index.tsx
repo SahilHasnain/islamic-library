@@ -4,7 +4,7 @@ import { Image, Pressable, ScrollView, Text, View } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { ErrorCard } from "../../../components/ui";
-import type { PublicBookPlan, PublicBookSection } from "../../../data/types";
+import type { PublicBookPlan, PublicBookSection, PublicCatalogBook } from "../../../data/types";
 import { useAppTheme } from "../../../hooks/useAppTheme";
 import { useBookCompletions } from "../../../hooks/useBookCompletions";
 import { useRemoteBookData } from "../../../hooks/useRemoteBookData";
@@ -124,6 +124,21 @@ function getOrderedSections(sections: PublicBookSection[]) {
   });
 }
 
+function getRelatedBookScore(book: PublicCatalogBook, currentBook?: PublicCatalogBook) {
+  if (!currentBook || book.id === currentBook.id) {
+    return 0;
+  }
+
+  let score = 0;
+  if (currentBook.nextRecommendedBookId === book.id) score += 100;
+  if (currentBook.recommendations?.some((recommendation) => recommendation.bookId === book.id)) score += 80;
+  if (book.category && currentBook.category && book.category === currentBook.category) score += 30;
+  if (book.author && currentBook.author && book.author === currentBook.author) score += 30;
+  const currentTags = new Set(currentBook.tags ?? []);
+  score += (book.tags ?? []).filter((tag) => currentTags.has(tag)).length * 12;
+  return score;
+}
+
 function getSelectableChipColors({
   selected,
   colors,
@@ -169,6 +184,7 @@ export default function BookHomeScreen() {
     selectedVolumeId ?? progress?.volumeId,
   );
   const {
+    catalogBooks,
     catalogBook,
     isCatalogLoading,
     metadata,
@@ -304,6 +320,23 @@ export default function BookHomeScreen() {
   );
   const plans =
     selectedVolume?.plans?.length ? selectedVolume.plans : buildFallbackPlans(totalPages);
+  const relatedBooks = useMemo(() => {
+    return catalogBooks
+      .filter((book) => book.id !== readingBookId)
+      .map((book) => ({
+        book,
+        score: getRelatedBookScore(book, catalogBook),
+      }))
+      .filter((item) => item.score > 0)
+      .sort((left, right) => {
+        if (right.score !== left.score) {
+          return right.score - left.score;
+        }
+
+        return left.book.title.localeCompare(right.book.title);
+      })
+      .slice(0, 5);
+  }, [catalogBook, catalogBooks, readingBookId]);
   const activeRemotePlan =
     activePlan &&
     activePlan.languageId === resolvedLanguageId &&
@@ -934,6 +967,62 @@ export default function BookHomeScreen() {
               </Link>
             </View>
           </View>
+
+          {relatedBooks.length > 0 ? (
+            <View style={{ backgroundColor: colors.surface, borderRadius: 24, padding: 18, gap: 14 }}>
+              <View style={{ gap: 2 }}>
+                <Text
+                  style={{
+                    color: colors.accent,
+                    fontSize: 12,
+                    fontWeight: "700",
+                    textTransform: "uppercase",
+                    letterSpacing: 0.4,
+                  }}
+                >
+                  🔗 Related Books
+                </Text>
+                <Text style={{ color: colors.text, fontSize: 20, fontWeight: "800" }}>
+                  Continue the Thread
+                </Text>
+              </View>
+
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 10 }}>
+                {relatedBooks.map(({ book, score }) => (
+                  <Link key={book.id} href={`/book/${book.id}` as const} asChild>
+                    <Pressable
+                      style={{
+                        width: 210,
+                        backgroundColor: colors.surfaceMuted,
+                        borderRadius: 16,
+                        padding: 12,
+                        gap: 8,
+                      }}
+                    >
+                      <Text style={{ color: colors.text, fontSize: 14, fontWeight: "800" }} numberOfLines={2}>
+                        {book.title}
+                      </Text>
+                      {book.author ? (
+                        <Text style={{ color: colors.textMuted, fontSize: 12, fontWeight: "600" }} numberOfLines={1}>
+                          {book.author}
+                        </Text>
+                      ) : null}
+                      <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6 }}>
+                        {book.category ? (
+                          <Text style={{ color: colors.accent, fontSize: 11, fontWeight: "700" }} numberOfLines={1}>
+                            {book.category}
+                          </Text>
+                        ) : null}
+                        <Text style={{ color: colors.textMuted, fontSize: 11, fontWeight: "600" }}>
+                          Match {score}
+                        </Text>
+                      </View>
+                    </Pressable>
+                  </Link>
+                ))}
+              </ScrollView>
+            </View>
+          ) : null}
 
           {/* About This Book */}
           <View style={{ backgroundColor: colors.surface, borderRadius: 24, padding: 18, gap: 12 }}>

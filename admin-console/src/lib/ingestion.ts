@@ -144,6 +144,12 @@ export type MetadataRepublishPayload = {
   description?: string;
   category?: string;
   nextRecommendedBookId?: string;
+  recommendations?: {
+    bookId: string;
+    reason?: string;
+    type?: "same-author" | "same-topic" | "same-category" | "next-reading" | "foundational" | "advanced";
+    score?: number;
+  }[];
   defaultLanguageId?: string;
   requestedBy: string;
   languages?: EditionLanguageInput[];
