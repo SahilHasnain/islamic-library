@@ -205,6 +205,15 @@ export type AiAnalysisJob = {
   analysisId?: string;
   status: "queued" | "processing" | "completed" | "failed";
   phase?: string;
+  provider?: string;
+  model?: string;
+  analysisMode?: string;
+  maxPages?: number;
+  logs?: {
+    at: string;
+    phase: string;
+    message: string;
+  }[];
   createdAt?: string;
   updatedAt?: string;
   result?: AiAnalysisResult;

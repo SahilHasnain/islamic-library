@@ -80,6 +80,30 @@ async function handleHealth(_, response) {
     service: "islamic-library-worker",
     workerId,
     workerVersion,
+    aiProvider: process.env.AI_PROVIDER || "",
+    aiModel: process.env.AI_MODEL || process.env.OPENAI_MODEL || "",
+    aiQuickStrategy: process.env.AI_QUICK_ANALYSIS_STRATEGY || "toc-first",
+  });
+}
+
+function appendAiJobLog(analysisId, phase, message) {
+  const current = aiAnalysisJobs.get(analysisId);
+  if (!current) {
+    return;
+  }
+
+  aiAnalysisJobs.set(analysisId, {
+    ...current,
+    phase,
+    updatedAt: new Date().toISOString(),
+    logs: [
+      ...(Array.isArray(current.logs) ? current.logs : []),
+      {
+        at: new Date().toISOString(),
+        phase,
+        message,
+      },
+    ],
   });
 }
 
@@ -549,8 +573,19 @@ async function handleAiAnalyzeStart(request, response) {
     id: analysisId,
     status: "queued",
     phase: "queued",
+    provider: process.env.AI_PROVIDER || "",
+    model: process.env.AI_MODEL || process.env.OPENAI_MODEL || "",
+    analysisMode: analysisMode || "draft",
+    maxPages,
     createdAt: now,
     updatedAt: now,
+    logs: [
+      {
+        at: now,
+        phase: "queued",
+        message: `Queued ${analysisMode || "draft"} analysis for ${maxPages && maxPages > 0 ? `first ${maxPages} pages` : "all pages"}.`,
+      },
+    ],
   });
 
   setImmediate(async () => {
@@ -560,9 +595,20 @@ async function handleAiAnalyzeStart(request, response) {
       phase: "analyzing",
       updatedAt: new Date().toISOString(),
     });
+    appendAiJobLog(
+      analysisId,
+      "analyzing",
+      `Using provider ${process.env.AI_PROVIDER || "unknown"} model ${process.env.AI_MODEL || process.env.OPENAI_MODEL || "unknown"}.`,
+    );
 
     try {
+      appendAiJobLog(analysisId, "extracting", "Downloading source PDF and extracting text.");
       const result = await analyzeSourcePdf({ sourceFileId, context, maxPages, analysisMode });
+      appendAiJobLog(
+        analysisId,
+        "completed",
+        `Completed analysis: ${result.analyzedPages || 0} pages analyzed, ${result.extractableTextPages || 0} text pages, ${result.tocEntries?.length || 0} TOC entries.`,
+      );
       aiAnalysisJobs.set(analysisId, {
         ...aiAnalysisJobs.get(analysisId),
         status: "completed",
@@ -571,6 +617,11 @@ async function handleAiAnalyzeStart(request, response) {
         updatedAt: new Date().toISOString(),
       });
     } catch (error) {
+      appendAiJobLog(
+        analysisId,
+        "failed",
+        error instanceof Error ? error.message : "AI analysis failed.",
+      );
       aiAnalysisJobs.set(analysisId, {
         ...aiAnalysisJobs.get(analysisId),
         status: "failed",

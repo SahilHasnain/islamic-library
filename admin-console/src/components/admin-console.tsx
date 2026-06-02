@@ -127,6 +127,18 @@ function validateAiDraftForReview(draft: AiAnalysisResult["draft"] | null | unde
   return issues;
 }
 
+function keywordSet(value: string) {
+  const stopWords = new Set(["the", "and", "for", "with", "book", "volume", "hai", "aur", "ke", "ka", "ki"]);
+  return new Set(
+    value
+      .toLowerCase()
+      .replace(/[^a-z0-9\s-]/g, " ")
+      .split(/\s+/)
+      .map((word) => word.trim())
+      .filter((word) => word.length > 3 && !stopWords.has(word)),
+  );
+}
+
 type SubmissionState = {
   error?: string;
   message?: string;
@@ -210,6 +222,15 @@ type TocEntryEditorItem = {
 type AiDraftValidationIssue = {
   severity: "warning" | "error";
   message: string;
+};
+
+type RecommendationCandidate = {
+  slug: string;
+  title: string;
+  author?: string;
+  category?: string;
+  score: number;
+  reasons: string[];
 };
 
 const publicAppwriteConfig = {
@@ -685,6 +706,7 @@ export function AdminConsole({ initialSnapshot }: { initialSnapshot: MonitoringS
   const [isAnalyzingMetadata, setIsAnalyzingMetadata] = useState(false);
   const [aiAnalysisDepth, setAiAnalysisDepth] = useState<"quick" | "full">("quick");
   const [aiAnalysisJobStatus, setAiAnalysisJobStatus] = useState<string>();
+  const [aiAnalysisJobInfo, setAiAnalysisJobInfo] = useState<AiAnalysisJob | null>(null);
   const [showAdvancedMetadata, setShowAdvancedMetadata] = useState(false);
   const [selectedAdvancedLanguageIndex, setSelectedAdvancedLanguageIndex] = useState(0);
   const [selectedAdvancedVolumeIndex, setSelectedAdvancedVolumeIndex] = useState(0);
@@ -694,6 +716,7 @@ export function AdminConsole({ initialSnapshot }: { initialSnapshot: MonitoringS
   const [aiTocJson, setAiTocJson] = useState("");
   const [manualTocText, setManualTocText] = useState("");
   const [selectedAiSourceKey, setSelectedAiSourceKey] = useState("");
+  const [selectedRecommendationSlug, setSelectedRecommendationSlug] = useState("");
   const [metadataForm, setMetadataForm] = useState<MetadataFormState>({
     bookSlug: "",
     title: "",
@@ -881,6 +904,72 @@ export function AdminConsole({ initialSnapshot }: { initialSnapshot: MonitoringS
       return [];
     }
   }, [aiTocJson]);
+
+  const recommendationCandidates = useMemo(() => {
+    const draft = aiDraftForReview;
+    const currentSlug = metadataForm.bookSlug.trim();
+    if (!currentSlug) {
+      return [];
+    }
+
+    const sourceText = [
+      metadataForm.title,
+      metadataForm.subtitle,
+      metadataForm.description,
+      draft?.title,
+      draft?.description,
+      draft?.summary,
+      draft?.sections?.map((section) => section.title).join(" "),
+    ]
+      .filter(Boolean)
+      .join(" ");
+    const sourceKeywords = keywordSet(sourceText);
+    const sourceAuthor = String(draft?.author || metadataForm.author || "").trim().toLowerCase();
+    const sourceCategory = String(draft?.category || metadataForm.category || "").trim();
+    const sourceLanguage = String(draft?.languageId || selectedAiAnalysisSource?.languageId || metadataForm.defaultLanguageId || "").trim();
+
+    return knownBooks
+      .filter((book): book is NonNullable<typeof book> => Boolean(book))
+      .filter((book) => book.slug !== currentSlug && book.status === "published")
+      .map((book) => {
+        let score = 0;
+        const reasons: string[] = [];
+        if (sourceCategory && book.category === sourceCategory) {
+          score += 40;
+          reasons.push(`same category: ${sourceCategory}`);
+        }
+
+        if (sourceAuthor && book.author?.trim().toLowerCase() === sourceAuthor) {
+          score += 30;
+          reasons.push(`same author: ${book.author}`);
+        }
+
+        if (sourceLanguage && book.languageId === sourceLanguage) {
+          score += 15;
+          reasons.push(`same language: ${sourceLanguage}`);
+        }
+
+        const candidateKeywords = keywordSet([book.title, book.subtitle, book.description, book.category].filter(Boolean).join(" "));
+        const overlap = Array.from(sourceKeywords).filter((keyword) => candidateKeywords.has(keyword));
+        if (overlap.length > 0) {
+          const keywordScore = Math.min(20, overlap.length * 4);
+          score += keywordScore;
+          reasons.push(`keyword overlap: ${overlap.slice(0, 4).join(", ")}`);
+        }
+
+        return {
+          slug: book.slug,
+          title: book.title,
+          author: book.author,
+          category: book.category,
+          score,
+          reasons,
+        } satisfies RecommendationCandidate;
+      })
+      .filter((candidate) => candidate.score > 0)
+      .sort((left, right) => right.score - left.score)
+      .slice(0, 8);
+  }, [aiDraftForReview, knownBooks, metadataForm, selectedAiAnalysisSource]);
 
   useEffect(() => {
     let isMounted = true;
@@ -1173,6 +1262,7 @@ export function AdminConsole({ initialSnapshot }: { initialSnapshot: MonitoringS
     setAiAnalysis(null);
     setAiDraftJson("");
     setAiTocJson("");
+    setAiAnalysisJobInfo(null);
 
     try {
       const requestBody = {
@@ -1209,6 +1299,7 @@ export function AdminConsole({ initialSnapshot }: { initialSnapshot: MonitoringS
           setMetadataState({ error: startPayload.error || "AI analysis failed." });
           return;
         }
+        setAiAnalysisJobInfo(startPayload);
 
         const analysisId = startPayload.analysisId || startPayload.id;
         if (!analysisId) {
@@ -1225,6 +1316,7 @@ export function AdminConsole({ initialSnapshot }: { initialSnapshot: MonitoringS
             return;
           }
 
+          setAiAnalysisJobInfo(statusPayload);
           setAiAnalysisJobStatus(`${modeLabel} analysis ${statusPayload.phase || statusPayload.status}...`);
           if (statusPayload.status === "completed" && statusPayload.result) {
             setAiAnalysis(statusPayload.result);
@@ -1307,6 +1399,18 @@ export function AdminConsole({ initialSnapshot }: { initialSnapshot: MonitoringS
     } catch {
       setMetadataState({ error: "Could not copy AI draft JSON." });
     }
+  }
+
+  function applyRecommendedBook(slug?: string) {
+    const nextSlug = slug || selectedRecommendationSlug || recommendationCandidates[0]?.slug;
+    if (!nextSlug) {
+      setMetadataState({ error: "No recommendation candidate selected." });
+      return;
+    }
+
+    setSelectedRecommendationSlug(nextSlug);
+    setMetadataForm((current) => ({ ...current, nextRecommendedBookId: nextSlug }));
+    setMetadataState({ message: `Applied next recommended book: ${nextSlug}.` });
   }
 
   function getEditableTocEntries() {
@@ -1992,6 +2096,27 @@ export function AdminConsole({ initialSnapshot }: { initialSnapshot: MonitoringS
                   {aiAnalysisJobStatus ? (
                     <p className="mt-2 text-xs text-emerald-300">{aiAnalysisJobStatus}</p>
                   ) : null}
+                  <p className="mt-2 text-xs leading-5 text-stone-500">
+                    Quick analysis mode: {quickAnalysisAsJob ? "background job" : "direct request"}. Separate AI steps always use background jobs.
+                  </p>
+                  {aiAnalysisJobInfo && !aiAnalysis?.draft ? (
+                    <div className="mt-3 rounded-2xl border border-stone-800 bg-stone-950/80 p-3 text-xs leading-5 text-stone-300">
+                      <div className="flex flex-wrap gap-2 text-stone-500">
+                        <span>Provider: {aiAnalysisJobInfo.provider || "unknown"}</span>
+                        <span>Model: {aiAnalysisJobInfo.model || "unknown"}</span>
+                        <span>Mode: {aiAnalysisJobInfo.analysisMode || "draft"}</span>
+                      </div>
+                      {aiAnalysisJobInfo.logs?.length ? (
+                        <ul className="mt-2 space-y-1">
+                          {aiAnalysisJobInfo.logs.slice(-4).map((log, index) => (
+                            <li key={`${log.at}-${index}`}>
+                              <span className="text-stone-500">{log.phase}</span>: {log.message}
+                            </li>
+                          ))}
+                        </ul>
+                      ) : null}
+                    </div>
+                  ) : null}
                 </div>
                 <div className="flex flex-wrap items-center gap-3">
                   <select
@@ -2045,6 +2170,31 @@ export function AdminConsole({ initialSnapshot }: { initialSnapshot: MonitoringS
               </div>
               {aiAnalysis?.draft ? (
                 <div className="space-y-3 rounded-2xl border border-stone-800 bg-stone-950/70 p-4 text-sm leading-6 text-stone-300">
+                  {aiAnalysisJobInfo ? (
+                    <details className="rounded-2xl border border-stone-800 bg-stone-950/80 p-3">
+                      <summary className="cursor-pointer text-xs font-medium text-emerald-200">
+                        AI progress logs
+                      </summary>
+                      <div className="mt-3 space-y-2 text-xs leading-5 text-stone-300">
+                        <div className="flex flex-wrap gap-2 text-stone-500">
+                          <span>Provider: {aiAnalysisJobInfo.provider || "unknown"}</span>
+                          <span>Model: {aiAnalysisJobInfo.model || "unknown"}</span>
+                          <span>Mode: {aiAnalysisJobInfo.analysisMode || "draft"}</span>
+                        </div>
+                        {aiAnalysisJobInfo.logs?.length ? (
+                          <ul className="space-y-2">
+                            {aiAnalysisJobInfo.logs.map((log, index) => (
+                              <li key={`${log.at}-${index}`} className="rounded-xl bg-stone-900/70 p-2">
+                                <span className="text-stone-500">{log.phase}</span>: {log.message}
+                              </li>
+                            ))}
+                          </ul>
+                        ) : (
+                          <p className="text-stone-500">No progress logs yet.</p>
+                        )}
+                      </div>
+                    </details>
+                  ) : null}
                   <div className="flex flex-wrap items-center gap-3 text-xs text-stone-400">
                     <span>Pages: {aiAnalysis.pageCount ?? "?"}</span>
                     <span>Analyzed: {aiAnalysis.analyzedPages ?? "?"}</span>
@@ -2083,6 +2233,63 @@ export function AdminConsole({ initialSnapshot }: { initialSnapshot: MonitoringS
                       <p className="mt-2 text-xs text-emerald-300">No obvious section/category issues found.</p>
                     )}
                   </div>
+                  <details className="rounded-2xl border border-stone-800 bg-stone-950/80 p-3">
+                    <summary className="cursor-pointer text-xs font-medium text-emerald-200">
+                      Next recommended book ({recommendationCandidates.length})
+                    </summary>
+                    {recommendationCandidates.length > 0 ? (
+                      <div className="mt-3 space-y-3">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <select
+                            value={selectedRecommendationSlug || recommendationCandidates[0]?.slug || ""}
+                            onChange={(event) => setSelectedRecommendationSlug(event.target.value)}
+                            className="rounded-full border border-stone-700 bg-stone-950 px-4 py-2 text-xs font-medium text-stone-200 outline-none transition focus:border-emerald-300"
+                          >
+                            {recommendationCandidates.map((candidate) => (
+                              <option key={candidate.slug} value={candidate.slug}>
+                                {candidate.title} ({candidate.slug})
+                              </option>
+                            ))}
+                          </select>
+                          <button
+                            type="button"
+                            onClick={() => applyRecommendedBook()}
+                            className="rounded-full border border-emerald-800 px-4 py-2 text-xs font-medium text-emerald-100 transition hover:border-emerald-300"
+                          >
+                            Apply recommendation
+                          </button>
+                        </div>
+                        <div className="space-y-2 text-xs leading-5 text-stone-300">
+                          {recommendationCandidates.map((candidate) => (
+                            <button
+                              key={candidate.slug}
+                              type="button"
+                              onClick={() => setSelectedRecommendationSlug(candidate.slug)}
+                              className={`block w-full rounded-2xl border p-3 text-left transition ${
+                                (selectedRecommendationSlug || recommendationCandidates[0]?.slug) === candidate.slug
+                                  ? "border-emerald-700 bg-emerald-950/20"
+                                  : "border-stone-800 bg-stone-900/60 hover:border-stone-700"
+                              }`}
+                            >
+                              <div className="flex flex-wrap items-center gap-2">
+                                <span className="font-medium text-stone-100">{candidate.title}</span>
+                                <span className="text-stone-500">{candidate.slug}</span>
+                                <span className="rounded-full bg-stone-950 px-2 py-0.5 text-[11px] text-emerald-200">score {candidate.score}</span>
+                              </div>
+                              <p className="mt-1 text-stone-400">
+                                {[candidate.category, candidate.author].filter(Boolean).join(" · ") || "No metadata"}
+                              </p>
+                              {candidate.reasons.length ? (
+                                <p className="mt-1 text-stone-500">{candidate.reasons.join("; ")}</p>
+                              ) : null}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    ) : (
+                      <p className="mt-3 text-xs text-stone-400">No suitable published recommendation candidates found yet.</p>
+                    )}
+                  </details>
                   {aiDraftSectionsForReview.length > 0 ? (
                     <details className="rounded-2xl border border-stone-800 bg-stone-950/80 p-3" open>
                       <summary className="cursor-pointer text-xs font-medium text-emerald-200">
