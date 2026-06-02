@@ -127,6 +127,49 @@ function validateAiDraftForReview(draft: AiAnalysisResult["draft"] | null | unde
   return issues;
 }
 
+function validateAiPlansForReview(draft: AiAnalysisResult["draft"] | null | undefined, pageCount?: number) {
+  const issues: AiDraftValidationIssue[] = [];
+  const plans = Array.isArray(draft?.plans) ? draft.plans : [];
+  plans.forEach((plan) => {
+    const items = Array.isArray(plan.items) ? [...plan.items] : [];
+    if (items.length === 0) {
+      issues.push({ severity: "error", message: `${plan.title || "Plan"} has no days.` });
+      return;
+    }
+
+    const sorted = items
+      .map((item) => ({
+        day: Number(item.day),
+        label: String(item.label || ""),
+        startPage: Number(item.startPage),
+        endPage: Number(item.endPage),
+      }))
+      .sort((left, right) => left.startPage - right.startPage);
+
+    sorted.forEach((item) => {
+      if (!Number.isFinite(item.startPage) || !Number.isFinite(item.endPage) || item.startPage < 1 || item.endPage < item.startPage) {
+        issues.push({ severity: "error", message: `${plan.title}: day ${item.day || "?"} has an invalid page range.` });
+      }
+    });
+
+    for (let index = 1; index < sorted.length; index += 1) {
+      const previous = sorted[index - 1];
+      const current = sorted[index];
+      if (current.startPage <= previous.endPage) {
+        issues.push({ severity: "error", message: `${plan.title}: overlap between day ${previous.day} and day ${current.day}.` });
+      } else if (current.startPage > previous.endPage + 1) {
+        issues.push({ severity: "warning", message: `${plan.title}: gap before day ${current.day}.` });
+      }
+    }
+
+    if (pageCount && sorted[sorted.length - 1]?.endPage < pageCount - 2) {
+      issues.push({ severity: "warning", message: `${plan.title}: final day ends at page ${sorted[sorted.length - 1].endPage}, book has ${pageCount} pages.` });
+    }
+  });
+
+  return issues;
+}
+
 function keywordSet(value: string) {
   const stopWords = new Set(["the", "and", "for", "with", "book", "volume", "hai", "aur", "ke", "ka", "ki"]);
   return new Set(
@@ -137,6 +180,10 @@ function keywordSet(value: string) {
       .map((word) => word.trim())
       .filter((word) => word.length > 3 && !stopWords.has(word)),
   );
+}
+
+function buildAiDraftStorageKey(bookSlug: string, sourceKey?: string) {
+  return `islamic-library:ai-draft:${bookSlug || "unknown"}:${sourceKey || "default"}`;
 }
 
 type SubmissionState = {
@@ -231,6 +278,14 @@ type RecommendationCandidate = {
   category?: string;
   score: number;
   reasons: string[];
+};
+
+type StoredAiDraft = {
+  savedAt: string;
+  aiAnalysis: AiAnalysisResult | null;
+  aiDraftJson: string;
+  aiTocJson: string;
+  manualTocText: string;
 };
 
 const publicAppwriteConfig = {
@@ -880,6 +935,11 @@ export function AdminConsole({ initialSnapshot }: { initialSnapshot: MonitoringS
     }
   }, [aiDraftJson]);
 
+  const aiPlanValidationIssues = useMemo(
+    () => validateAiPlansForReview(aiDraftForReview, aiAnalysis?.pageCount),
+    [aiAnalysis, aiDraftForReview],
+  );
+
   const aiTocEntriesForReview = useMemo(() => {
     if (!aiTocJson.trim()) {
       return [];
@@ -1322,6 +1382,18 @@ export function AdminConsole({ initialSnapshot }: { initialSnapshot: MonitoringS
             setAiAnalysis(statusPayload.result);
             setAiDraftJson(statusPayload.result.draft ? JSON.stringify(statusPayload.result.draft, null, 2) : "");
             setAiTocJson(statusPayload.result.tocEntries ? JSON.stringify(statusPayload.result.tocEntries, null, 2) : "");
+            if (typeof window !== "undefined") {
+              window.localStorage.setItem(
+                getAiDraftStorageKey(),
+                JSON.stringify({
+                  savedAt: new Date().toISOString(),
+                  aiAnalysis: statusPayload.result,
+                  aiDraftJson: statusPayload.result.draft ? JSON.stringify(statusPayload.result.draft, null, 2) : "",
+                  aiTocJson: statusPayload.result.tocEntries ? JSON.stringify(statusPayload.result.tocEntries, null, 2) : "",
+                  manualTocText,
+                } satisfies StoredAiDraft),
+              );
+            }
             setMetadataState({
               message: statusPayload.result.aiEnabled
                 ? "AI draft generated."
@@ -1354,6 +1426,18 @@ export function AdminConsole({ initialSnapshot }: { initialSnapshot: MonitoringS
       setAiAnalysis(payload);
       setAiDraftJson(payload.draft ? JSON.stringify(payload.draft, null, 2) : "");
       setAiTocJson(payload.tocEntries ? JSON.stringify(payload.tocEntries, null, 2) : "");
+      if (typeof window !== "undefined") {
+        window.localStorage.setItem(
+          getAiDraftStorageKey(),
+          JSON.stringify({
+            savedAt: new Date().toISOString(),
+            aiAnalysis: payload,
+            aiDraftJson: payload.draft ? JSON.stringify(payload.draft, null, 2) : "",
+            aiTocJson: payload.tocEntries ? JSON.stringify(payload.tocEntries, null, 2) : "",
+            manualTocText,
+          } satisfies StoredAiDraft),
+        );
+      }
       setMetadataState({ message: payload.aiEnabled ? "AI draft generated." : "PDF analyzed. Configure OPENAI_API_KEY for richer AI drafts." });
     } catch (error) {
       setMetadataState({ error: error instanceof Error ? error.message : "AI analysis failed." });
@@ -1411,6 +1495,64 @@ export function AdminConsole({ initialSnapshot }: { initialSnapshot: MonitoringS
     setSelectedRecommendationSlug(nextSlug);
     setMetadataForm((current) => ({ ...current, nextRecommendedBookId: nextSlug }));
     setMetadataState({ message: `Applied next recommended book: ${nextSlug}.` });
+  }
+
+  function getAiDraftStorageKey() {
+    return buildAiDraftStorageKey(metadataForm.bookSlug.trim(), selectedAiAnalysisSource?.key);
+  }
+
+  function saveAiDraftToStorage() {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    const slug = metadataForm.bookSlug.trim();
+    if (!slug || !selectedAiAnalysisSource) {
+      setMetadataState({ error: "Select a book and AI source before saving a draft." });
+      return;
+    }
+
+    const payload: StoredAiDraft = {
+      savedAt: new Date().toISOString(),
+      aiAnalysis,
+      aiDraftJson,
+      aiTocJson,
+      manualTocText,
+    };
+    window.localStorage.setItem(getAiDraftStorageKey(), JSON.stringify(payload));
+    setMetadataState({ message: "Saved AI draft in this browser." });
+  }
+
+  function loadAiDraftFromStorage() {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    const stored = window.localStorage.getItem(getAiDraftStorageKey());
+    if (!stored) {
+      setMetadataState({ error: "No saved AI draft found for this book/source." });
+      return;
+    }
+
+    try {
+      const payload = JSON.parse(stored) as StoredAiDraft;
+      setAiAnalysis(payload.aiAnalysis);
+      setAiDraftJson(payload.aiDraftJson || "");
+      setAiTocJson(payload.aiTocJson || "");
+      setManualTocText(payload.manualTocText || "");
+      setMetadataState({ message: `Loaded saved AI draft from ${formatDate(payload.savedAt)}.` });
+    } catch {
+      setMetadataState({ error: "Saved AI draft is corrupted." });
+    }
+  }
+
+  function clearAiDraftFromStorage() {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    window.localStorage.removeItem(getAiDraftStorageKey());
+    setMetadataState({ message: "Cleared saved AI draft for this book/source." });
   }
 
   function getEditableTocEntries() {
@@ -1587,6 +1729,83 @@ export function AdminConsole({ initialSnapshot }: { initialSnapshot: MonitoringS
       };
     });
     setMetadataState({ message: "Auto-fixed section ranges in the editable AI draft." });
+  }
+
+  function updateEditableAiPlan(planIndex: number, field: string, value: string) {
+    updateEditableAiDraft((draft) => {
+      const plans = Array.isArray(draft.plans) ? [...draft.plans] : [];
+      const current = plans[planIndex];
+      if (!current) {
+        return draft;
+      }
+
+      plans[planIndex] = {
+        ...current,
+        [field]: field === "totalDays" ? Number(value) || 0 : value,
+      };
+      return { ...draft, plans };
+    });
+  }
+
+  function updateEditableAiPlanItem(planIndex: number, itemIndex: number, field: string, value: string) {
+    updateEditableAiDraft((draft) => {
+      const plans = Array.isArray(draft.plans) ? [...draft.plans] : [];
+      const plan = plans[planIndex];
+      if (!plan) {
+        return draft;
+      }
+
+      const items = Array.isArray(plan.items) ? [...plan.items] : [];
+      const current = items[itemIndex];
+      if (!current) {
+        return draft;
+      }
+
+      const numericFields = new Set(["day", "startPage", "endPage", "estimatedMinutes"]);
+      items[itemIndex] = {
+        ...current,
+        [field]: numericFields.has(field) ? Number(value) || 0 : value,
+      };
+      plans[planIndex] = { ...plan, items };
+      return { ...draft, plans };
+    });
+  }
+
+  function autoFixEditableAiPlanRanges(planIndex: number) {
+    updateEditableAiDraft((draft) => {
+      const pageCount = Number(aiAnalysis?.pageCount || 0);
+      const plans = Array.isArray(draft.plans) ? [...draft.plans] : [];
+      const plan = plans[planIndex];
+      if (!plan?.items?.length) {
+        return draft;
+      }
+
+      const totalDays = Math.max(1, Number(plan.totalDays) || plan.items.length);
+      const effectivePageCount = Math.max(1, pageCount || Math.max(...plan.items.map((item) => Number(item.endPage) || 1)));
+      const pagesPerDay = Math.ceil(effectivePageCount / totalDays);
+      const items = Array.from({ length: totalDays }).map((_, index) => {
+        const startPage = index * pagesPerDay + 1;
+        const endPage = Math.min(effectivePageCount, (index + 1) * pagesPerDay);
+        const existing = plan.items[index];
+        return {
+          day: index + 1,
+          label: existing?.label || `Day ${index + 1}`,
+          startPage,
+          endPage,
+          estimatedMinutes: Math.max(3, (endPage - startPage + 1) * 2),
+        };
+      });
+
+      plans[planIndex] = { ...plan, items };
+      return {
+        ...draft,
+        plans,
+        notes: [draft.notes, `${plan.title || "Reading plan"} ranges auto-fixed in admin review.`]
+          .filter(Boolean)
+          .join("\n"),
+      };
+    });
+    setMetadataState({ message: "Auto-fixed reading plan ranges in the editable AI draft." });
   }
 
   function buildSectionsFromEditableToc() {
@@ -2144,6 +2363,30 @@ export function AdminConsole({ initialSnapshot }: { initialSnapshot: MonitoringS
                   </select>
                   <button
                     type="button"
+                    disabled={!metadataForm.bookSlug.trim() || !selectedAiAnalysisSource}
+                    onClick={loadAiDraftFromStorage}
+                    className="rounded-full border border-stone-700 px-4 py-2 text-xs font-medium text-stone-200 transition hover:border-emerald-300 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    Load saved
+                  </button>
+                  <button
+                    type="button"
+                    disabled={!metadataForm.bookSlug.trim() || !selectedAiAnalysisSource || !aiDraftJson.trim()}
+                    onClick={saveAiDraftToStorage}
+                    className="rounded-full border border-stone-700 px-4 py-2 text-xs font-medium text-stone-200 transition hover:border-emerald-300 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    Save draft
+                  </button>
+                  <button
+                    type="button"
+                    disabled={!metadataForm.bookSlug.trim() || !selectedAiAnalysisSource}
+                    onClick={clearAiDraftFromStorage}
+                    className="rounded-full border border-stone-700 px-4 py-2 text-xs font-medium text-stone-200 transition hover:border-rose-400 hover:text-rose-200 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    Clear saved
+                  </button>
+                  <button
+                    type="button"
                     disabled={isAnalyzingMetadata || !metadataForm.bookSlug.trim() || !selectedAiAnalysisSource}
                     onClick={() => void handleAiAnalyzeMetadata("toc-only")}
                     className="rounded-full border border-stone-700 px-4 py-2 text-xs font-medium text-stone-200 transition hover:border-emerald-300 disabled:cursor-not-allowed disabled:opacity-50"
@@ -2394,17 +2637,80 @@ export function AdminConsole({ initialSnapshot }: { initialSnapshot: MonitoringS
                       <summary className="cursor-pointer text-xs font-medium text-emerald-200">
                         Reading plans ({aiDraftForReview.plans.length})
                       </summary>
-                      <div className="mt-3 space-y-3 text-xs text-stone-300">
-                        {aiDraftForReview.plans.map((plan) => (
-                          <div key={plan.id} className="rounded-xl bg-stone-900/70 p-3">
-                            <div className="flex flex-wrap items-center gap-2 text-stone-200">
-                              <span className="font-medium">{plan.title}</span>
-                              <span className="text-stone-500">{plan.totalDays} days</span>
-                              <span className="text-stone-500">{plan.items.length} item(s)</span>
+                      {aiPlanValidationIssues.length > 0 ? (
+                        <ul className="mt-3 space-y-2 text-xs leading-5">
+                          {aiPlanValidationIssues.map((issue, index) => (
+                            <li key={`${issue.severity}-${index}`} className={issue.severity === "error" ? "text-rose-300" : "text-amber-300"}>
+                              {issue.severity === "error" ? "Error" : "Warning"}: {issue.message}
+                            </li>
+                          ))}
+                        </ul>
+                      ) : (
+                        <p className="mt-3 text-xs text-emerald-300">No obvious reading-plan issues found.</p>
+                      )}
+                      <div className="mt-3 space-y-4 text-xs text-stone-300">
+                        {aiDraftForReview.plans.map((plan, planIndex) => (
+                          <div key={plan.id || planIndex} className="space-y-3 rounded-xl bg-stone-900/70 p-3">
+                            <div className="grid gap-2 md:grid-cols-[1fr_7rem_auto]">
+                              <input
+                                value={plan.title}
+                                onChange={(event) => updateEditableAiPlan(planIndex, "title", event.target.value)}
+                                className="rounded-xl border border-stone-800 bg-stone-950 px-3 py-2 outline-none transition focus:border-emerald-400"
+                              />
+                              <input
+                                inputMode="numeric"
+                                value={plan.totalDays}
+                                onChange={(event) => updateEditableAiPlan(planIndex, "totalDays", event.target.value)}
+                                className="rounded-xl border border-stone-800 bg-stone-950 px-3 py-2 outline-none transition focus:border-emerald-400"
+                              />
+                              <button
+                                type="button"
+                                onClick={() => autoFixEditableAiPlanRanges(planIndex)}
+                                className="rounded-full border border-emerald-800 px-3 py-1.5 text-xs font-medium text-emerald-100 transition hover:border-emerald-300"
+                              >
+                                Auto-fix plan
+                              </button>
                             </div>
-                            {plan.description ? (
-                              <p className="mt-2 text-stone-400">{plan.description}</p>
-                            ) : null}
+                            <textarea
+                              value={plan.description}
+                              onChange={(event) => updateEditableAiPlan(planIndex, "description", event.target.value)}
+                              className="w-full rounded-xl border border-stone-800 bg-stone-950 px-3 py-2 outline-none transition focus:border-emerald-400"
+                              rows={2}
+                            />
+                            <div className="max-h-72 overflow-auto rounded-xl bg-stone-950/80">
+                              <table className="w-full min-w-[760px] text-left text-xs">
+                                <thead className="sticky top-0 bg-stone-950 text-[11px] uppercase tracking-[0.18em] text-stone-500">
+                                  <tr>
+                                    <th className="px-3 py-2 font-medium">Day</th>
+                                    <th className="px-3 py-2 font-medium">Label</th>
+                                    <th className="px-3 py-2 font-medium">Start</th>
+                                    <th className="px-3 py-2 font-medium">End</th>
+                                    <th className="px-3 py-2 font-medium">Minutes</th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {plan.items.map((item, itemIndex) => (
+                                    <tr key={`${plan.id || planIndex}-${item.day}-${itemIndex}`} className="border-t border-stone-800">
+                                      <td className="px-3 py-2">
+                                        <input inputMode="numeric" value={item.day} onChange={(event) => updateEditableAiPlanItem(planIndex, itemIndex, "day", event.target.value)} className="w-16 rounded-xl border border-stone-800 bg-stone-950 px-3 py-2 outline-none transition focus:border-emerald-400" />
+                                      </td>
+                                      <td className="px-3 py-2">
+                                        <input value={item.label} onChange={(event) => updateEditableAiPlanItem(planIndex, itemIndex, "label", event.target.value)} className="w-56 rounded-xl border border-stone-800 bg-stone-950 px-3 py-2 outline-none transition focus:border-emerald-400" />
+                                      </td>
+                                      <td className="px-3 py-2">
+                                        <input inputMode="numeric" value={item.startPage} onChange={(event) => updateEditableAiPlanItem(planIndex, itemIndex, "startPage", event.target.value)} className="w-20 rounded-xl border border-stone-800 bg-stone-950 px-3 py-2 outline-none transition focus:border-emerald-400" />
+                                      </td>
+                                      <td className="px-3 py-2">
+                                        <input inputMode="numeric" value={item.endPage} onChange={(event) => updateEditableAiPlanItem(planIndex, itemIndex, "endPage", event.target.value)} className="w-20 rounded-xl border border-stone-800 bg-stone-950 px-3 py-2 outline-none transition focus:border-emerald-400" />
+                                      </td>
+                                      <td className="px-3 py-2">
+                                        <input inputMode="numeric" value={item.estimatedMinutes} onChange={(event) => updateEditableAiPlanItem(planIndex, itemIndex, "estimatedMinutes", event.target.value)} className="w-20 rounded-xl border border-stone-800 bg-stone-950 px-3 py-2 outline-none transition focus:border-emerald-400" />
+                                      </td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            </div>
                           </div>
                         ))}
                       </div>
