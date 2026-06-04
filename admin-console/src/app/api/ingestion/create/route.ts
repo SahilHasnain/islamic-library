@@ -17,6 +17,14 @@ function slugify(input: string) {
     .slice(0, 120);
 }
 
+function normalizeLanguageId(input: string) {
+  return input
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
 function isoNow() {
   return new Date().toISOString();
 }
@@ -42,7 +50,7 @@ export async function POST(request: Request) {
     const author = String(payload.author || "").trim();
     const description = String(payload.description || "").trim();
     const category = String(payload.category || "").trim();
-    const languageId = String(payload.languageId || "").trim();
+    const languageId = normalizeLanguageId(String(payload.languageId || ""));
     const volumeId = String(payload.volumeId || "").trim();
     const printedPageStartPage = Number(payload.printedPageStartPage || 0);
     const createdBy = String(payload.createdBy || "admin-console").trim();

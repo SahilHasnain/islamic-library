@@ -22,6 +22,22 @@ const githubToken = process.env.GITHUB_TOKEN || "";
 const githubRepoHttps = process.env.GITHUB_REPO_HTTPS || "";
 const gitRemoteName = process.env.GIT_REMOTE_NAME || "origin";
 
+function normalizeLanguageId(value) {
+  return String(value || "")
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
+function languageTitleFromId(value) {
+  return normalizeLanguageId(value)
+    .split("-")
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+}
+
 function runGit(args) {
   return new Promise((resolve, reject) => {
     const child = spawn("git", ["-C", assetsRepoPath, ...args], {
@@ -134,11 +150,12 @@ export async function publishWorkspace({
   manifest,
   version,
 }) {
+  const normalizedLanguageId = normalizeLanguageId(languageId);
   const coverFileName = manifest.coverImage || path.basename(workspace.coverImagePath);
   const bookRoot = path.join(assetsRepoPath, "books", bookSlug);
-  const volumeRoot = path.join(bookRoot, languageId, volumeId);
+  const volumeRoot = path.join(bookRoot, normalizedLanguageId, volumeId);
   const relativeBookRoot = path.join("books", bookSlug);
-  const relativeVolumeRoot = path.join(relativeBookRoot, languageId, volumeId);
+  const relativeVolumeRoot = path.join(relativeBookRoot, normalizedLanguageId, volumeId);
   const metadataRelativePath = path.join(relativeBookRoot, "metadata.json");
   const manifestRelativePath = path.join(relativeVolumeRoot, "manifest.json");
   const rootCoverRelativePath = path.join(relativeBookRoot, coverFileName);
@@ -163,6 +180,7 @@ export async function publishWorkspace({
 
   const publishedManifest = {
     ...manifest,
+    languageId: normalizedLanguageId,
     version,
     baseUrl: jsdelivrUrl(relativeVolumeRoot),
     coverImage: jsdelivrUrl(volumeCoverRelativePath),
@@ -181,7 +199,8 @@ export async function publishWorkspace({
 
   // Merge languages: preserve existing languages and add/update the current one
   const existingLanguages = existingMetadata.languages || [];
-  const currentLanguageIndex = existingLanguages.findIndex(lang => lang.id === languageId);
+  const currentLanguageIndex = existingLanguages.findIndex(lang => normalizeLanguageId(lang.id) === normalizedLanguageId);
+  const currentMetadataLanguage = metadata.languages?.find(l => normalizeLanguageId(l.id) === normalizedLanguageId);
   
   let updatedLanguages;
   if (currentLanguageIndex >= 0) {
@@ -196,13 +215,13 @@ export async function publishWorkspace({
       updatedVolumes = [...existingVolumes];
       updatedVolumes[currentVolumeIndex] = {
         ...existingVolumes[currentVolumeIndex],
-        ...(metadata.languages?.find(l => l.id === languageId)?.volumes?.find(v => v.id === volumeId) || {}),
+        ...(currentMetadataLanguage?.volumes?.find(v => v.id === volumeId) || {}),
         manifestUrl: jsdelivrUrl(manifestRelativePath),
       };
     } else {
       // Volume doesn't exist, add it
       const newVolume = {
-        ...(metadata.languages?.find(l => l.id === languageId)?.volumes?.find(v => v.id === volumeId) || {}),
+        ...(currentMetadataLanguage?.volumes?.find(v => v.id === volumeId) || {}),
         id: volumeId,
         manifestUrl: jsdelivrUrl(manifestRelativePath),
       };
@@ -212,16 +231,21 @@ export async function publishWorkspace({
     updatedLanguages = [...existingLanguages];
     updatedLanguages[currentLanguageIndex] = {
       ...existingLanguage,
-      ...(metadata.languages?.find(l => l.id === languageId) || {}),
+      ...currentMetadataLanguage,
+      id: normalizedLanguageId,
+      title: languageTitleFromId(normalizedLanguageId),
+      nativeTitle: undefined,
       volumes: updatedVolumes,
     };
   } else {
     // Language doesn't exist, add it
     const newLanguage = {
-      ...(metadata.languages?.find(l => l.id === languageId) || {}),
-      id: languageId,
+      ...currentMetadataLanguage,
+      id: normalizedLanguageId,
+      title: languageTitleFromId(normalizedLanguageId),
+      nativeTitle: undefined,
       volumes: [{
-        ...(metadata.languages?.find(l => l.id === languageId)?.volumes?.find(v => v.id === volumeId) || {}),
+        ...(currentMetadataLanguage?.volumes?.find(v => v.id === volumeId) || {}),
         id: volumeId,
         manifestUrl: jsdelivrUrl(manifestRelativePath),
       }],
@@ -233,6 +257,7 @@ export async function publishWorkspace({
     ...existingMetadata,
     ...metadata,
     coverImage: existingMetadata.coverImage || jsdelivrUrl(rootCoverRelativePath),
+    defaultLanguageId: normalizeLanguageId(metadata.defaultLanguageId || existingMetadata.defaultLanguageId || normalizedLanguageId),
     languages: updatedLanguages,
   };
 
@@ -359,9 +384,11 @@ export async function republishBookMetadata({
   version,
   languages,
 }) {
+  const normalizedLanguageId = normalizeLanguageId(languageId);
+  const normalizedDefaultLanguageId = normalizeLanguageId(defaultLanguageId);
   const bookRoot = path.join(assetsRepoPath, "books", bookSlug);
   const metadataPath = path.join(bookRoot, "metadata.json");
-  const manifestRelativePath = path.join("books", bookSlug, languageId, volumeId, "manifest.json");
+  const manifestRelativePath = path.join("books", bookSlug, normalizedLanguageId, volumeId, "manifest.json");
   const coverFileName = "cover.webp";
   const coverRelativePath = path.join("books", bookSlug, coverFileName);
 
@@ -371,16 +398,18 @@ export async function republishBookMetadata({
 
   const nextLanguages =
     Array.isArray(languages) && languages.length > 0
-      ? languages.map((language) => ({
-          id: language.languageId,
-          title: language.title,
-          nativeTitle: language.nativeTitle,
+      ? languages.map((language) => {
+        const currentLanguageId = normalizeLanguageId(language.languageId);
+        return {
+          id: currentLanguageId,
+          title: languageTitleFromId(currentLanguageId),
+          nativeTitle: undefined,
           summary: language.summary,
           order: language.order,
           defaultVolumeId: language.defaultVolumeId,
           volumes: (language.volumes || []).map((volume) => {
             const existingLanguage = (existingMetadata.languages || []).find(
-              (currentLanguage) => currentLanguage.id === language.languageId,
+              (currentLanguage) => normalizeLanguageId(currentLanguage.id) === currentLanguageId,
             );
             const existingVolume = existingLanguage?.volumes?.find(
               (currentVolume) => currentVolume.id === volume.id,
@@ -388,7 +417,7 @@ export async function republishBookMetadata({
             const resolvedManifestUrl =
               volume.manifestUrl ||
               existingVolume?.manifestUrl ||
-              (language.languageId === languageId && volume.id === volumeId
+              (currentLanguageId === normalizedLanguageId && volume.id === volumeId
                 ? jsdelivrUrl(manifestRelativePath)
                 : undefined);
 
@@ -405,11 +434,15 @@ export async function republishBookMetadata({
               plans: volume.plans?.length ? volume.plans : existingVolume?.plans,
             };
           }),
-        }))
+        };
+      })
       : (existingMetadata.languages || []).map((language) =>
-          language.id === languageId
+          normalizeLanguageId(language.id) === normalizedLanguageId
             ? {
                 ...language,
+                id: normalizedLanguageId,
+                title: languageTitleFromId(normalizedLanguageId),
+                nativeTitle: undefined,
                 volumes: (language.volumes || []).map((volume) =>
                   volume.id === volumeId
                     ? {
@@ -432,7 +465,7 @@ export async function republishBookMetadata({
     nextRecommendedBookId,
     recommendations,
     coverImage: existingMetadata.coverImage || jsdelivrUrl(coverRelativePath),
-    defaultLanguageId: defaultLanguageId || existingMetadata.defaultLanguageId,
+    defaultLanguageId: normalizedDefaultLanguageId || normalizeLanguageId(existingMetadata.defaultLanguageId),
     languages: nextLanguages,
   };
 

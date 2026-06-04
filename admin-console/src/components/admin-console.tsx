@@ -60,6 +60,26 @@ function slugifyTitle(value: string, fallback: string) {
   return slug || fallback;
 }
 
+function normalizeLanguageId(value: string) {
+  return value
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
+function languageTitleFromId(value: string) {
+  const normalized = normalizeLanguageId(value);
+  if (!normalized) {
+    return "";
+  }
+
+  return normalized
+    .split("-")
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+}
+
 function validateAiDraftForReview(draft: AiAnalysisResult["draft"] | null | undefined, pageCount?: number) {
   const issues: AiDraftValidationIssue[] = [];
   if (!draft) {
@@ -506,8 +526,8 @@ function normalizeLanguages(
 
     return [
       {
-        id: fallbackLanguageId,
-        title: fallbackLanguageId,
+        id: normalizeLanguageId(fallbackLanguageId),
+        title: languageTitleFromId(fallbackLanguageId),
         nativeTitle: "",
         summary: "",
         order: "1",
@@ -531,8 +551,8 @@ function normalizeLanguages(
   }
 
   return value.map((language, languageIndex) => ({
-    id: String(language.id || ""),
-    title: String(language.title || language.id || ""),
+    id: normalizeLanguageId(String(language.id || "")),
+    title: languageTitleFromId(String(language.id || language.title || "")),
     nativeTitle: String(language.nativeTitle || ""),
     summary: String(language.summary || ""),
     order: language.order == null ? String(languageIndex + 1) : String(language.order),
@@ -560,10 +580,10 @@ function buildLanguagePayload(languages: EditionLanguageEditorItem[]) {
   return languages
     .filter((language) => language.id.trim() || language.title.trim())
     .map((language, languageIndex) => {
-      const id = language.id.trim();
-      const title = language.title.trim();
+      const id = normalizeLanguageId(language.id);
+      const title = languageTitleFromId(id);
 
-      if (!id || !title) {
+      if (!id) {
         throw new Error(`Language ${languageIndex + 1} is incomplete.`);
       }
 
@@ -653,7 +673,7 @@ function buildLanguagePayload(languages: EditionLanguageEditorItem[]) {
       return {
         languageId: id,
         title,
-        nativeTitle: language.nativeTitle.trim() || undefined,
+        nativeTitle: undefined,
         summary: language.summary.trim() || undefined,
         order: language.order.trim() ? Number(language.order) : undefined,
         defaultVolumeId: language.defaultVolumeId.trim() || undefined,
@@ -2150,7 +2170,9 @@ export function AdminConsole({ initialSnapshot }: { initialSnapshot: MonitoringS
       languages: current.languages.map((language, languageIndex) => ({
         ...language,
         summary: draft.summary && languageIndex === 0 ? draft.summary : language.summary,
-        id: draft.languageId && languageIndex === 0 ? draft.languageId : language.id,
+        id: draft.languageId && languageIndex === 0 ? normalizeLanguageId(draft.languageId) : language.id,
+        title: languageIndex === 0 && draft.languageId ? languageTitleFromId(draft.languageId) : language.title,
+        nativeTitle: "",
         volumes: language.volumes.map((volume, volumeIndex) =>
           languageIndex === 0 && volumeIndex === 0
             ? {
@@ -3258,7 +3280,7 @@ export function AdminConsole({ initialSnapshot }: { initialSnapshot: MonitoringS
                   onChange={(event) => {
                     setMetadataForm((current) => ({
                       ...current,
-                      defaultLanguageId: event.target.value,
+                      defaultLanguageId: normalizeLanguageId(event.target.value),
                     }));
                   }}
                   className="w-full rounded-2xl border border-stone-700 bg-stone-950 px-4 py-3 text-sm outline-none transition focus:border-amber-300"
@@ -3297,11 +3319,13 @@ export function AdminConsole({ initialSnapshot }: { initialSnapshot: MonitoringS
                           <input
                             value={language.id}
                             onChange={(event) => {
-                              const value = event.target.value;
+                              const value = normalizeLanguageId(event.target.value);
                               setMetadataForm((current) => ({
                                 ...current,
                                 languages: current.languages.map((item, currentIndex) =>
-                                  currentIndex === languageIndex ? { ...item, id: value } : item,
+                                  currentIndex === languageIndex
+                                    ? { ...item, id: value, title: languageTitleFromId(value), nativeTitle: "" }
+                                    : item,
                                 ),
                               }));
                             }}
@@ -3309,39 +3333,11 @@ export function AdminConsole({ initialSnapshot }: { initialSnapshot: MonitoringS
                             placeholder="roman-urdu"
                           />
                         </label>
-                        <label className="space-y-2">
-                          <span className="text-xs text-stone-300">Title</span>
-                          <input
-                            value={language.title}
-                            onChange={(event) => {
-                              const value = event.target.value;
-                              setMetadataForm((current) => ({
-                                ...current,
-                                languages: current.languages.map((item, currentIndex) =>
-                                  currentIndex === languageIndex ? { ...item, title: value } : item,
-                                ),
-                              }));
-                            }}
-                            className="w-full rounded-2xl border border-stone-700 bg-stone-950 px-4 py-3 text-sm outline-none transition focus:border-amber-300"
-                            placeholder="Roman Urdu"
-                          />
-                        </label>
-                        <label className="space-y-2">
-                          <span className="text-xs text-stone-300">Native title</span>
-                          <input
-                            value={language.nativeTitle}
-                            onChange={(event) => {
-                              const value = event.target.value;
-                              setMetadataForm((current) => ({
-                                ...current,
-                                languages: current.languages.map((item, currentIndex) =>
-                                  currentIndex === languageIndex ? { ...item, nativeTitle: value } : item,
-                                ),
-                              }));
-                            }}
-                            className="w-full rounded-2xl border border-stone-700 bg-stone-950 px-4 py-3 text-sm outline-none transition focus:border-amber-300"
-                          />
-                        </label>
+                        <div className="space-y-2 rounded-2xl border border-stone-800 bg-stone-950/70 px-4 py-3">
+                          <span className="text-xs text-stone-300">Language title</span>
+                          <p className="text-sm text-stone-100">{languageTitleFromId(language.id) || "Derived from language ID"}</p>
+                          <p className="text-xs text-stone-500">Automatically generated from the normalized ID.</p>
+                        </div>
                         <label className="space-y-2">
                           <span className="text-xs text-stone-300">Order</span>
                           <input

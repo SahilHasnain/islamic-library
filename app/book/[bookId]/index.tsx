@@ -1,3 +1,4 @@
+import { Image } from "expo-image";
 import { Link, Stack, useLocalSearchParams } from "expo-router";
 import { useEffect, useMemo, useState } from "react";
 import { Pressable, ScrollView, Text, View } from "react-native";
@@ -111,6 +112,21 @@ function getRelatedBookScore(book: PublicCatalogBook, currentBook?: PublicCatalo
   const currentTags = new Set(currentBook.tags ?? []);
   score += (book.tags ?? []).filter((tag) => currentTags.has(tag)).length * 12;
   return score;
+}
+
+function formatEstimatedTime(minutes: number) {
+  if (minutes <= 60) {
+    return `${minutes}m`;
+  }
+
+  const hours = Math.floor(minutes / 60);
+  const remainingMinutes = minutes % 60;
+  const hourLabel = hours === 1 ? "hr" : "hrs";
+  if (remainingMinutes === 0) {
+    return `${hours} ${hourLabel}`;
+  }
+
+  return `${hours} ${hourLabel} ${remainingMinutes} min`;
 }
 
 function getSelectableChipColors({
@@ -362,7 +378,10 @@ export default function BookHomeScreen() {
         style={{ flex: 1, backgroundColor: colors.background }}
       >
         {shouldShowInitialSkeleton ? (
-          <ScrollView contentContainerStyle={{ paddingTop: insets.top + 16, paddingHorizontal: 20, gap: 20, paddingBottom: 40 }}>
+          <ScrollView
+            showsVerticalScrollIndicator={false}
+            contentContainerStyle={{ paddingTop: insets.top + 16, paddingHorizontal: 20, gap: 20, paddingBottom: 40 }}
+          >
             <View
               style={{
                 backgroundColor: colors.surface,
@@ -484,7 +503,10 @@ export default function BookHomeScreen() {
             </View>
           </ScrollView>
         ) : (
-        <ScrollView contentContainerStyle={{ paddingTop: insets.top + 16, paddingHorizontal: 20, gap: 20, paddingBottom: 40 }}>
+        <ScrollView
+          showsVerticalScrollIndicator={false}
+          contentContainerStyle={{ paddingTop: insets.top + 16, paddingHorizontal: 20, gap: 20, paddingBottom: 40 }}
+        >
           {!isBookDataLoading && (metadataError || manifestError) ? (
             <ErrorCard
               title="Book details unavailable"
@@ -784,7 +806,7 @@ export default function BookHomeScreen() {
                       Pages {currentPlanItem?.startPage}–{currentPlanItem?.endPage}
                     </Text>
                     <Text style={{ color: colors.textMuted, fontSize: 12, fontWeight: "600" }}>
-                      ⏱️ {currentPlanItem?.estimatedMinutes}m
+                      {currentPlanItem ? `⏱️ ${formatEstimatedTime(currentPlanItem.estimatedMinutes)}` : null}
                     </Text>
                   </View>
                 </View>
@@ -894,7 +916,7 @@ export default function BookHomeScreen() {
                         </Text>
                       </View>
                       <Text style={{ color: colors.textMuted, fontSize: 12 }}>
-                        Pages {section.startPage}–{section.endPage} • ⏱️ {section.estimatedMinutes}m
+                        Pages {section.startPage}–{section.endPage} • ⏱️ {formatEstimatedTime(section.estimatedMinutes)}
                       </Text>
                     </View>
                   </View>
@@ -946,7 +968,7 @@ export default function BookHomeScreen() {
               </View>
 
               <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 10 }}>
-                {relatedBooks.map(({ book, score }) => (
+                {relatedBooks.map(({ book }) => (
                   <Link key={book.id} href={`/book/${book.id}` as const} asChild>
                     <Pressable
                       style={{
@@ -954,26 +976,48 @@ export default function BookHomeScreen() {
                         backgroundColor: colors.surfaceMuted,
                         borderRadius: 16,
                         padding: 12,
-                        gap: 8,
+                        flexDirection: "row",
+                        gap: 10,
                       }}
                     >
-                      <Text style={{ color: colors.text, fontSize: 14, fontWeight: "800" }} numberOfLines={2}>
-                        {book.title}
-                      </Text>
-                      {book.author ? (
-                        <Text style={{ color: colors.textMuted, fontSize: 12, fontWeight: "600" }} numberOfLines={1}>
-                          {book.author}
+                      {book.coverImage ? (
+                        <Image
+                          source={{ uri: book.coverImage }}
+                          contentFit="cover"
+                          transition={120}
+                          style={{
+                            width: 52,
+                            height: 72,
+                            borderRadius: 8,
+                            backgroundColor: colors.surface,
+                          }}
+                        />
+                      ) : (
+                        <View
+                          style={{
+                            width: 52,
+                            height: 72,
+                            borderRadius: 8,
+                            backgroundColor: colors.accentStrong,
+                          }}
+                        />
+                      )}
+                      <View style={{ flex: 1, gap: 8 }}>
+                        <Text style={{ color: colors.text, fontSize: 14, fontWeight: "800" }} numberOfLines={2}>
+                          {book.title}
                         </Text>
-                      ) : null}
-                      <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6 }}>
-                        {book.category ? (
-                          <Text style={{ color: colors.accent, fontSize: 11, fontWeight: "700" }} numberOfLines={1}>
-                            {book.category}
+                        {book.author ? (
+                          <Text style={{ color: colors.textMuted, fontSize: 12, fontWeight: "600" }} numberOfLines={1}>
+                            {book.author}
                           </Text>
                         ) : null}
-                        <Text style={{ color: colors.textMuted, fontSize: 11, fontWeight: "600" }}>
-                          Match {score}
-                        </Text>
+                        <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6 }}>
+                          {book.category ? (
+                            <Text style={{ color: colors.accent, fontSize: 11, fontWeight: "700" }} numberOfLines={1}>
+                              {book.category}
+                            </Text>
+                          ) : null}
+                        </View>
                       </View>
                     </Pressable>
                   </Link>

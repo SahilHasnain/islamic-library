@@ -22,7 +22,10 @@ export default function BookmarksScreen() {
 
   return (
     <Screen>
-      <ScrollView contentContainerStyle={{ paddingTop: insets.top + 5, paddingHorizontal: 20, gap: 18, paddingBottom: 40 }}>
+      <ScrollView
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={{ paddingTop: insets.top + 5, paddingHorizontal: 20, gap: 18, paddingBottom: 40 }}
+      >
         <PageHeader
           title="Bookmarks"
           subtitle="Saved passages across books will be collected here."

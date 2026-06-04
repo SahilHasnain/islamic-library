@@ -1432,6 +1432,7 @@ export default function LibraryScreen() {
           <View style={{ gap: spacing.gapXl }}>
             <FlatList
               data={filteredAndSortedBooks}
+              showsVerticalScrollIndicator={false}
               keyExtractor={(book: PublicCatalogBook) => book.id}
               numColumns={2}
               scrollEnabled={false}
