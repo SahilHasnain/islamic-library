@@ -27,8 +27,8 @@ const allowedCategories = [
 
 function getSectionTargets(totalPages) {
   return {
-    targetSections: Math.max(3, Math.ceil(totalPages / 10)),
-    maxSections: Math.max(5, Math.ceil(totalPages / 7)),
+    targetSections: Math.max(3, Math.ceil(totalPages / 20)),
+    maxSections: Math.max(5, Math.ceil(totalPages / 12)),
   };
 }
 
@@ -384,6 +384,7 @@ Rules:
 ${buildLanguageRules(context)}
 - Do not generate sections or reading plans in this step.
 - category must be exactly one item from this list: ${allowedCategories.join(", ")}.
+- description and summary are required unless no meaningful text is extractable; do not put the only description in notes.
 - Write description, summary, introNote, todayTarget, and notes in the book language/script.
 - printedPageStartPage should be the rendered page where printed page 1 begins, if inferable.
 - If unsure, use null and explain in notes.`;
@@ -420,8 +421,10 @@ ${buildLanguageRules(context)}
 - Do not include the TOC heading itself as a toc entry.
 - Extract actual chapter/topic entries from the TOC in reading order.
 - Keep entry titles in the book language/script.
-- If the TOC lists printed page numbers, put them in printedPage.
-- If rendered page can be inferred, put it in renderedPage; otherwise null.
+- If the TOC lists printed page numbers, put the rightmost page number for that entry in printedPage.
+- Never use 0 for printedPage; use null when no printed page number is visible for that entry.
+- renderedPage means the actual rendered content page for that entry, not the rendered page where the TOC text was found.
+- Do not set renderedPage to the TOC page number. If actual content rendered page cannot be inferred, use null.
 - If printed page 1 appears to start on a rendered page, set printedPageStartPage.
 - Use level 1 for major entries and level 2 for sub-entries.
 - Prefer complete TOC coverage over body headings from later pages.
@@ -465,7 +468,7 @@ Rules:
 ${buildLanguageRules(context)}
 - Use TOC entries as the primary source for app sections.
 - Never output the TOC/index page itself as a section.
-- Prefer level 1 TOC entries; merge level 2 entries into nearby parent sections unless they are major topics.
+- Use all TOC entries that have usable printedPage or renderedPage values, including level 2 entries.
 - Target around ${targetSections} app sections and do not exceed ${maxSections}.
 - Convert printedPage to rendered startPage using printedPageStartPage when available. Formula: renderedPage = printedPage + printedPageStartPage - 1.
 - If printedPageStartPage is uncertain, use renderedPage when supplied; otherwise make a conservative estimate from printedPage and explain uncertainty in notes.
@@ -473,6 +476,7 @@ ${buildLanguageRules(context)}
 - Do not stop at the last text sample page. The full PDF exists.
 - Keep category exactly one item from: ${allowedCategories.join(", ")}.
 - Keep title/description/summary/section titles/plan text in the book language/script.
+- description and summary are required unless no meaningful text is extractable; do not put the only description in notes.
 - Generate introNote and todayTarget for the volume in the same language/script.
 - Generate one complete-book reading plan from page 1 to ${extracted.pageCount || "pageCount"}; use 7, 14, or 30 days depending on book length.
 - Reading plan item ranges must be rendered pages, sorted, and should cover the full book without overlaps.`;
@@ -570,6 +574,7 @@ function chunkPages(pages, chunkSize) {
 function buildFallbackDraft({ title, category, languageId, volumeId, extracted }) {
   const firstTextPage = extracted.pages.find((page) => page.text)?.page;
   const normalizedCategory = allowedCategories.includes(category) ? category : undefined;
+  const totalPages = extracted.pageCount || extracted.pages.length || 1;
 
   return {
     title: title || undefined,
@@ -579,9 +584,39 @@ function buildFallbackDraft({ title, category, languageId, volumeId, extracted }
     printedPageStartPage: firstTextPage && firstTextPage > 1 ? firstTextPage : undefined,
     description: undefined,
     sections: [],
+    plans: buildDefaultReadingPlans(totalPages),
     confidence: "low",
     notes: "AI provider is not configured. Draft is based on basic PDF text extraction only.",
   };
+}
+
+function buildDefaultReadingPlans(totalPages) {
+  const pageCount = Math.max(1, Math.floor(Number(totalPages) || 1));
+  const totalDays = pageCount > 200 ? 30 : pageCount > 80 ? 14 : 7;
+  const pageSpan = Math.max(1, Math.ceil(pageCount / totalDays));
+  const items = [];
+
+  for (let day = 1; day <= totalDays; day += 1) {
+    const startPage = Math.floor(((day - 1) * pageCount) / totalDays) + 1;
+    const endPage = Math.floor((day * pageCount) / totalDays);
+    items.push({
+      day,
+      label: `Day ${day}`,
+      startPage,
+      endPage,
+      estimatedMinutes: Math.max(3, (endPage - startPage + 1) * 2),
+    });
+  }
+
+  return [
+    {
+      id: `${totalDays}-day-reading-plan`,
+      title: `${totalDays}-day reading plan`,
+      description: `Read the complete book in ${totalDays} steady sessions.`,
+      totalDays,
+      items,
+    },
+  ];
 }
 
 function sleep(ms) {
@@ -807,18 +842,262 @@ function normalizeTocEntries(entries) {
         return null;
       }
 
-      return {
-        title,
-        printedPage: Number.isFinite(Number(entry?.printedPage)) ? Math.floor(Number(entry.printedPage)) : null,
-        renderedPage: Number.isFinite(Number(entry?.renderedPage)) ? Math.floor(Number(entry.renderedPage)) : null,
-        level: Number.isFinite(Number(entry?.level)) ? Math.max(1, Math.floor(Number(entry.level))) : 1,
-      };
+        const printedPage = Number(entry?.printedPage);
+        const renderedPage = Number(entry?.renderedPage);
+        return {
+          title,
+          printedPage: Number.isFinite(printedPage) && printedPage > 0 ? Math.floor(printedPage) : null,
+          renderedPage: Number.isFinite(renderedPage) && renderedPage > 0 ? Math.floor(renderedPage) : null,
+          level: Number.isFinite(Number(entry?.level)) ? Math.max(1, Math.floor(Number(entry.level))) : 1,
+        };
     })
     .filter(Boolean);
 }
 
+function cleanTocTitle(value) {
+  return String(value || "")
+    .replace(/[.·•…]+/g, " ")
+    .replace(/\s*[-–—]+\s*$/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function isTocHeaderLine(line) {
+  const normalized = line.toLowerCase().trim();
+  return (
+    !normalized ||
+    normalized === "contents" ||
+    normalized === "content" ||
+    normalized === "index" ||
+    normalized === "fehrist" ||
+    normalized === "fahrist" ||
+    normalized === "mukashafatul quloob" ||
+    /^\(?part\s+\d+\)?$/i.test(line) ||
+    /^\d{1,3}$/.test(line)
+  );
+}
+
+function inferTocEntryLevel(title) {
+  const normalized = String(title || "").toLowerCase().trim();
+  if (
+    /^baab\b/.test(normalized) ||
+    /^baabe\b/.test(normalized) ||
+    /\bbaab$/.test(normalized) ||
+    /\bbaab\b/.test(normalized) ||
+    /^chapter\b/.test(normalized) ||
+    /^nashir\b/.test(normalized) ||
+    /^istefta\b/.test(normalized) ||
+    /^al\s+jawab\b/.test(normalized) ||
+    /^muqaddima\b/.test(normalized) ||
+    /^nazre\b/.test(normalized) ||
+    /^jawabe?\b/.test(normalized) ||
+    /^harfe\s+aakhir\b/.test(normalized)
+  ) {
+    return 1;
+  }
+
+  if (
+    /^hadees\b/.test(normalized) ||
+    /^aayat\b/.test(normalized) ||
+    /^riwayat\b/.test(normalized) ||
+    /^hikaayat\b/.test(normalized)
+  ) {
+    return 3;
+  }
+
+  return 2;
+}
+
+function parseDeterministicTocEntries(extracted) {
+  const entries = [];
+  let printedPageStartPage = null;
+  let inToc = false;
+  let pagesWithoutEntries = 0;
+
+  for (const page of extracted.pages || []) {
+    const rawLines = String(page.text || "")
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter(Boolean);
+    const hasTocHeading = rawLines.some((line) => /^(contents?|index|fehrist|fahrist)$/i.test(line));
+    if (hasTocHeading) {
+      inToc = true;
+    }
+
+    if (!inToc) {
+      continue;
+    }
+
+    const printedMarker = rawLines.find((line) => /^\d{1,3}$/.test(line));
+    if (!printedPageStartPage && printedMarker) {
+      const printedPage = Number(printedMarker);
+      if (printedPage > 0 && printedPage < 20) {
+        printedPageStartPage = page.page - printedPage + 1;
+      }
+    }
+
+    let pageEntryCount = 0;
+    let buffer = "";
+    for (const rawLine of rawLines) {
+      if (isTocHeaderLine(rawLine)) {
+        continue;
+      }
+
+      const match = rawLine.match(/^(.*?)(?:[.·•…\s]+|:-\s*|:\s*|-)\s*(\d{1,4})$/);
+      if (match) {
+        const title = cleanTocTitle([buffer, match[1]].filter(Boolean).join(" "));
+        const printedPage = Number(match[2]);
+        buffer = "";
+        if (title && printedPage > 0) {
+          entries.push({
+            title,
+            printedPage,
+            renderedPage: null,
+            level: inferTocEntryLevel(title),
+          });
+          pageEntryCount += 1;
+        }
+        continue;
+      }
+
+      buffer = cleanTocTitle([buffer, rawLine].filter(Boolean).join(" "));
+    }
+
+    pagesWithoutEntries = pageEntryCount > 0 ? 0 : pagesWithoutEntries + 1;
+    if (entries.length > 0 && pagesWithoutEntries >= 2) {
+      break;
+    }
+  }
+
+  const seen = new Set();
+  const uniqueEntries = entries.filter((entry) => {
+    const key = `${entry.title.toLowerCase()}::${entry.printedPage}`;
+    if (seen.has(key)) {
+      return false;
+    }
+    seen.add(key);
+    return true;
+  });
+
+  return {
+    hasToc: uniqueEntries.length > 0,
+    printedPageStartPage,
+    tocEntries: uniqueEntries,
+    notes: uniqueEntries.length > 0 ? "TOC parsed deterministically from extracted text." : "",
+  };
+}
+
+function mergeTocResults(primary, secondary) {
+  const primaryEntries = normalizeTocEntries(primary?.tocEntries);
+  const secondaryEntries = normalizeTocEntries(secondary?.tocEntries);
+  const merged = [];
+  const seen = new Set();
+
+  for (const entry of [...primaryEntries, ...secondaryEntries]) {
+    const key = `${entry.title.toLowerCase()}::${entry.printedPage || ""}`;
+    if (seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    merged.push(entry);
+  }
+
+  return {
+    ...(secondary || {}),
+    ...(primary || {}),
+    hasToc: merged.length > 0,
+    printedPageStartPage: primary?.printedPageStartPage || secondary?.printedPageStartPage || null,
+    tocEntries: merged,
+    notes: [primary?.notes, secondary?.notes].filter(Boolean).join("\n"),
+  };
+}
+
+function buildSectionsFromTocEntries(tocEntries, pageCount, printedPageStartPage) {
+  const startPageOffset = Number(printedPageStartPage || 0);
+  const { targetSections, maxSections } = getSectionTargets(pageCount || 1);
+  const starts = normalizeTocEntries(tocEntries)
+    .map((entry, index) => {
+      const mappedPrintedPage = entry.printedPage && startPageOffset
+        ? entry.printedPage + startPageOffset - 1
+        : null;
+      const startPage = mappedPrintedPage || entry.renderedPage;
+      if (!startPage || startPage < 1) {
+        return null;
+      }
+
+      return {
+        title: entry.title,
+        level: entry.level,
+        startPage,
+        sourceIndex: index,
+      };
+    })
+    .filter(Boolean)
+    .sort((left, right) => left.startPage - right.startPage)
+    .filter((entry, index, entries) => !entries[index - 1] || entries[index - 1].startPage !== entry.startPage);
+
+  const majorStarts = starts.filter((entry) => entry.level <= 1);
+  let selectedStarts = majorStarts.length >= 3 ? majorStarts : starts;
+
+  if (selectedStarts.length < targetSections) {
+    const selectedIndexes = new Set(selectedStarts.map((entry) => entry.sourceIndex));
+    const supplementalStarts = starts
+      .filter((entry) => !selectedIndexes.has(entry.sourceIndex))
+      .filter((entry) => {
+        const previous = selectedStarts
+          .filter((selected) => selected.startPage < entry.startPage)
+          .at(-1);
+        const next = selectedStarts.find((selected) => selected.startPage > entry.startPage);
+        const previousGap = previous ? entry.startPage - previous.startPage : Number.MAX_SAFE_INTEGER;
+        const nextGap = next ? next.startPage - entry.startPage : Number.MAX_SAFE_INTEGER;
+        return Math.max(previousGap, nextGap) >= 25;
+      });
+
+    selectedStarts = [...selectedStarts, ...supplementalStarts]
+      .sort((left, right) => left.startPage - right.startPage);
+  }
+
+  if (selectedStarts.length > maxSections) {
+    let minGap = Math.max(4, Math.floor((pageCount || selectedStarts.at(-1)?.startPage || 1) / maxSections));
+    let compacted = selectedStarts;
+    while (compacted.length > maxSections) {
+      compacted = [selectedStarts[0]];
+      for (const entry of selectedStarts.slice(1)) {
+        const previous = compacted[compacted.length - 1];
+        if (entry.startPage - previous.startPage >= minGap) {
+          compacted.push(entry);
+        }
+      }
+      minGap += 1;
+    }
+
+    const lastStart = selectedStarts[selectedStarts.length - 1];
+    const compactedLast = compacted[compacted.length - 1];
+    if (lastStart && compactedLast && lastStart.startPage !== compactedLast.startPage) {
+      compacted[compacted.length - 1] = lastStart;
+      compacted = compacted.sort((left, right) => left.startPage - right.startPage);
+    }
+    selectedStarts = compacted;
+  }
+
+  return selectedStarts.map((entry, index) => {
+    const next = selectedStarts[index + 1];
+    const endPage = Math.max(entry.startPage, next ? next.startPage - 1 : pageCount || entry.startPage);
+    return {
+      id: slugifyTitle(entry.title, `toc-section-${entry.sourceIndex + 1}`),
+      title: entry.title,
+      kind: "chapter",
+      startPage: Math.floor(entry.startPage),
+      endPage: Math.floor(endPage),
+      estimatedMinutes: Math.max(3, (endPage - entry.startPage + 1) * 2),
+    };
+  });
+}
+
 async function buildTocFirstDraft({ extracted, context }) {
-  const tocResult = await callAiProviderPrompt(buildTocExtractionPrompt({ extracted, context }));
+  const deterministicTocResult = parseDeterministicTocEntries(extracted);
+  const aiTocResult = await callAiProviderPrompt(buildTocExtractionPrompt({ extracted, context }));
+  const tocResult = mergeTocResults(deterministicTocResult, aiTocResult);
   const tocEntries = normalizeTocEntries(tocResult?.tocEntries);
   if (!tocResult?.hasToc || tocEntries.length === 0) {
     const fallbackDraft = normalizeDraft(await callAiProvider({ extracted, context }), extracted.pageCount);
@@ -829,20 +1108,31 @@ async function buildTocFirstDraft({ extracted, context }) {
     ...tocResult,
     tocEntries,
   };
-  const draft = normalizeDraft(
+  const aiDraft = normalizeDraft(
     await callAiProviderPrompt(buildDraftFromTocPrompt({ extracted, context, tocResult: normalizedTocResult })),
     extracted.pageCount,
   );
+  const fallbackDraft = buildFallbackDraft({ ...context, extracted });
+  const draft = aiDraft || fallbackDraft;
+  const tocSections = buildSectionsFromTocEntries(
+    deterministicTocResult.tocEntries?.length ? deterministicTocResult.tocEntries : tocEntries,
+    extracted.pageCount,
+    deterministicTocResult.printedPageStartPage ?? tocResult.printedPageStartPage ?? draft?.printedPageStartPage,
+  );
+  const draftSections = Array.isArray(draft?.sections) ? draft.sections : [];
 
   return {
     draft: {
       ...draft,
-      printedPageStartPage: draft?.printedPageStartPage ?? tocResult.printedPageStartPage ?? null,
+      printedPageStartPage: tocResult.printedPageStartPage ?? draft?.printedPageStartPage ?? null,
+      sections: tocSections.length > 0 ? tocSections : draftSections,
+      plans: draft?.plans?.length ? draft.plans : buildDefaultReadingPlans(extracted.pageCount),
       notes: [draft?.notes, tocResult?.notes ? `TOC extraction: ${tocResult.notes}` : ""]
         .filter(Boolean)
         .join("\n"),
     },
     tocEntries,
+    aiEnabled: Boolean(aiDraft),
   };
 }
 
@@ -850,7 +1140,35 @@ async function buildChunkedDraft({ extracted, context }) {
   const basePages = { ...extracted, pages: extracted.pages.slice(0, Math.min(40, extracted.pages.length)) };
   const baseDraft = normalizeDraft(await callAiProvider({ extracted: basePages, context }), extracted.pageCount);
   if (!baseDraft) {
-    return null;
+    const fallbackDraft = buildFallbackDraft({ ...context, extracted });
+    const deterministicTocResult = parseDeterministicTocEntries(extracted);
+    const tocSections = buildSectionsFromTocEntries(
+      deterministicTocResult.tocEntries,
+      extracted.pageCount,
+      deterministicTocResult.printedPageStartPage ?? fallbackDraft.printedPageStartPage,
+    );
+    return {
+      ...fallbackDraft,
+      printedPageStartPage: deterministicTocResult.printedPageStartPage ?? fallbackDraft.printedPageStartPage,
+      sections: tocSections.length > 0 ? tocSections : fallbackDraft.sections,
+      notes: [fallbackDraft.notes, deterministicTocResult.notes].filter(Boolean).join("\n"),
+    };
+  }
+
+  const deterministicTocResult = parseDeterministicTocEntries(extracted);
+  const tocSections = buildSectionsFromTocEntries(
+    deterministicTocResult.tocEntries,
+    extracted.pageCount,
+    deterministicTocResult.printedPageStartPage ?? baseDraft.printedPageStartPage,
+  );
+  if (tocSections.length > 0) {
+    return {
+      ...baseDraft,
+      printedPageStartPage: deterministicTocResult.printedPageStartPage ?? baseDraft.printedPageStartPage,
+      sections: tocSections,
+      plans: baseDraft.plans?.length ? baseDraft.plans : buildDefaultReadingPlans(extracted.pageCount),
+      notes: [baseDraft.notes, deterministicTocResult.notes].filter(Boolean).join("\n"),
+    };
   }
 
   const chunkSize = Number(process.env.AI_ANALYSIS_CHUNK_PAGES || 50);
@@ -912,8 +1230,15 @@ function normalizeDraft(draft, totalPages = 100000) {
     return draft;
   }
 
+  const notes = String(draft.notes || "").trim();
+  const fallbackDescription = notes.length > 30 ? notes.slice(0, 1200) : undefined;
+
   return {
     ...draft,
+    description: draft.description || fallbackDescription,
+    summary: draft.summary || draft.description || fallbackDescription,
+    introNote: draft.introNote || fallbackDescription,
+    todayTarget: draft.todayTarget || (totalPages ? `Read pages 1-${Math.min(totalPages, 5)} with focus and consistency.` : undefined),
     category: allowedCategories.includes(draft.category) ? draft.category : null,
     sections: cleanSections(draft.sections, totalPages),
     plans: normalizePlans(draft.plans, totalPages),
@@ -929,7 +1254,7 @@ function normalizePlans(plans, totalPages) {
     .map((plan, planIndex) => {
       const title = String(plan?.title || "").trim();
       const rawItems = Array.isArray(plan?.items) ? plan.items : [];
-      const items = rawItems
+      const normalizedItems = rawItems
         .map((item, itemIndex) => {
           const startPage = Math.max(1, Math.floor(Number(item?.startPage)));
           const endPage = Math.min(totalPages, Math.floor(Number(item?.endPage)));
@@ -945,7 +1270,25 @@ function normalizePlans(plans, totalPages) {
             estimatedMinutes: Math.max(3, Math.floor(Number(item?.estimatedMinutes) || (endPage - startPage + 1) * 2)),
           };
         })
-        .filter(Boolean);
+        .filter(Boolean)
+        .sort((left, right) => left.startPage - right.startPage);
+
+      const items = normalizedItems.map((item, itemIndex) => {
+        const previousFixedEndPage = itemIndex === 0
+          ? 0
+          : Math.floor((itemIndex * totalPages) / normalizedItems.length);
+        const startPage = itemIndex === 0 ? 1 : previousFixedEndPage + 1;
+        const endPage = itemIndex === normalizedItems.length - 1
+          ? totalPages
+          : Math.max(startPage, Math.floor(((itemIndex + 1) * totalPages) / normalizedItems.length));
+        return {
+          ...item,
+          day: itemIndex + 1,
+          startPage,
+          endPage,
+          estimatedMinutes: Math.max(3, (endPage - startPage + 1) * 2),
+        };
+      });
 
       if (!title || items.length === 0) {
         return null;
@@ -955,7 +1298,7 @@ function normalizePlans(plans, totalPages) {
         id: slugifyTitle(String(plan?.id || title), `plan-${planIndex + 1}`),
         title,
         description: String(plan?.description || "").trim(),
-        totalDays: Math.max(1, Math.floor(Number(plan?.totalDays) || items.length)),
+        totalDays: items.length,
         items,
       };
     })
@@ -987,9 +1330,16 @@ export async function analyzeSourcePdf({ sourceFileId, context, maxPages, analys
     const extracted = JSON.parse(output);
     const isFullAnalysis = resolvedMaxPages <= 0;
     if (analysisMode === "toc-only") {
-      const tocResult = await callAiProviderPrompt(buildTocExtractionPrompt({ extracted, context }));
+      const deterministicTocResult = parseDeterministicTocEntries(extracted);
+      const aiTocResult = await callAiProviderPrompt(buildTocExtractionPrompt({ extracted, context }));
+      const tocResult = mergeTocResults(deterministicTocResult, aiTocResult);
       const tocEntries = normalizeTocEntries(tocResult?.tocEntries);
       const draft = buildFallbackDraft({ ...context, extracted });
+      const tocSections = buildSectionsFromTocEntries(
+        deterministicTocResult.tocEntries?.length ? deterministicTocResult.tocEntries : tocEntries,
+        extracted.pageCount,
+        deterministicTocResult.printedPageStartPage ?? tocResult?.printedPageStartPage,
+      );
       return {
         pageCount: extracted.pageCount,
         analyzedPages: extracted.pages.length,
@@ -999,9 +1349,10 @@ export async function analyzeSourcePdf({ sourceFileId, context, maxPages, analys
         draft: {
           ...draft,
           printedPageStartPage: tocResult?.printedPageStartPage ?? draft.printedPageStartPage,
+          sections: tocSections.length > 0 ? tocSections : draft.sections,
           notes: tocResult?.notes || "TOC-only analysis completed.",
         },
-        aiEnabled: Boolean(tocResult),
+        aiEnabled: Boolean(aiTocResult),
       };
     }
 
@@ -1041,7 +1392,7 @@ export async function analyzeSourcePdf({ sourceFileId, context, maxPages, analys
       extractedTextPreview: buildExtractedTextPreview(extracted),
       tocEntries: quickResult.tocEntries,
       draft: aiDraft ?? buildFallbackDraft({ ...context, extracted }),
-      aiEnabled: Boolean(aiDraft),
+      aiEnabled: Boolean(isFullAnalysis ? aiDraft : quickResult.aiEnabled),
     };
   } finally {
     await fs.rm(tempPdfPath, { force: true });

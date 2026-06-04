@@ -43,6 +43,7 @@ const jobFilters = [
 ] as const;
 
 const quickAnalysisAsJob = process.env.NEXT_PUBLIC_AI_QUICK_ANALYSIS_AS_JOB === "true";
+const quickAnalysisMaxPages = Number(process.env.NEXT_PUBLIC_AI_QUICK_ANALYSIS_MAX_PAGES || "40");
 
 function wait(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -977,12 +978,14 @@ export function AdminConsole({ initialSnapshot }: { initialSnapshot: MonitoringS
 
       return parsed.map((entry) => {
         const item = entry as Partial<TocEntryEditorItem>;
-        return {
-          title: String(item.title || ""),
-          printedPage: Number.isFinite(Number(item.printedPage)) ? Number(item.printedPage) : null,
-          renderedPage: Number.isFinite(Number(item.renderedPage)) ? Number(item.renderedPage) : null,
-          level: Number.isFinite(Number(item.level)) ? Number(item.level) : 1,
-        } satisfies TocEntryEditorItem;
+          const printedPage = Number(item.printedPage);
+          const renderedPage = Number(item.renderedPage);
+          return {
+            title: String(item.title || ""),
+            printedPage: Number.isFinite(printedPage) && printedPage > 0 ? printedPage : null,
+            renderedPage: Number.isFinite(renderedPage) && renderedPage > 0 ? renderedPage : null,
+            level: Number.isFinite(Number(item.level)) ? Number(item.level) : 1,
+          } satisfies TocEntryEditorItem;
       });
     } catch {
       return [];
@@ -1366,7 +1369,7 @@ export function AdminConsole({ initialSnapshot }: { initialSnapshot: MonitoringS
     try {
       const requestBody = {
         sourceFileId: analysisSource.sourceFileId,
-        maxPages: aiAnalysisDepth === "full" ? 0 : 15,
+        maxPages: aiAnalysisDepth === "full" ? 0 : quickAnalysisMaxPages,
         analysisMode,
         context: {
           bookSlug: slug,
@@ -1766,10 +1769,12 @@ export function AdminConsole({ initialSnapshot }: { initialSnapshot: MonitoringS
             return null;
           }
 
+          const printedPage = Number(item.printedPage);
+          const renderedPage = Number(item.renderedPage);
           return {
             title,
-            printedPage: Number.isFinite(Number(item.printedPage)) ? Number(item.printedPage) : null,
-            renderedPage: Number.isFinite(Number(item.renderedPage)) ? Number(item.renderedPage) : null,
+            printedPage: Number.isFinite(printedPage) && printedPage > 0 ? printedPage : null,
+            renderedPage: Number.isFinite(renderedPage) && renderedPage > 0 ? renderedPage : null,
             level: Number.isFinite(Number(item.level)) ? Math.max(1, Number(item.level)) : 1,
           } satisfies TocEntryEditorItem;
         })
@@ -2009,9 +2014,16 @@ export function AdminConsole({ initialSnapshot }: { initialSnapshot: MonitoringS
     const draft = getEditableAiDraft() || {};
     const pageCount = Number(aiAnalysis?.pageCount || 0);
     const printedPageStartPage = Number(draft.printedPageStartPage || 0);
-    const majorEntries = tocEntries.filter((entry) => entry.level <= 1);
-    const sourceEntries = majorEntries.length >= 3 ? majorEntries : tocEntries;
+    const sourceEntries = tocEntries;
     const blockedTitles = new Set(["contents", "content", "index", "fehrist", "fahrist"]);
+    const targetSections = Math.max(3, Math.ceil((pageCount || 1) / 20));
+    const maxSections = Math.max(5, Math.ceil((pageCount || 1) / 12));
+    const renderedPageCounts = new Map<number, number>();
+    sourceEntries.forEach((entry) => {
+      if (entry.renderedPage && entry.renderedPage > 0) {
+        renderedPageCounts.set(entry.renderedPage, (renderedPageCounts.get(entry.renderedPage) || 0) + 1);
+      }
+    });
 
     const starts = sourceEntries
       .map((entry, index) => {
@@ -2020,30 +2032,80 @@ export function AdminConsole({ initialSnapshot }: { initialSnapshot: MonitoringS
           return null;
         }
 
-        const renderedPage = entry.renderedPage ||
-          (entry.printedPage && printedPageStartPage
-            ? entry.printedPage + printedPageStartPage - 1
-            : null);
+        const mappedPrintedPage = entry.printedPage && entry.printedPage > 0 && printedPageStartPage
+          ? entry.printedPage + printedPageStartPage - 1
+          : null;
+        const repeatedRenderedPage = entry.renderedPage ? (renderedPageCounts.get(entry.renderedPage) || 0) > 2 : false;
+        const renderedPage = mappedPrintedPage || (entry.renderedPage && entry.renderedPage > 0 && !repeatedRenderedPage ? entry.renderedPage : null);
         if (!renderedPage || renderedPage < 1) {
           return null;
         }
 
         return {
           title: entry.title,
+          level: entry.level,
           startPage: Math.floor(renderedPage),
           sourceIndex: index,
         };
       })
-      .filter((entry): entry is { title: string; startPage: number; sourceIndex: number } => Boolean(entry))
-      .sort((left, right) => left.startPage - right.startPage);
+      .filter((entry): entry is { title: string; level: number; startPage: number; sourceIndex: number } => Boolean(entry))
+      .sort((left, right) => left.startPage - right.startPage)
+      .filter((entry, index, entries) => {
+        const previous = entries[index - 1];
+        return !previous || previous.startPage !== entry.startPage;
+      });
 
     if (starts.length === 0) {
       setMetadataState({ error: "TOC entries need renderedPage values, or printedPage plus printedPageStartPage." });
       return;
     }
 
-    const sections = starts.map((entry, index) => {
-      const next = starts[index + 1];
+    const majorStarts = starts.filter((entry) => entry.level <= 1);
+    let selectedStarts = majorStarts.length >= 3 ? majorStarts : starts;
+
+    if (selectedStarts.length < targetSections) {
+      const selectedIndexes = new Set(selectedStarts.map((entry) => entry.sourceIndex));
+      const supplementalStarts = starts
+        .filter((entry) => !selectedIndexes.has(entry.sourceIndex))
+        .filter((entry) => {
+          const previous = selectedStarts
+            .filter((selected) => selected.startPage < entry.startPage)
+            .at(-1);
+          const next = selectedStarts.find((selected) => selected.startPage > entry.startPage);
+          const previousGap = previous ? entry.startPage - previous.startPage : Number.MAX_SAFE_INTEGER;
+          const nextGap = next ? next.startPage - entry.startPage : Number.MAX_SAFE_INTEGER;
+          return Math.max(previousGap, nextGap) >= 25;
+        });
+
+      selectedStarts = [...selectedStarts, ...supplementalStarts]
+        .sort((left, right) => left.startPage - right.startPage);
+    }
+
+    if (selectedStarts.length > maxSections) {
+      let minGap = Math.max(4, Math.floor((pageCount || selectedStarts.at(-1)?.startPage || 1) / maxSections));
+      let compacted = selectedStarts;
+      while (compacted.length > maxSections) {
+        compacted = [selectedStarts[0]];
+        for (const entry of selectedStarts.slice(1)) {
+          const previous = compacted[compacted.length - 1];
+          if (entry.startPage - previous.startPage >= minGap) {
+            compacted.push(entry);
+          }
+        }
+        minGap += 1;
+      }
+
+      const lastStart = selectedStarts[selectedStarts.length - 1];
+      const compactedLast = compacted[compacted.length - 1];
+      if (lastStart && compactedLast && lastStart.startPage !== compactedLast.startPage) {
+        compacted[compacted.length - 1] = lastStart;
+        compacted = compacted.sort((left, right) => left.startPage - right.startPage);
+      }
+      selectedStarts = compacted;
+    }
+
+    const sections = selectedStarts.map((entry, index) => {
+      const next = selectedStarts[index + 1];
       const endPage = Math.max(
         entry.startPage,
         next ? next.startPage - 1 : pageCount || entry.startPage,
@@ -2549,7 +2611,7 @@ export function AdminConsole({ initialSnapshot }: { initialSnapshot: MonitoringS
                     onChange={(event) => setAiAnalysisDepth(event.target.value as "quick" | "full")}
                     className="rounded-full border border-emerald-900 bg-stone-950 px-4 py-2 text-xs font-medium text-emerald-100 outline-none transition focus:border-emerald-300"
                   >
-                    <option value="quick">Quick: first 15 pages</option>
+                    <option value="quick">Quick: first {quickAnalysisMaxPages} pages</option>
                     <option value="full">Full: all pages</option>
                   </select>
                   <button
