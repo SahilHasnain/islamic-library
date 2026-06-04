@@ -62,6 +62,21 @@ function getSectionKindLabel(section: PublicBookSection) {
   }
 }
 
+function formatEstimatedTime(minutes: number) {
+  if (minutes <= 60) {
+    return `${minutes} minutes`;
+  }
+
+  const hours = Math.floor(minutes / 60);
+  const remainingMinutes = minutes % 60;
+  const hourLabel = hours === 1 ? "hr" : "hrs";
+  if (remainingMinutes === 0) {
+    return `${hours} ${hourLabel}`;
+  }
+
+  return `${hours} ${hourLabel} ${remainingMinutes} min`;
+}
+
 export default function BookSectionsScreen() {
   const { colors } = useAppTheme();
   const insets = useSafeAreaInsets();
@@ -105,7 +120,10 @@ export default function BookSectionsScreen() {
         }}
       />
       <SafeAreaView style={{ flex: 1, backgroundColor: colors.background }}>
-        <ScrollView contentContainerStyle={{ paddingTop: insets.top + 16, paddingHorizontal: 20, gap: 16, paddingBottom: 40 }}>
+        <ScrollView
+          showsVerticalScrollIndicator={false}
+          contentContainerStyle={{ paddingTop: insets.top + 16, paddingHorizontal: 20, gap: 16, paddingBottom: 40 }}
+        >
           <Text style={{ color: colors.text, fontSize: 30, fontWeight: "800" }}>
             {displayTitle}
           </Text>
@@ -263,12 +281,12 @@ export default function BookSectionsScreen() {
                      <View style={{ flex: 1 }}>
                        <Text style={{ color: colors.textMuted, fontSize: 11, fontWeight: "600", opacity: 0.8 }}>
                          Estimated Time
-                       </Text>
-                       <Text style={{ color: colors.text, fontSize: 13, fontWeight: "700", marginTop: 2 }}>
-                         {section.estimatedMinutes} minutes
-                       </Text>
-                     </View>
-                   </View>
+                        </Text>
+                        <Text style={{ color: colors.text, fontSize: 13, fontWeight: "700", marginTop: 2 }}>
+                          {formatEstimatedTime(section.estimatedMinutes)}
+                        </Text>
+                      </View>
+                    </View>
 
                    {getSectionKindLabel(section) ? (
                      <View

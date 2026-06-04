@@ -93,7 +93,7 @@ export default function BookPlansScreen() {
         }}
       />
       <Screen>
-        <ScrollView contentContainerStyle={{ padding: 20, gap: 16, paddingBottom: 40 }}>
+        <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ padding: 20, gap: 16, paddingBottom: 40 }}>
           <Text style={{ color: colors.text, fontSize: 30, fontWeight: "800" }}>
             {displayTitle}
           </Text>

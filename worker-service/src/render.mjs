@@ -9,6 +9,22 @@ function requireEnv(name, fallback) {
 const mockRenderEnabled = requireEnv("MOCK_RENDER_ENABLED", "false") === "true";
 const mockRenderPageCount = Number(requireEnv("MOCK_RENDER_PAGE_COUNT", "6"));
 
+function normalizeLanguageId(value) {
+  return String(value || "")
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
+function languageTitleFromId(value) {
+  return normalizeLanguageId(value)
+    .split("-")
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+}
+
 function runPythonRenderer(args) {
   return new Promise((resolve, reject) => {
     const child = spawn("python", args, {
@@ -116,6 +132,7 @@ export function buildPublicMetadata({
   printedPageStartPage,
 }) {
   const normalizedPrintedPageStartPage = Number(printedPageStartPage);
+  const normalizedLanguageId = normalizeLanguageId(languageId);
 
   return {
     id: bookSlug,
@@ -128,8 +145,8 @@ export function buildPublicMetadata({
     coverImage: "cover.png",
     languages: [
       {
-        id: languageId,
-        title: languageId,
+        id: normalizedLanguageId,
+        title: languageTitleFromId(normalizedLanguageId),
         volumes: [
           {
             id: volumeId,

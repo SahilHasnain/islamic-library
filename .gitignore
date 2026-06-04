@@ -46,3 +46,4 @@ app-example
 
 # local worker artifacts
 worker-service/runs/
+config.bat

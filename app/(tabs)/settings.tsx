@@ -211,6 +211,7 @@ export default function SettingsScreen() {
     <Screen>
       <CustomToast message={toastMessage} visible={showToast} />
       <ScrollView
+        showsVerticalScrollIndicator={false}
         contentContainerStyle={{
           paddingTop: insets.top + 5,
           paddingHorizontal: spacing.page,

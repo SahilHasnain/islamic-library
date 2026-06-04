@@ -150,7 +150,10 @@ export default function JourneyScreen() {
 
   return (
     <Screen>
-      <ScrollView contentContainerStyle={{ paddingTop: insets.top + 5, paddingHorizontal: 20, gap: 18, paddingBottom: 40 }}>
+      <ScrollView
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={{ paddingTop: insets.top + 5, paddingHorizontal: 20, gap: 18, paddingBottom: 40 }}
+      >
         <View style={{ gap: 8 }}>
           <Text style={{ color: colors.text, fontSize: 36, fontWeight: "800" }}>
             Journey
@@ -256,6 +259,7 @@ export default function JourneyScreen() {
             </Text>
             <FlatList
               data={completedBooks}
+              showsVerticalScrollIndicator={false}
               keyExtractor={(book: PublicCatalogBook) => book.id}
               numColumns={2}
               scrollEnabled={false}

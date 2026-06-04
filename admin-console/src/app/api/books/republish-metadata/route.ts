@@ -131,6 +131,22 @@ function parseRecommendations(value: unknown) {
   return recommendations;
 }
 
+function normalizeLanguageId(input: string) {
+  return input
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
+function languageTitleFromId(input: string) {
+  return normalizeLanguageId(input)
+    .split("-")
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+}
+
 function parseLanguages(value: unknown) {
   if (!Array.isArray(value)) {
     return undefined;
@@ -138,8 +154,8 @@ function parseLanguages(value: unknown) {
 
   return value.map((language, languageIndex) => {
     const languageItem = language as Record<string, unknown>;
-    const languageId = String(languageItem.languageId || languageItem.id || "").trim();
-    const title = String(languageItem.title || "").trim();
+    const languageId = normalizeLanguageId(String(languageItem.languageId || languageItem.id || ""));
+    const title = languageTitleFromId(languageId);
 
     if (!languageId || !title) {
       throw new Error(`Language ${languageIndex + 1} is invalid.`);
@@ -153,7 +169,7 @@ function parseLanguages(value: unknown) {
     return {
       languageId,
       title,
-      nativeTitle: String(languageItem.nativeTitle || "").trim() || undefined,
+      nativeTitle: undefined,
       summary: String(languageItem.summary || "").trim() || undefined,
       order:
         languageItem.order === undefined || languageItem.order === null || languageItem.order === ""
@@ -229,7 +245,7 @@ export async function POST(request: Request) {
       category: String(payload.category || "").trim() || undefined,
       nextRecommendedBookId: String(payload.nextRecommendedBookId || "").trim() || undefined,
       recommendations: parseRecommendations(payload.recommendations),
-      defaultLanguageId: String(payload.defaultLanguageId || "").trim() || undefined,
+      defaultLanguageId: normalizeLanguageId(String(payload.defaultLanguageId || "")) || undefined,
       requestedBy: String(payload.requestedBy || "admin-console").trim(),
       languages: parseLanguages(payload.languages),
     });

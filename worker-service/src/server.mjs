@@ -74,6 +74,14 @@ function isAuthorized(request) {
   return authHeader === `Bearer ${workerApiToken}`;
 }
 
+function normalizeLanguageId(value) {
+  return String(value || "")
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
 async function handleHealth(_, response) {
   sendJson(response, 200, {
     ok: true,
@@ -136,6 +144,8 @@ async function handleIngest(request, response) {
     sendJson(response, 400, { error: "Missing required job payload fields." });
     return;
   }
+
+  const normalizedLanguageId = normalizeLanguageId(languageId);
 
   const jobDocument = await findJobDocument(jobId);
   const bookDocument = await findBookBySlug(bookSlug);
@@ -210,13 +220,13 @@ async function handleIngest(request, response) {
       description,
       category,
       nextRecommendedBookId,
-      languageId,
+      languageId: normalizedLanguageId,
       volumeId,
       printedPageStartPage,
     });
     const manifest = buildVolumeManifest({
       bookSlug,
-      languageId,
+      languageId: normalizedLanguageId,
       volumeId,
       totalPages: renderResult.totalPages,
       version,
@@ -234,7 +244,7 @@ async function handleIngest(request, response) {
       workspace,
       expected: {
         bookSlug,
-        languageId,
+        languageId: normalizedLanguageId,
         volumeId,
       },
     });
@@ -250,7 +260,7 @@ async function handleIngest(request, response) {
       description: description || null,
       category: category || null,
       nextRecommendedBookId: nextRecommendedBookId || null,
-      languageId,
+      languageId: normalizedLanguageId,
       volumeId,
       sourceFileId,
       requestedBy: requestedBy || "admin-console",
@@ -288,7 +298,7 @@ async function handleIngest(request, response) {
     const publishResult = await publishWorkspace({
       workspace,
       bookSlug,
-      languageId,
+      languageId: normalizedLanguageId,
       volumeId,
       metadata,
       manifest,
@@ -419,6 +429,8 @@ async function handleMetadataRepublish(request, response) {
   }
 
   const version = buildPublishVersion();
+  const normalizedDefaultLanguageId = normalizeLanguageId(defaultLanguageId);
+  const normalizedBookLanguageId = normalizeLanguageId(bookDocument.languageId);
 
   try {
     const publishResult = await republishBookMetadata({
@@ -430,8 +442,8 @@ async function handleMetadataRepublish(request, response) {
       category,
       nextRecommendedBookId,
       recommendations,
-      defaultLanguageId,
-      languageId: bookDocument.languageId,
+      defaultLanguageId: normalizedDefaultLanguageId,
+      languageId: normalizedBookLanguageId,
       volumeId: bookDocument.volumeId,
       version,
       languages,
@@ -444,10 +456,10 @@ async function handleMetadataRepublish(request, response) {
       description: description || "",
       category: category || "",
       nextRecommendedBookId: nextRecommendedBookId || "",
-      defaultLanguageId: defaultLanguageId || "",
+      defaultLanguageId: normalizedDefaultLanguageId || "",
       defaultVolumeId:
         (Array.isArray(languages)
-          ? languages.find((language) => language.languageId === defaultLanguageId)?.defaultVolumeId
+          ? languages.find((language) => normalizeLanguageId(language.languageId) === normalizedDefaultLanguageId)?.defaultVolumeId
           : "") || "",
       metadataUrl: publishResult.metadataUrl,
       manifestUrl: publishResult.manifestUrl,
