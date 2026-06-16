@@ -1335,11 +1335,6 @@ export async function analyzeSourcePdf({ sourceFileId, context, maxPages, analys
       const tocResult = mergeTocResults(deterministicTocResult, aiTocResult);
       const tocEntries = normalizeTocEntries(tocResult?.tocEntries);
       const draft = buildFallbackDraft({ ...context, extracted });
-      const tocSections = buildSectionsFromTocEntries(
-        deterministicTocResult.tocEntries?.length ? deterministicTocResult.tocEntries : tocEntries,
-        extracted.pageCount,
-        deterministicTocResult.printedPageStartPage ?? tocResult?.printedPageStartPage,
-      );
       return {
         pageCount: extracted.pageCount,
         analyzedPages: extracted.pages.length,
@@ -1349,7 +1344,7 @@ export async function analyzeSourcePdf({ sourceFileId, context, maxPages, analys
         draft: {
           ...draft,
           printedPageStartPage: tocResult?.printedPageStartPage ?? draft.printedPageStartPage,
-          sections: tocSections.length > 0 ? tocSections : draft.sections,
+          sections: [],
           notes: tocResult?.notes || "TOC-only analysis completed.",
         },
         aiEnabled: Boolean(aiTocResult),

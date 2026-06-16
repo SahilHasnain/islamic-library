@@ -5,7 +5,7 @@ import { Pressable, ScrollView, Text, View } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { ErrorCard } from "../../../components/ui";
-import type { PublicBookPlan, PublicBookSection, PublicCatalogBook } from "../../../data/types";
+import type { PublicBookPlan, PublicBookTocEntry, PublicCatalogBook } from "../../../data/types";
 import { useAppTheme } from "../../../hooks/useAppTheme";
 import { useBookCompletions } from "../../../hooks/useBookCompletions";
 import { useRemoteBookData } from "../../../hooks/useRemoteBookData";
@@ -66,39 +66,6 @@ function buildFallbackPlans(totalPages: number): PublicBookPlan[] {
   });
 }
 
-function buildFallbackSections(totalPages: number): PublicBookSection[] {
-  const total = Math.max(totalPages, 1);
-  const sectionCount = Math.min(6, Math.max(3, Math.ceil(total / 40)));
-  const sectionSpan = Math.max(1, Math.ceil(total / sectionCount));
-
-  return Array.from({ length: sectionCount }, (_, index) => {
-    const startPage = index * sectionSpan + 1;
-    const endPage =
-      index === sectionCount - 1 ? total : Math.min(total, (index + 1) * sectionSpan);
-
-    return {
-      id: `section-${index + 1}`,
-      title: `Section ${index + 1}`,
-      startPage,
-      endPage,
-      estimatedMinutes: Math.max(10, (endPage - startPage + 1) * 2),
-      description: "A calm portion for steady reading.",
-    };
-  });
-}
-
-function getOrderedSections(sections: PublicBookSection[]) {
-  return [...sections].sort((left, right) => {
-    const leftOrder = left.order ?? Number.MAX_SAFE_INTEGER;
-    const rightOrder = right.order ?? Number.MAX_SAFE_INTEGER;
-    if (leftOrder !== rightOrder) {
-      return leftOrder - rightOrder;
-    }
-
-    return left.startPage - right.startPage;
-  });
-}
-
 function getRelatedBookScore(book: PublicCatalogBook, currentBook?: PublicCatalogBook) {
   if (!currentBook || book.id === currentBook.id) {
     return 0;
@@ -127,6 +94,16 @@ function formatEstimatedTime(minutes: number) {
   }
 
   return `${hours} ${hourLabel} ${remainingMinutes} min`;
+}
+
+function getOrderedTocEntries(entries: PublicBookTocEntry[]) {
+  return [...entries]
+    .filter((entry) => entry.title.trim())
+    .sort((left, right) => (left.renderedPage ?? Number.MAX_SAFE_INTEGER) - (right.renderedPage ?? Number.MAX_SAFE_INTEGER));
+}
+
+function getTocEntryPage(entry: PublicBookTocEntry) {
+  return Math.max(1, Math.floor(entry.renderedPage || entry.printedPage || 1));
 }
 
 function getSelectableChipColors({
@@ -301,10 +278,7 @@ export default function BookHomeScreen() {
     metadata?.description ?? "Open the book and continue with steady reading.";
   const displayAuthor = metadata?.author ?? catalogBook?.author;
   const displayCategory = metadata?.category ?? catalogBook?.category ?? "Library";
-  const hasAuthoredSections = Boolean(selectedVolume?.sections?.length);
-  const sections = getOrderedSections(
-    hasAuthoredSections ? selectedVolume?.sections ?? [] : buildFallbackSections(totalPages),
-  );
+  const tocEntries = getOrderedTocEntries(selectedVolume?.tocEntries ?? []);
   const plans =
     selectedVolume?.plans?.length ? selectedVolume.plans : buildFallbackPlans(totalPages);
   const relatedBooks = useMemo(() => {
@@ -867,7 +841,7 @@ export default function BookHomeScreen() {
             )}
           </View>
 
-          {/* Book Structure - Key Sections */}
+          {/* Book Structure - TOC */}
           <View style={{ backgroundColor: colors.surface, borderRadius: 24, padding: 18, gap: 14 }}>
             {/* Header */}
             <View style={{ gap: 2 }}>
@@ -880,29 +854,33 @@ export default function BookHomeScreen() {
                   letterSpacing: 0.4,
                 }}
               >
-                📚 Book Structure
+                Book Structure
               </Text>
               <Text style={{ color: colors.text, fontSize: 20, fontWeight: "800" }}>
-                Key Sections
+                Table of Contents
               </Text>
             </View>
 
-            {!hasAuthoredSections ? (
+            {tocEntries.length === 0 ? (
               <Text style={{ color: colors.textMuted, fontSize: 13, lineHeight: 20 }}>
-                Guided sections are being prepared. Browse gentle page ranges for now.
+                TOC is not available for this book yet. You can still start reading or jump to any page in the reader.
               </Text>
             ) : null}
 
-            {/* Sections List */}
+            {/* TOC Preview */}
             <View style={{ gap: 8 }}>
-              {sections.slice(0, 3).map((section, index) => (
-                <View
-                  key={section.id}
+              {tocEntries.slice(0, 5).map((entry, index) => (
+                <Link
+                  key={`${entry.title}-${index}`}
+                  href={`/reader/${readingBookId}/${resolvedLanguageId}/${resolvedVolumeId}/${getTocEntryPage(entry)}` as const}
+                  asChild
+                >
+                <Pressable
                   style={{
                     backgroundColor: colors.surfaceMuted,
                     borderRadius: 12,
                     padding: 12,
-                    gap: 6,
+                    marginLeft: Math.min(Math.max((entry.level ?? 1) - 1, 0), 3) * 12,
                   }}
                 >
                   <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start" }}>
@@ -912,39 +890,17 @@ export default function BookHomeScreen() {
                           {index + 1}
                         </Text>
                         <Text style={{ color: colors.text, fontSize: 14, fontWeight: "700", flex: 1 }}>
-                          {section.title}
+                          {entry.title}
                         </Text>
                       </View>
                       <Text style={{ color: colors.textMuted, fontSize: 12 }}>
-                        Pages {section.startPage}–{section.endPage} • ⏱️ {formatEstimatedTime(section.estimatedMinutes)}
+                        {entry.printedPage ? `Printed page ${entry.printedPage}` : `Reader page ${getTocEntryPage(entry)}`}
                       </Text>
                     </View>
                   </View>
-                </View>
-              ))}
-            </View>
-
-            {/* Action Button */}
-            <View style={{ paddingTop: 4 }}>
-              <Link
-                href={
-                  `/book/${readingBookId}/sections?languageId=${resolvedLanguageId}&volumeId=${resolvedVolumeId}` as const
-                }
-                asChild
-              >
-                <Pressable
-                  style={{
-                    backgroundColor: colors.accent,
-                    borderRadius: 999,
-                    paddingVertical: 11,
-                    alignItems: "center",
-                  }}
-                >
-                  <Text style={{ color: colors.text, fontSize: 13, fontWeight: "800" }}>
-                    View All
-                  </Text>
                 </Pressable>
-              </Link>
+                </Link>
+              ))}
             </View>
           </View>
 

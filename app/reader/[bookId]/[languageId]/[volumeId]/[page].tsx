@@ -8,6 +8,7 @@ import {
   Modal,
   Platform,
   Pressable,
+  ScrollView,
   Text,
   TextInput,
   useWindowDimensions,
@@ -27,6 +28,7 @@ import { useReadingProgress } from "../../../../../hooks/useReadingProgress";
 import { useRemoteBookData } from "../../../../../hooks/useRemoteBookData";
 import { useResolvedManifestPageAsset } from "../../../../../hooks/useResolvedManifestPageAsset";
 import { prefetchManifestPages } from "../../../../../lib/reader-prefetch";
+import type { PublicBookTocEntry } from "../../../../../data/types";
 
 const BOOK_COMPLETION_FINAL_PAGE_WINDOW = 3;
 const BOOK_COMPLETION_FINAL_PAGE_MS = 120000;
@@ -35,6 +37,16 @@ function getPrintedPageStartPage(value?: number) {
   return typeof value === "number" && Number.isFinite(value) && value > 1
     ? Math.floor(value)
     : undefined;
+}
+
+function getOrderedTocEntries(entries: PublicBookTocEntry[]) {
+  return [...entries]
+    .filter((entry) => entry.title.trim())
+    .sort((left, right) => (left.renderedPage ?? Number.MAX_SAFE_INTEGER) - (right.renderedPage ?? Number.MAX_SAFE_INTEGER));
+}
+
+function getTocEntryPage(entry: PublicBookTocEntry) {
+  return Math.max(1, Math.floor(entry.renderedPage || entry.printedPage || 1));
 }
 
 function ReaderPageSurface({
@@ -159,6 +171,7 @@ export default function ReaderScreen() {
   const [pageInput, setPageInput] = useState(String(initialPage));
   const [isZoomed, setIsZoomed] = useState(false);
   const [isPageModalVisible, setIsPageModalVisible] = useState(false);
+  const [isTocVisible, setIsTocVisible] = useState(false);
   const [showSessionCompletionModal, setShowSessionCompletionModal] = useState(false);
   const [sessionCompletionData, setSessionCompletionData] = useState<{
     pagesRead: number;
@@ -189,7 +202,7 @@ export default function ReaderScreen() {
     () => Array.from({ length: totalPages }, (_, index) => index + 1),
     [totalPages],
   );
-  const remoteSections = selectedVolume?.sections ?? [];
+  const tocEntries = getOrderedTocEntries(selectedVolume?.tocEntries ?? []);
   const printedPageStartPage = getPrintedPageStartPage(selectedVolume?.printedPageStartPage);
   const manifestPages = useMemo(() => manifest?.pages ?? [], [manifest?.pages]);
   const currentManifestPage = manifestPages.find((entry) => entry.page === currentPage);
@@ -230,12 +243,9 @@ export default function ReaderScreen() {
     : printedCurrentPage
       ? `Page ${printedCurrentPage} of ${printedTotalPages}`
       : `Front matter ${currentPage} of ${Math.max(1, (printedPageStartPage ?? 1) - 1)}`;
-  const sectionSpan = Math.max(1, Math.ceil(totalPages / 6));
-  const currentSectionIndex = Math.max(1, Math.ceil(currentPage / sectionSpan));
-  const currentSection =
-    remoteSections.find(
-      (section) => currentPage >= section.startPage && currentPage <= section.endPage,
-    ) ?? { title: `Section ${currentSectionIndex}` };
+  const currentTocEntry = [...tocEntries]
+    .reverse()
+    .find((entry) => getTocEntryPage(entry) <= currentPage);
   const progressPercent = Math.round((currentPage / totalPages) * 100);
   const mutedBodyColor = appColors.textMuted;
   const controlSurfaceColor = appColors.primaryButton;
@@ -249,7 +259,9 @@ export default function ReaderScreen() {
     currentPage,
   );
   const bookTitle = metadata?.title ?? catalogBook?.title ?? "Reader";
-  const editionLine = `${selectedLanguage?.title ?? languageId} | ${selectedVolume?.title ?? volumeId} | ${currentSection.title}`;
+  const editionLine = [selectedLanguage?.title ?? languageId, selectedVolume?.title ?? volumeId, currentTocEntry?.title]
+    .filter(Boolean)
+    .join(" | ");
 
   const pagesViewed = useMemo(() => {
     return Array.from(new Set([...(progress?.pagesViewed ?? []), currentPage])).sort(
@@ -766,7 +778,21 @@ export default function ReaderScreen() {
               </View>
             </View>
 
-            <View style={{ width: 72 }} />
+            <Pressable
+              onPress={() => setIsTocVisible(true)}
+              style={({ pressed }) => ({
+                minWidth: 72,
+                height: 48,
+                borderRadius: 24,
+                paddingHorizontal: 18,
+                backgroundColor: colors.overlayLight,
+                alignItems: "center",
+                justifyContent: "center",
+                opacity: pressed ? 0.8 : 1,
+              })}
+            >
+              <Text style={{ color: colors.text, fontSize: 14, fontWeight: "800" }}>TOC</Text>
+            </Pressable>
           </View>
         </View>
       </SafeAreaView>
@@ -853,6 +879,103 @@ export default function ReaderScreen() {
                 </Text>
               </Pressable>
             </View>
+          </Pressable>
+        </Pressable>
+      </Modal>
+
+      <Modal
+        visible={isTocVisible}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setIsTocVisible(false)}
+      >
+        <Pressable
+          onPress={() => setIsTocVisible(false)}
+          style={{
+            flex: 1,
+            backgroundColor: appColors.scrim,
+            justifyContent: "flex-end",
+          }}
+        >
+          <Pressable
+            onPress={() => { }}
+            style={{
+              maxHeight: "72%",
+              borderTopLeftRadius: 28,
+              borderTopRightRadius: 28,
+              backgroundColor: colors.panel,
+              paddingHorizontal: 20,
+              paddingTop: 18,
+              paddingBottom: 28,
+              gap: 14,
+            }}
+          >
+            <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
+              <View style={{ flex: 1 }}>
+                <Text style={{ color: colors.panelText, fontSize: 20, fontWeight: "800" }}>
+                  Table of Contents
+                </Text>
+                <Text style={{ color: appColors.textMuted, fontSize: 13, marginTop: 4 }}>
+                  {tocEntries.length ? `${tocEntries.length} entries` : "TOC not available for this book."}
+                </Text>
+              </View>
+              <Pressable
+                onPress={() => setIsTocVisible(false)}
+                style={({ pressed }) => ({
+                  width: 40,
+                  height: 40,
+                  borderRadius: 20,
+                  backgroundColor: pageModalSurfaceColor,
+                  alignItems: "center",
+                  justifyContent: "center",
+                  opacity: pressed ? 0.8 : 1,
+                })}
+              >
+                <Ionicons name="close" size={22} color={colors.panelText} />
+              </Pressable>
+            </View>
+
+            {tocEntries.length ? (
+              <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ gap: 8, paddingBottom: 8 }}>
+                {tocEntries.map((entry, index) => {
+                  const entryPage = getTocEntryPage(entry);
+                  const isActive = entryPage <= currentPage && (!tocEntries[index + 1] || getTocEntryPage(tocEntries[index + 1]) > currentPage);
+                  return (
+                    <Pressable
+                      key={`${entry.title}-${index}`}
+                      onPress={() => {
+                        moveToPage(entryPage);
+                        setIsTocVisible(false);
+                      }}
+                      style={({ pressed }) => ({
+                        borderRadius: 16,
+                        paddingVertical: 12,
+                        paddingHorizontal: 14,
+                        marginLeft: Math.min(Math.max((entry.level ?? 1) - 1, 0), 3) * 12,
+                        backgroundColor: isActive ? controlSurfaceColor : pageModalSurfaceColor,
+                        opacity: pressed ? 0.8 : 1,
+                      })}
+                    >
+                      <Text style={{ color: isActive ? colors.text : colors.panelText, fontSize: 15, fontWeight: "700" }}>
+                        {entry.title}
+                      </Text>
+                      <Text style={{ color: isActive ? colors.text : appColors.textMuted, fontSize: 12, marginTop: 4 }}>
+                        {entry.printedPage ? `Printed page ${entry.printedPage}` : `Reader page ${entryPage}`}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
+              </ScrollView>
+            ) : (
+              <View style={{ borderRadius: 18, backgroundColor: pageModalSurfaceColor, padding: 16, gap: 8 }}>
+                <Text style={{ color: colors.panelText, fontSize: 16, fontWeight: "800" }}>
+                  TOC not available
+                </Text>
+                <Text style={{ color: appColors.textMuted, fontSize: 14, lineHeight: 20 }}>
+                  This book does not have table of contents metadata yet. Use Go to jump to a known page.
+                </Text>
+              </View>
+            )}
           </Pressable>
         </Pressable>
       </Modal>

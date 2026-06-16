@@ -136,6 +136,7 @@ export type PublicBookMetadataVolume = {
   introNote?: string;
   todayTarget?: string;
   sections?: PublicBookSection[];
+  tocEntries?: PublicBookTocEntry[];
   plans?: PublicBookPlan[];
 };
 
@@ -186,6 +187,13 @@ export type PublicBookSection = {
   description?: string;
   entryPage?: number;
   order?: number;
+};
+
+export type PublicBookTocEntry = {
+  title: string;
+  printedPage?: number | null;
+  renderedPage?: number | null;
+  level?: number;
 };
 
 export type PublicBookPlanItem = {

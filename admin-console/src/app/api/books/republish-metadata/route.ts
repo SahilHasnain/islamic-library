@@ -2,40 +2,30 @@ import { NextResponse } from "next/server";
 
 import { republishBookMetadata } from "@/lib/ingestion";
 
-function parseSections(value: unknown) {
+function parseTocEntries(value: unknown) {
   if (!Array.isArray(value)) {
     return undefined;
   }
 
-  return value.map((section, index) => {
-    const item = section as Record<string, unknown>;
-    const id = String(item.id || "").trim();
-    const title = String(item.title || "").trim();
-    const startPage = Number(item.startPage);
-    const endPage = Number(item.endPage);
-    const estimatedMinutes = Number(item.estimatedMinutes);
+  return value
+    .map((entry) => {
+      const item = entry as Record<string, unknown>;
+      const title = String(item.title || "").trim();
+      if (!title) {
+        return null;
+      }
 
-    if (!id || !title || !Number.isFinite(startPage) || !Number.isFinite(endPage) || !Number.isFinite(estimatedMinutes)) {
-      throw new Error(`Section ${index + 1} is invalid.`);
-    }
-
-    return {
-      id,
-      title,
-      subtitle: String(item.subtitle || "").trim() || undefined,
-      kind: String(item.kind || "").trim() || undefined,
-      startPage,
-      endPage,
-      estimatedMinutes,
-      description: String(item.description || "").trim() || undefined,
-      entryPage: item.entryPage === undefined || item.entryPage === null || item.entryPage === ""
-        ? undefined
-        : Number(item.entryPage),
-      order: item.order === undefined || item.order === null || item.order === ""
-        ? undefined
-        : Number(item.order),
-    };
-  });
+      const printedPage = Number(item.printedPage);
+      const renderedPage = Number(item.renderedPage);
+      const level = Number(item.level);
+      return {
+        title,
+        printedPage: Number.isFinite(printedPage) && printedPage > 0 ? printedPage : null,
+        renderedPage: Number.isFinite(renderedPage) && renderedPage > 0 ? renderedPage : null,
+        level: Number.isFinite(level) && level > 0 ? Math.floor(level) : 1,
+      };
+    })
+    .filter((entry): entry is NonNullable<typeof entry> => Boolean(entry));
 }
 
 function parsePlans(value: unknown) {
@@ -202,7 +192,7 @@ function parseLanguages(value: unknown) {
           manifestUrl: String(volumeItem.manifestUrl || "").trim() || undefined,
           introNote: String(volumeItem.introNote || "").trim() || undefined,
           todayTarget: String(volumeItem.todayTarget || "").trim() || undefined,
-          sections: parseSections(volumeItem.sections),
+          tocEntries: parseTocEntries(volumeItem.tocEntries),
           plans: parsePlans(volumeItem.plans),
         };
       }),

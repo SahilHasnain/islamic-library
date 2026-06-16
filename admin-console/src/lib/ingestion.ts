@@ -67,6 +67,12 @@ export type EditionVolumeInput = {
     entryPage?: number;
     order?: number;
   }[];
+  tocEntries?: {
+    title: string;
+    printedPage?: number | null;
+    renderedPage?: number | null;
+    level?: number;
+  }[];
   plans?: {
     id: string;
     title: string;
@@ -153,18 +159,7 @@ export type MetadataRepublishPayload = {
   defaultLanguageId?: string;
   requestedBy: string;
   languages?: EditionLanguageInput[];
-  sections?: {
-    id: string;
-    title: string;
-    subtitle?: string;
-    kind?: string;
-    startPage: number;
-    endPage: number;
-    estimatedMinutes: number;
-    description?: string;
-    entryPage?: number;
-    order?: number;
-  }[];
+  tocEntries?: EditionVolumeInput["tocEntries"];
 };
 
 export type AiAnalysisDraft = {

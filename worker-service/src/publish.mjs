@@ -430,7 +430,7 @@ export async function republishBookMetadata({
               printedPageStartPage: volume.printedPageStartPage,
               introNote: volume.introNote,
               todayTarget: volume.todayTarget,
-              sections: volume.sections?.length ? volume.sections : existingVolume?.sections,
+              tocEntries: volume.tocEntries?.length ? volume.tocEntries : existingVolume?.tocEntries,
               plans: volume.plans?.length ? volume.plans : existingVolume?.plans,
             };
           }),

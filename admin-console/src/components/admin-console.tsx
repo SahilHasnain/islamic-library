@@ -80,7 +80,7 @@ function languageTitleFromId(value: string) {
     .join(" ");
 }
 
-function validateAiDraftForReview(draft: AiAnalysisResult["draft"] | null | undefined, pageCount?: number) {
+function validateAiDraftForReview(draft: AiAnalysisResult["draft"] | null | undefined) {
   const issues: AiDraftValidationIssue[] = [];
   if (!draft) {
     return issues;
@@ -88,63 +88,6 @@ function validateAiDraftForReview(draft: AiAnalysisResult["draft"] | null | unde
 
   if (draft.category && !categories.includes(draft.category)) {
     issues.push({ severity: "error", message: `Invalid category: ${draft.category}.` });
-  }
-
-  const sections = Array.isArray(draft.sections) ? draft.sections : [];
-  const normalizedSections = sections
-    .map((section) => ({
-      title: String(section?.title || "").trim(),
-      id: String(section?.id || "").trim(),
-      startPage: Number(section?.startPage),
-      endPage: Number(section?.endPage),
-    }))
-    .filter((section) => section.title || section.id || section.startPage || section.endPage)
-    .sort((left, right) => left.startPage - right.startPage);
-
-  if (normalizedSections.length === 0) {
-    issues.push({ severity: "error", message: "Draft has no sections." });
-    return issues;
-  }
-
-  const blockedTitles = new Set(["contents", "content", "index", "fehrist", "fahrist"]);
-  normalizedSections.forEach((section, index) => {
-    if (!section.title || !section.id) {
-      issues.push({ severity: "error", message: `Section ${index + 1} is missing title or id.` });
-    }
-
-    if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(section.id)) {
-      issues.push({ severity: "warning", message: `${section.title || `Section ${index + 1}`} has a non-standard slug id.` });
-    }
-
-    if (blockedTitles.has(section.title.toLowerCase())) {
-      issues.push({ severity: "error", message: `${section.title} is a TOC page, not an app section.` });
-    }
-
-    if (!Number.isFinite(section.startPage) || !Number.isFinite(section.endPage) || section.startPage < 1 || section.endPage < section.startPage) {
-      issues.push({ severity: "error", message: `${section.title || `Section ${index + 1}`} has an invalid page range.` });
-    }
-  });
-
-  for (let index = 1; index < normalizedSections.length; index += 1) {
-    const previous = normalizedSections[index - 1];
-    const current = normalizedSections[index];
-    if (current.startPage <= previous.endPage) {
-      issues.push({ severity: "error", message: `Overlap between ${previous.title} and ${current.title}.` });
-    } else if (current.startPage > previous.endPage + 1) {
-      issues.push({ severity: "warning", message: `Gap between ${previous.title} and ${current.title}.` });
-    }
-  }
-
-  if (pageCount && Number.isFinite(pageCount)) {
-    const targetSections = Math.max(3, Math.ceil(pageCount / 20));
-    if (pageCount >= 100 && normalizedSections.length < targetSections) {
-      issues.push({ severity: "warning", message: `Only ${normalizedSections.length} sections for ${pageCount} pages. Expected around ${targetSections} or more.` });
-    }
-
-    const finalSection = normalizedSections[normalizedSections.length - 1];
-    if (finalSection?.endPage && finalSection.endPage < pageCount - 2) {
-      issues.push({ severity: "warning", message: `Final section ends at page ${finalSection.endPage}, but book has ${pageCount} pages.` });
-    }
   }
 
   return issues;
@@ -241,6 +184,7 @@ type EditionVolumeEditorItem = {
   introNote: string;
   todayTarget: string;
   sections: SectionEditorItem[];
+  tocEntries: TocEntryEditorItem[];
   plans: PlanEditorItem[];
 };
 
@@ -344,6 +288,7 @@ type PublishedMetadataPayload = {
       introNote?: string;
       todayTarget?: string;
       sections?: unknown[];
+      tocEntries?: unknown[];
       plans?: unknown[];
     }[];
   }[];
@@ -359,7 +304,8 @@ function createEmptyVolume(): EditionVolumeEditorItem {
     manifestUrl: "",
     introNote: "",
     todayTarget: "",
-    sections: getDefaultSections(),
+    sections: [],
+    tocEntries: [],
     plans: [],
   };
 }
@@ -399,23 +345,6 @@ function createEmptySection(): SectionEditorItem {
   };
 }
 
-function getDefaultSections() {
-  return [
-    {
-      id: "muqaddimah",
-      title: "Muqaddimah",
-      subtitle: "Opening pages and devotional framing",
-      kind: "front-matter",
-      startPage: "1",
-      endPage: "12",
-      entryPage: "1",
-      order: "1",
-      estimatedMinutes: "8",
-      description: "A gentle place to begin.",
-    },
-  ];
-}
-
 function normalizeSections(value: unknown[] | undefined): SectionEditorItem[] {
   if (!value || value.length === 0) {
     return [];
@@ -438,50 +367,31 @@ function normalizeSections(value: unknown[] | undefined): SectionEditorItem[] {
   });
 }
 
-function validateAiSections(value: unknown[] | undefined): {
-  sections: SectionEditorItem[];
-  warnings: string[];
-} {
-  const warnings: string[] = [];
+function normalizeTocEntries(value: unknown[] | undefined): TocEntryEditorItem[] {
   if (!value || value.length === 0) {
-    return { sections: [], warnings: ["AI did not return sections."] };
+    return [];
   }
 
-  const sections = normalizeSections(value)
-    .map((section, index) => ({ section, index }))
-    .filter(({ section, index }) => {
-      const startPage = Number(section.startPage);
-      const endPage = Number(section.endPage);
+  return value
+    .map((entry) => {
+      const item = entry as Record<string, unknown>;
+      const title = String(item.title || "").trim();
+      const printedPage = Number(item.printedPage);
+      const renderedPage = Number(item.renderedPage);
+      const level = Number(item.level);
 
-      if (!section.id.trim() || !section.title.trim()) {
-        warnings.push(`Skipped section ${index + 1}: missing id or title.`);
-        return false;
+      if (!title) {
+        return null;
       }
 
-      if (!Number.isFinite(startPage) || !Number.isFinite(endPage) || startPage < 1 || endPage < startPage) {
-        warnings.push(`Skipped ${section.title}: invalid page range.`);
-        return false;
-      }
-
-      return true;
+      return {
+        title,
+        printedPage: Number.isFinite(printedPage) && printedPage > 0 ? printedPage : null,
+        renderedPage: Number.isFinite(renderedPage) && renderedPage > 0 ? renderedPage : null,
+        level: Number.isFinite(level) && level > 0 ? Math.floor(level) : 1,
+      };
     })
-    .sort((left, right) => Number(left.section.startPage) - Number(right.section.startPage))
-    .map(({ section }, index) => ({
-      ...section,
-      order: String(index + 1),
-      entryPage: section.entryPage || section.startPage,
-      estimatedMinutes: section.estimatedMinutes || "5",
-    }));
-
-  for (let index = 1; index < sections.length; index += 1) {
-    const previous = sections[index - 1];
-    const current = sections[index];
-    if (Number(current.startPage) <= Number(previous.endPage)) {
-      warnings.push(`Section overlap: ${previous.title} and ${current.title}.`);
-    }
-  }
-
-  return { sections, warnings };
+    .filter((entry): entry is TocEntryEditorItem => Boolean(entry));
 }
 
 function normalizePlans(value: unknown[] | undefined): PlanEditorItem[] {
@@ -542,7 +452,8 @@ function normalizeLanguages(
             manifestUrl: "",
             introNote: "",
             todayTarget: "",
-            sections: getDefaultSections(),
+            sections: [],
+            tocEntries: [],
             plans: [],
           },
         ],
@@ -570,6 +481,7 @@ function normalizeLanguages(
           introNote: String(volume.introNote || ""),
           todayTarget: String(volume.todayTarget || ""),
           sections: normalizeSections(volume.sections),
+          tocEntries: normalizeTocEntries(volume.tocEntries),
           plans: normalizePlans((volume as { plans?: unknown[] }).plans),
         }))
         : [createEmptyVolume()],
@@ -608,7 +520,7 @@ function buildLanguagePayload(languages: EditionLanguageEditorItem[]) {
             manifestUrl: volume.manifestUrl.trim() || undefined,
             introNote: volume.introNote.trim() || undefined,
             todayTarget: volume.todayTarget.trim() || undefined,
-            sections: buildSectionPayload(volume.sections),
+            tocEntries: buildTocPayload(volume.tocEntries),
             plans: volume.plans
               .filter((plan) => plan.id.trim() || plan.title.trim())
               .map((plan, planIndex) => {
@@ -682,33 +594,15 @@ function buildLanguagePayload(languages: EditionLanguageEditorItem[]) {
     });
 }
 
-function buildSectionPayload(sections: SectionEditorItem[]) {
-  return sections
-    .filter((section) => section.id.trim() || section.title.trim())
-    .map((section, index) => {
-      const id = section.id.trim();
-      const title = section.title.trim();
-      const startPage = Number(section.startPage);
-      const endPage = Number(section.endPage);
-      const estimatedMinutes = Number(section.estimatedMinutes);
-
-      if (!id || !title || !Number.isFinite(startPage) || !Number.isFinite(endPage) || !Number.isFinite(estimatedMinutes)) {
-        throw new Error(`Section ${index + 1} is incomplete.`);
-      }
-
-      return {
-        id,
-        title,
-        subtitle: section.subtitle.trim() || undefined,
-        kind: section.kind || undefined,
-        startPage,
-        endPage,
-        estimatedMinutes,
-        description: section.description.trim() || undefined,
-        entryPage: section.entryPage.trim() ? Number(section.entryPage) : undefined,
-        order: section.order.trim() ? Number(section.order) : undefined,
-      };
-    });
+function buildTocPayload(tocEntries: TocEntryEditorItem[]) {
+  return tocEntries
+    .filter((entry) => entry.title.trim())
+    .map((entry) => ({
+      title: entry.title.trim(),
+      printedPage: entry.printedPage && entry.printedPage > 0 ? entry.printedPage : null,
+      renderedPage: entry.renderedPage && entry.renderedPage > 0 ? entry.renderedPage : null,
+      level: entry.level && entry.level > 0 ? Math.floor(entry.level) : 1,
+    }));
 }
 
 function buildRecommendationPayload(recommendations: RecommendationEditorItem[]) {
@@ -949,11 +843,11 @@ export function AdminConsole({ initialSnapshot }: { initialSnapshot: MonitoringS
 
     try {
       const draft = JSON.parse(aiDraftJson) as AiAnalysisResult["draft"];
-      return validateAiDraftForReview(draft, aiAnalysis?.pageCount);
+      return validateAiDraftForReview(draft);
     } catch {
       return [{ severity: "error", message: "AI draft JSON is not valid." }] satisfies AiDraftValidationIssue[];
     }
-  }, [aiAnalysis, aiDraftJson]);
+  }, [aiDraftJson]);
 
   const aiDraftSectionsForReview = useMemo(() => {
     if (!aiDraftJson.trim()) {
@@ -1769,42 +1663,6 @@ export function AdminConsole({ initialSnapshot }: { initialSnapshot: MonitoringS
     }
   }
 
-  function getEditableTocEntries() {
-    if (!aiTocJson.trim()) {
-      return [];
-    }
-
-    try {
-      const parsed = JSON.parse(aiTocJson) as unknown;
-      if (!Array.isArray(parsed)) {
-        setMetadataState({ error: "TOC JSON must be an array." });
-        return [];
-      }
-
-      return parsed
-        .map((entry) => {
-          const item = entry as Partial<TocEntryEditorItem>;
-          const title = String(item.title || "").trim();
-          if (!title) {
-            return null;
-          }
-
-          const printedPage = Number(item.printedPage);
-          const renderedPage = Number(item.renderedPage);
-          return {
-            title,
-            printedPage: Number.isFinite(printedPage) && printedPage > 0 ? printedPage : null,
-            renderedPage: Number.isFinite(renderedPage) && renderedPage > 0 ? renderedPage : null,
-            level: Number.isFinite(Number(item.level)) ? Math.max(1, Number(item.level)) : 1,
-          } satisfies TocEntryEditorItem;
-        })
-        .filter(Boolean) as TocEntryEditorItem[];
-    } catch {
-      setMetadataState({ error: "TOC JSON is not valid. Fix it before building sections." });
-      return [];
-    }
-  }
-
   async function copyAiTocJson() {
     if (!aiTocJson.trim()) {
       return;
@@ -2024,136 +1882,6 @@ export function AdminConsole({ initialSnapshot }: { initialSnapshot: MonitoringS
     setMetadataState({ message: "Auto-fixed reading plan ranges in the editable AI draft." });
   }
 
-  function buildSectionsFromEditableToc() {
-    const tocEntries = getEditableTocEntries();
-    if (tocEntries.length === 0) {
-      setMetadataState({ error: "No valid TOC entries to build sections from." });
-      return;
-    }
-
-    const draft = getEditableAiDraft() || {};
-    const pageCount = Number(aiAnalysis?.pageCount || 0);
-    const printedPageStartPage = Number(draft.printedPageStartPage || 0);
-    const sourceEntries = tocEntries;
-    const blockedTitles = new Set(["contents", "content", "index", "fehrist", "fahrist"]);
-    const targetSections = Math.max(3, Math.ceil((pageCount || 1) / 20));
-    const maxSections = Math.max(5, Math.ceil((pageCount || 1) / 12));
-    const renderedPageCounts = new Map<number, number>();
-    sourceEntries.forEach((entry) => {
-      if (entry.renderedPage && entry.renderedPage > 0) {
-        renderedPageCounts.set(entry.renderedPage, (renderedPageCounts.get(entry.renderedPage) || 0) + 1);
-      }
-    });
-
-    const starts = sourceEntries
-      .map((entry, index) => {
-        const normalizedTitle = entry.title.toLowerCase().trim();
-        if (blockedTitles.has(normalizedTitle)) {
-          return null;
-        }
-
-        const mappedPrintedPage = entry.printedPage && entry.printedPage > 0 && printedPageStartPage
-          ? entry.printedPage + printedPageStartPage - 1
-          : null;
-        const repeatedRenderedPage = entry.renderedPage ? (renderedPageCounts.get(entry.renderedPage) || 0) > 2 : false;
-        const renderedPage = mappedPrintedPage || (entry.renderedPage && entry.renderedPage > 0 && !repeatedRenderedPage ? entry.renderedPage : null);
-        if (!renderedPage || renderedPage < 1) {
-          return null;
-        }
-
-        return {
-          title: entry.title,
-          level: entry.level,
-          startPage: Math.floor(renderedPage),
-          sourceIndex: index,
-        };
-      })
-      .filter((entry): entry is { title: string; level: number; startPage: number; sourceIndex: number } => Boolean(entry))
-      .sort((left, right) => left.startPage - right.startPage)
-      .filter((entry, index, entries) => {
-        const previous = entries[index - 1];
-        return !previous || previous.startPage !== entry.startPage;
-      });
-
-    if (starts.length === 0) {
-      setMetadataState({ error: "TOC entries need renderedPage values, or printedPage plus printedPageStartPage." });
-      return;
-    }
-
-    const majorStarts = starts.filter((entry) => entry.level <= 1);
-    let selectedStarts = majorStarts.length >= 3 ? majorStarts : starts;
-
-    if (selectedStarts.length < targetSections) {
-      const selectedIndexes = new Set(selectedStarts.map((entry) => entry.sourceIndex));
-      const supplementalStarts = starts
-        .filter((entry) => !selectedIndexes.has(entry.sourceIndex))
-        .filter((entry) => {
-          const previous = selectedStarts
-            .filter((selected) => selected.startPage < entry.startPage)
-            .at(-1);
-          const next = selectedStarts.find((selected) => selected.startPage > entry.startPage);
-          const previousGap = previous ? entry.startPage - previous.startPage : Number.MAX_SAFE_INTEGER;
-          const nextGap = next ? next.startPage - entry.startPage : Number.MAX_SAFE_INTEGER;
-          return Math.max(previousGap, nextGap) >= 25;
-        });
-
-      selectedStarts = [...selectedStarts, ...supplementalStarts]
-        .sort((left, right) => left.startPage - right.startPage);
-    }
-
-    if (selectedStarts.length > maxSections) {
-      let minGap = Math.max(4, Math.floor((pageCount || selectedStarts.at(-1)?.startPage || 1) / maxSections));
-      let compacted = selectedStarts;
-      while (compacted.length > maxSections) {
-        compacted = [selectedStarts[0]];
-        for (const entry of selectedStarts.slice(1)) {
-          const previous = compacted[compacted.length - 1];
-          if (entry.startPage - previous.startPage >= minGap) {
-            compacted.push(entry);
-          }
-        }
-        minGap += 1;
-      }
-
-      const lastStart = selectedStarts[selectedStarts.length - 1];
-      const compactedLast = compacted[compacted.length - 1];
-      if (lastStart && compactedLast && lastStart.startPage !== compactedLast.startPage) {
-        compacted[compacted.length - 1] = lastStart;
-        compacted = compacted.sort((left, right) => left.startPage - right.startPage);
-      }
-      selectedStarts = compacted;
-    }
-
-    const sections = selectedStarts.map((entry, index) => {
-      const next = selectedStarts[index + 1];
-      const endPage = Math.max(
-        entry.startPage,
-        next ? next.startPage - 1 : pageCount || entry.startPage,
-      );
-      return {
-        id: slugifyTitle(entry.title, `toc-section-${entry.sourceIndex + 1}`),
-        title: entry.title,
-        kind: "chapter",
-        startPage: entry.startPage,
-        endPage,
-        estimatedMinutes: Math.max(3, (endPage - entry.startPage + 1) * 2),
-      };
-    });
-
-    const nextDraft = {
-      ...draft,
-      sections,
-      notes: [
-        draft.notes,
-        `Sections rebuilt from ${sections.length} reviewed TOC entries.`,
-      ]
-        .filter(Boolean)
-        .join("\n"),
-    };
-    setAiDraftJson(JSON.stringify(nextDraft, null, 2));
-    setMetadataState({ message: `Built ${sections.length} sections from reviewed TOC entries.` });
-  }
-
   function applyAiMetadataDraft() {
     const draft = getEditableAiDraft();
     if (!draft) {
@@ -2199,19 +1927,15 @@ export function AdminConsole({ initialSnapshot }: { initialSnapshot: MonitoringS
     setMetadataState({ message: "Applied AI page numbering to the first volume." });
   }
 
-  function applyAiSectionsDraft() {
-    const { sections, warnings } = validateAiSections(getEditableAiDraft()?.sections);
-    if (sections.length === 0) {
-      setMetadataState({ error: warnings.join(" ") || "AI draft does not include valid sections." });
+  function applyAiTocDraft() {
+    const tocEntries = aiTocEntriesForReview.filter((entry) => entry.title.trim());
+    if (tocEntries.length === 0) {
+      setMetadataState({ error: "AI analysis does not include valid TOC entries." });
       return;
     }
 
-    updateFirstVolume((volume) => ({ ...volume, sections }));
-    setMetadataState({
-      message: warnings.length
-        ? `Applied ${sections.length} AI sections with warnings: ${warnings.join(" ")}`
-        : `Applied ${sections.length} AI sections.`,
-    });
+    updateFirstVolume((volume) => ({ ...volume, tocEntries }));
+    setMetadataState({ message: `Applied ${tocEntries.length} TOC entries to the first volume.` });
   }
 
   function applyAiPlansDraft() {
@@ -2228,7 +1952,7 @@ export function AdminConsole({ initialSnapshot }: { initialSnapshot: MonitoringS
   function applyAiAnalysisDraft() {
     applyAiMetadataDraft();
     applyAiPageNumberingDraft();
-    applyAiSectionsDraft();
+    applyAiTocDraft();
     applyAiPlansDraft();
   }
 
@@ -3073,10 +2797,10 @@ export function AdminConsole({ initialSnapshot }: { initialSnapshot: MonitoringS
                             </button>
                             <button
                               type="button"
-                              onClick={buildSectionsFromEditableToc}
+                              onClick={applyAiTocDraft}
                               className="rounded-full border border-emerald-800 px-3 py-1.5 text-xs font-medium text-emerald-100 transition hover:border-emerald-300"
                             >
-                              Build sections from TOC
+                              Apply TOC
                             </button>
                           </div>
                         </div>
@@ -3185,10 +2909,10 @@ export function AdminConsole({ initialSnapshot }: { initialSnapshot: MonitoringS
                     </button>
                     <button
                       type="button"
-                      onClick={applyAiSectionsDraft}
+                      onClick={applyAiTocDraft}
                       className="rounded-full border border-emerald-800 px-4 py-2 text-xs font-medium text-emerald-100 transition hover:border-emerald-300"
                     >
-                      Apply sections
+                      Apply TOC
                     </button>
                     <button
                       type="button"
