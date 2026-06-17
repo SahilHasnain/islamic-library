@@ -713,6 +713,70 @@ export default function BookHomeScreen() {
              </View>
            </View>
 
+          {/* About This Book */}
+          <View style={{ backgroundColor: colors.surface, borderRadius: 24, padding: 18, gap: 12 }}>
+            <View style={{ gap: 2 }}>
+              <Text
+                style={{
+                  color: colors.accent,
+                  fontSize: 12,
+                  fontWeight: "700",
+                  textTransform: "uppercase",
+                  letterSpacing: 0.4,
+                }}
+              >
+                ℹ️ About This Book
+              </Text>
+            </View>
+
+            {/* Metadata - Compact Grid */}
+            <View style={{ gap: 10 }}>
+              <View
+                style={{
+                  backgroundColor: colors.surfaceMuted,
+                  borderRadius: 12,
+                  padding: 12,
+                  flexDirection: "row",
+                  alignItems: "center",
+                  gap: 10,
+                }}
+              >
+                <Text style={{ fontSize: 16 }}>📂</Text>
+                <View style={{ flex: 1 }}>
+                  <Text style={{ color: colors.textMuted, fontSize: 11, fontWeight: "600", opacity: 0.8 }}>
+                    Category
+                  </Text>
+                  <Text style={{ color: colors.text, fontSize: 13, fontWeight: "700", marginTop: 2 }}>
+                    {displayCategory}
+                  </Text>
+                </View>
+              </View>
+
+              {displayAuthor ? (
+                <View
+                  style={{
+                    backgroundColor: colors.surfaceMuted,
+                    borderRadius: 12,
+                    padding: 12,
+                    flexDirection: "row",
+                    alignItems: "center",
+                    gap: 10,
+                  }}
+                >
+                  <Text style={{ fontSize: 16 }}>✍️</Text>
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ color: colors.textMuted, fontSize: 11, fontWeight: "600", opacity: 0.8 }}>
+                      Author
+                    </Text>
+                    <Text style={{ color: colors.text, fontSize: 13, fontWeight: "700", marginTop: 2 }}>
+                      {displayAuthor}
+                    </Text>
+                  </View>
+                </View>
+              ) : null}
+            </View>
+          </View>
+
           {/* Today's Focus Section - Improved */}
             <View
               style={{
@@ -814,9 +878,6 @@ export default function BookHomeScreen() {
               </>
             ) : (
               <>
-                <Text style={{ color: colors.textMuted, fontSize: 13, lineHeight: 20, fontWeight: "500" }}>
-                  Select a reading plan to structure your daily reading and track your progress steadily.
-                </Text>
                 <Link
                   href={
                     `/book/${readingBookId}/plans?languageId=${resolvedLanguageId}&volumeId=${resolvedVolumeId}` as const
@@ -839,69 +900,6 @@ export default function BookHomeScreen() {
                 </Link>
               </>
             )}
-          </View>
-
-          {/* Book Structure - TOC */}
-          <View style={{ backgroundColor: colors.surface, borderRadius: 24, padding: 18, gap: 14 }}>
-            {/* Header */}
-            <View style={{ gap: 2 }}>
-              <Text
-                style={{
-                  color: colors.accent,
-                  fontSize: 12,
-                  fontWeight: "700",
-                  textTransform: "uppercase",
-                  letterSpacing: 0.4,
-                }}
-              >
-                Book Structure
-              </Text>
-              <Text style={{ color: colors.text, fontSize: 20, fontWeight: "800" }}>
-                Table of Contents
-              </Text>
-            </View>
-
-            {tocEntries.length === 0 ? (
-              <Text style={{ color: colors.textMuted, fontSize: 13, lineHeight: 20 }}>
-                TOC is not available for this book yet. You can still start reading or jump to any page in the reader.
-              </Text>
-            ) : null}
-
-            {/* TOC Preview */}
-            <View style={{ gap: 8 }}>
-              {tocEntries.slice(0, 5).map((entry, index) => (
-                <Link
-                  key={`${entry.title}-${index}`}
-                  href={`/reader/${readingBookId}/${resolvedLanguageId}/${resolvedVolumeId}/${getTocEntryPage(entry)}` as const}
-                  asChild
-                >
-                <Pressable
-                  style={{
-                    backgroundColor: colors.surfaceMuted,
-                    borderRadius: 12,
-                    padding: 12,
-                    marginLeft: Math.min(Math.max((entry.level ?? 1) - 1, 0), 3) * 12,
-                  }}
-                >
-                  <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start" }}>
-                    <View style={{ flex: 1, gap: 2 }}>
-                      <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
-                        <Text style={{ color: colors.accent, fontSize: 14, fontWeight: "700" }}>
-                          {index + 1}
-                        </Text>
-                        <Text style={{ color: colors.text, fontSize: 14, fontWeight: "700", flex: 1 }}>
-                          {entry.title}
-                        </Text>
-                      </View>
-                      <Text style={{ color: colors.textMuted, fontSize: 12 }}>
-                        {entry.printedPage ? `Printed page ${entry.printedPage}` : `Reader page ${getTocEntryPage(entry)}`}
-                      </Text>
-                    </View>
-                  </View>
-                </Pressable>
-                </Link>
-              ))}
-            </View>
           </View>
 
           {relatedBooks.length > 0 ? (
@@ -982,8 +980,8 @@ export default function BookHomeScreen() {
             </View>
           ) : null}
 
-          {/* About This Book */}
-          <View style={{ backgroundColor: colors.surface, borderRadius: 24, padding: 18, gap: 12 }}>
+          {/* Book Structure - TOC */}
+          <View style={{ backgroundColor: colors.surface, borderRadius: 24, padding: 18, gap: 14 }}>
             {/* Header */}
             <View style={{ gap: 2 }}>
               <Text
@@ -995,60 +993,53 @@ export default function BookHomeScreen() {
                   letterSpacing: 0.4,
                 }}
               >
-                ℹ️ About This Book
+                Book Structure
+              </Text>
+              <Text style={{ color: colors.text, fontSize: 20, fontWeight: "800" }}>
+                Table of Contents
               </Text>
             </View>
 
-            {/* Description */}
-            <Text style={{ color: colors.textMuted, fontSize: 14, lineHeight: 22 }}>
-              {displayDescription}
-            </Text>
+            {tocEntries.length === 0 ? (
+              <Text style={{ color: colors.textMuted, fontSize: 13, lineHeight: 20 }}>
+                TOC is not available for this book yet. You can still start reading or jump to any page in the reader.
+              </Text>
+            ) : null}
 
-            {/* Metadata - Compact Grid */}
-            <View style={{ gap: 10 }}>
-              <View
-                style={{
-                  backgroundColor: colors.surfaceMuted,
-                  borderRadius: 12,
-                  padding: 12,
-                  flexDirection: "row",
-                  alignItems: "center",
-                  gap: 10,
-                }}
-              >
-                <Text style={{ fontSize: 16 }}>📂</Text>
-                <View style={{ flex: 1 }}>
-                  <Text style={{ color: colors.textMuted, fontSize: 11, fontWeight: "600", opacity: 0.8 }}>
-                    Category
-                  </Text>
-                  <Text style={{ color: colors.text, fontSize: 13, fontWeight: "700", marginTop: 2 }}>
-                    {displayCategory}
-                  </Text>
-                </View>
-              </View>
-
-              {displayAuthor ? (
-                <View
+            {/* TOC Preview */}
+            <View style={{ gap: 8 }}>
+              {tocEntries.slice(0, 5).map((entry, index) => (
+                <Link
+                  key={`${entry.title}-${index}`}
+                  href={`/reader/${readingBookId}/${resolvedLanguageId}/${resolvedVolumeId}/${getTocEntryPage(entry)}` as const}
+                  asChild
+                >
+                <Pressable
                   style={{
                     backgroundColor: colors.surfaceMuted,
                     borderRadius: 12,
                     padding: 12,
-                    flexDirection: "row",
-                    alignItems: "center",
-                    gap: 10,
+                    marginLeft: Math.min(Math.max((entry.level ?? 1) - 1, 0), 3) * 12,
                   }}
                 >
-                  <Text style={{ fontSize: 16 }}>✍️</Text>
-                  <View style={{ flex: 1 }}>
-                    <Text style={{ color: colors.textMuted, fontSize: 11, fontWeight: "600", opacity: 0.8 }}>
-                      Author
-                    </Text>
-                    <Text style={{ color: colors.text, fontSize: 13, fontWeight: "700", marginTop: 2 }}>
-                      {displayAuthor}
-                    </Text>
+                  <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start" }}>
+                    <View style={{ flex: 1, gap: 2 }}>
+                      <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                        <Text style={{ color: colors.accent, fontSize: 14, fontWeight: "700" }}>
+                          {index + 1}
+                        </Text>
+                        <Text style={{ color: colors.text, fontSize: 14, fontWeight: "700", flex: 1 }}>
+                          {entry.title}
+                        </Text>
+                      </View>
+                      <Text style={{ color: colors.textMuted, fontSize: 12 }}>
+                        {entry.printedPage ? `Page ${entry.printedPage}` : `Reader page ${getTocEntryPage(entry)}`}
+                      </Text>
+                    </View>
                   </View>
-                </View>
-              ) : null}
+                </Pressable>
+                </Link>
+              ))}
             </View>
           </View>
         </ScrollView>
