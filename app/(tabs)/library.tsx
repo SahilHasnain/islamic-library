@@ -2,7 +2,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { Image } from "expo-image";
 import { Link, useFocusEffect } from "expo-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Animated, FlatList, Pressable, ScrollView, Text, TextInput, View } from "react-native";
+import { Animated, FlatList, Pressable, ScrollView, Text, TextInput, View, useWindowDimensions } from "react-native";
 
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import {
@@ -456,18 +456,6 @@ function ResumeReadingHero({
         gap: spacing.gapLg,
       }}
     >
-      <Text
-        style={{
-          color: colors.accent,
-          fontSize: typography.label,
-          fontWeight: "700",
-          textTransform: "uppercase",
-          letterSpacing: 0.5,
-        }}
-      >
-        Continue Reading
-      </Text>
-
       <View style={{ position: "relative" }}>
         <View
           onLayout={(event) => {
@@ -524,16 +512,18 @@ function ResumeReadingHero({
                   >
                     {activeBook?.title ?? ""}
                   </Text>
-                  <Text
-                    style={{
-                      color: colors.textMuted,
-                      fontSize: typography.body,
-                      lineHeight: 22,
-                    }}
-                    numberOfLines={1}
-                  >
-                    {activeBook?.subtitle ?? "Reading edition"}
-                  </Text>
+                  {activeBook?.subtitle ? (
+                    <Text
+                      style={{
+                        color: colors.textMuted,
+                        fontSize: typography.body,
+                        lineHeight: 22,
+                      }}
+                      numberOfLines={1}
+                    >
+                      {activeBook.subtitle}
+                    </Text>
+                  ) : null}
                   <Text
                     style={{
                       color: colors.textMuted,
@@ -725,13 +715,18 @@ export default function LibraryScreen() {
     isLoading: isCatalogLoading,
   } = useRemoteCatalog();
   const insets = useSafeAreaInsets();
+  const { height: windowHeight, width: windowWidth } = useWindowDimensions();
+
+  const refineButtonRef = useRef<any>(null);
+  const [menuAnchor, setMenuAnchor] = useState<{ top: number; right: number; maxHeight: number } | null>(null);
+  const showRefineMenu = menuAnchor !== null;
+
   const [selectedCategory, setSelectedCategory] = useState<string>("all");
   const [selectedAuthor, setSelectedAuthor] = useState<string>("all");
   const [selectedLanguage, setSelectedLanguage] = useState<string>("all");
   const [sortBy, setSortBy] = useState<LibrarySortMode>("forYou");
   const [searchQuery, setSearchQuery] = useState<string>("");
   const [isSearchVisible, setIsSearchVisible] = useState<boolean>(false);
-  const [showRefineMenu, setShowRefineMenu] = useState<boolean>(false);
   const [bookMetadataMap, setBookMetadataMap] = useState<Record<string, { languages: LibraryLanguageOption[] }>>({});
   const [resumeIndex, setResumeIndex] = useState(0);
   const hasLoadedLanguagePreferenceRef = useRef(false);
@@ -740,7 +735,7 @@ export default function LibraryScreen() {
     selected: selectedCategory === "all",
     colors,
   });
-  const refineCount = (sortBy !== "forYou" ? 1 : 0) + (selectedLanguage !== "all" ? 1 : 0) + (selectedAuthor !== "all" ? 1 : 0);
+  const refineCount = (sortBy !== "forYou" ? 1 : 0) + (selectedAuthor !== "all" ? 1 : 0);
   const shouldShowLibrarySkeleton = !isLoaded || isCatalogLoading;
 
   useFocusEffect(
@@ -1088,22 +1083,7 @@ export default function LibraryScreen() {
         }}
         showsVerticalScrollIndicator={false}
       >
-        {/* Filter menu overlay - close menus when tapping outside */}
-        {showRefineMenu ? (
-          <Pressable
-            onPress={() => {
-              setShowRefineMenu(false);
-            }}
-            style={{
-              position: "absolute",
-              top: 0,
-              left: 0,
-              right: 0,
-              bottom: 0,
-              zIndex: 999,
-            }}
-          />
-        ) : null}
+
 
         {error ? (
           <ErrorCard
@@ -1217,7 +1197,7 @@ export default function LibraryScreen() {
               <Pressable
                 onPress={() => {
                   setIsSearchVisible(true);
-                  setShowRefineMenu(false);
+                  setMenuAnchor(null);
                 }}
                 hitSlop={10}
                 style={{
@@ -1234,8 +1214,44 @@ export default function LibraryScreen() {
               >
                 <Text style={{ color: colors.text, fontSize: 17 }}>🔍</Text>
               </Pressable>
+              {refineCount > 0 ? (
+                <Pressable
+                  onPress={() => {
+                    setSortBy("forYou");
+                    setSelectedAuthor("all");
+                    setMenuAnchor(null);
+                  }}
+                  hitSlop={10}
+                  style={{
+                    flexDirection: "row",
+                    alignItems: "center",
+                    gap: 4,
+                    borderRadius: radii.pill,
+                    backgroundColor: colors.surfaceSoft,
+                    paddingHorizontal: 10,
+                    paddingVertical: 10,
+                  }}
+                  accessibilityRole="button"
+                  accessibilityLabel="Reset refinements"
+                >
+                  <Text style={{ color: colors.textMuted, fontSize: typography.caption, fontWeight: "600" }}>✕</Text>
+                  <Text style={{ color: colors.textMuted, fontSize: typography.caption, fontWeight: "600" }}>Reset</Text>
+                </Pressable>
+              ) : null}
               <Pressable
-                onPress={() => setShowRefineMenu(!showRefineMenu)}
+                ref={refineButtonRef}
+                onPress={() => {
+                  if (menuAnchor) {
+                    setMenuAnchor(null);
+                  } else {
+                    refineButtonRef.current?.measureInWindow?.((x: number, y: number, width: number, height: number) => {
+                      const top = y + height + 4;
+                      const right = windowWidth - x - width;
+                      const maxHeight = windowHeight - top - insets.bottom - 8;
+                      setMenuAnchor({ top, right, maxHeight });
+                    });
+                  }
+                }}
                 hitSlop={10}
                 style={{
                   flexDirection: "row",
@@ -1269,25 +1285,74 @@ export default function LibraryScreen() {
               </Pressable>
             </ScrollView>
           </View>
+          </View>
+        ) : null}
 
-          {showRefineMenu ? (
-            <View
-              style={{
-                position: "absolute",
-                top: 62,
-                right: 0,
-                backgroundColor: colors.surface,
-                borderRadius: radii.md,
-                padding: 10,
-                width: 240,
-                shadowColor: "#000",
-                shadowOffset: { width: 0, height: 8 },
-                shadowOpacity: 0.12,
-                shadowRadius: 18,
-                elevation: 8,
-                zIndex: 3000,
+        {!shouldShowLibrarySkeleton ? (
+          <View style={{ gap: spacing.gapXl }}>
+            <FlatList
+              data={filteredAndSortedBooks}
+              showsVerticalScrollIndicator={false}
+              keyExtractor={(book: PublicCatalogBook) => book.id}
+              numColumns={2}
+              scrollEnabled={false}
+              columnWrapperStyle={{
+                gap: 12,
+                paddingHorizontal: spacing.page,
               }}
-            >
+              contentContainerStyle={{
+                gap: 12,
+              }}
+              ListEmptyComponent={
+                <View style={{ alignItems: "center", paddingVertical: spacing.gapXl }}>
+                  <MetaText>No books found in this category.</MetaText>
+                </View>
+              }
+              renderItem={({ item: book }: { item: PublicCatalogBook }) => (
+                <View style={{ flex: 1 }}>
+                  {(() => {
+                    const preferredLanguage = bookMetadataMap[book.id]?.languages.find(
+                      (language) => language.title === selectedLanguage,
+                    );
+
+                    return (
+                      <LibraryBookCard
+                        bookId={book.id}
+                        title={book.title}
+                        coverImage={preferredLanguage?.coverImage ?? book.coverImage}
+                        preferredLanguageId={preferredLanguage?.id}
+                      />
+                    );
+                  })()}
+                </View>
+              )}
+            />
+          </View>
+        ) : null}
+      </ScrollView>
+
+      {showRefineMenu && menuAnchor ? (
+        <>
+          <Pressable style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0 }} onPress={() => setMenuAnchor(null)} />
+          <View
+            style={{
+              position: "absolute",
+              top: menuAnchor.top,
+              right: menuAnchor.right,
+              backgroundColor: colors.surface,
+              borderRadius: radii.md,
+              padding: 10,
+              width: 240,
+              maxHeight: menuAnchor.maxHeight,
+              shadowColor: "#000",
+              shadowOffset: { width: 0, height: 8 },
+              shadowOpacity: 0.12,
+              shadowRadius: 18,
+              elevation: 8,
+              zIndex: 3000,
+            }}
+          >
+            <ScrollView showsVerticalScrollIndicator={false}>
               <Text style={{ color: colors.textMuted, fontSize: typography.caption, fontWeight: "800", paddingHorizontal: 6 }}>
                 Sort
               </Text>
@@ -1361,7 +1426,7 @@ export default function LibraryScreen() {
                   <Text style={{ color: colors.textMuted, fontSize: typography.caption, fontWeight: "800", paddingHorizontal: 6 }}>
                     Author
                   </Text>
-                  <ScrollView style={{ maxHeight: 180 }} showsVerticalScrollIndicator={false}>
+                  <View>
                     <Pressable
                       onPress={() => setSelectedAuthor("all")}
                       style={{
@@ -1404,72 +1469,14 @@ export default function LibraryScreen() {
                         </Text>
                       </Pressable>
                     ))}
-                  </ScrollView>
+                  </View>
                 </View>
               ) : null}
 
-              {refineCount > 0 ? (
-                <Pressable
-                  onPress={() => {
-                    setSortBy("forYou");
-                    setSelectedLanguage("all");
-                    setSelectedAuthor("all");
-                  }}
-                  style={{
-                    alignItems: "center",
-                    paddingTop: 14,
-                  }}
-                >
-                  <MetaText>Reset refinements</MetaText>
-                </Pressable>
-              ) : null}
-            </View>
-          ) : null}
+            </ScrollView>
           </View>
-        ) : null}
-
-        {!shouldShowLibrarySkeleton ? (
-          <View style={{ gap: spacing.gapXl }}>
-            <FlatList
-              data={filteredAndSortedBooks}
-              showsVerticalScrollIndicator={false}
-              keyExtractor={(book: PublicCatalogBook) => book.id}
-              numColumns={2}
-              scrollEnabled={false}
-              columnWrapperStyle={{
-                gap: 12,
-                paddingHorizontal: spacing.page,
-              }}
-              contentContainerStyle={{
-                gap: 12,
-              }}
-              ListEmptyComponent={
-                <View style={{ alignItems: "center", paddingVertical: spacing.gapXl }}>
-                  <MetaText>No books found in this category.</MetaText>
-                </View>
-              }
-              renderItem={({ item: book }: { item: PublicCatalogBook }) => (
-                <View style={{ flex: 1 }}>
-                  {(() => {
-                    const preferredLanguage = bookMetadataMap[book.id]?.languages.find(
-                      (language) => language.title === selectedLanguage,
-                    );
-
-                    return (
-                      <LibraryBookCard
-                        bookId={book.id}
-                        title={book.title}
-                        coverImage={preferredLanguage?.coverImage ?? book.coverImage}
-                        preferredLanguageId={preferredLanguage?.id}
-                      />
-                    );
-                  })()}
-                </View>
-              )}
-            />
-          </View>
-        ) : null}
-      </ScrollView>
+        </>
+      ) : null}
     </Screen>
   );
 }

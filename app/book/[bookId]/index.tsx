@@ -274,8 +274,7 @@ export default function BookHomeScreen() {
   const totalPages = manifest?.totalPages ?? 1;
   const resumePage = Math.min(editionProgress?.page ?? 1, totalPages);
   const displayTitle = metadata?.title ?? catalogBook?.title ?? "Book";
-  const displayDescription =
-    metadata?.description ?? "Open the book and continue with steady reading.";
+  const displayDescription = metadata?.description;
   const displayAuthor = metadata?.author ?? catalogBook?.author;
   const displayCategory = metadata?.category ?? catalogBook?.category ?? "Library";
   const tocEntries = getOrderedTocEntries(selectedVolume?.tocEntries ?? []);
@@ -728,6 +727,12 @@ export default function BookHomeScreen() {
                 ℹ️ About This Book
               </Text>
             </View>
+
+            {displayDescription ? (
+              <Text style={{ color: colors.textMuted, fontSize: 14, lineHeight: 22 }}>
+                {displayDescription}
+              </Text>
+            ) : null}
 
             {/* Metadata - Compact Grid */}
             <View style={{ gap: 10 }}>

@@ -678,6 +678,20 @@ export default function ReaderScreen() {
             color={colors.text}
           />
         </Pressable>
+        <Pressable
+          onPress={() => setIsTocVisible(true)}
+          style={({ pressed }) => ({
+            width: 40,
+            height: 40,
+            borderRadius: 20,
+            backgroundColor: colors.overlayLight,
+            alignItems: "center",
+            justifyContent: "center",
+            opacity: pressed ? 0.7 : 1,
+          })}
+        >
+          <Ionicons name="list-outline" size={22} color={colors.text} />
+        </Pressable>
 
         {__DEV__ && (
           <Pressable
@@ -778,21 +792,6 @@ export default function ReaderScreen() {
               </View>
             </View>
 
-            <Pressable
-              onPress={() => setIsTocVisible(true)}
-              style={({ pressed }) => ({
-                minWidth: 72,
-                height: 48,
-                borderRadius: 24,
-                paddingHorizontal: 18,
-                backgroundColor: colors.overlayLight,
-                alignItems: "center",
-                justifyContent: "center",
-                opacity: pressed ? 0.8 : 1,
-              })}
-            >
-              <Text style={{ color: colors.text, fontSize: 14, fontWeight: "800" }}>TOC</Text>
-            </Pressable>
           </View>
         </View>
       </SafeAreaView>
