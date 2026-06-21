@@ -7,29 +7,12 @@ export type Section = {
   description?: string;
 };
 
-export type ReadingPlanItem = {
-  day: number;
-  label: string;
-  startPage: number;
-  endPage: number;
-  estimatedMinutes: number;
-};
-
-export type ReadingPlan = {
-  id: string;
-  title: string;
-  description: string;
-  totalDays: number;
-  items: ReadingPlanItem[];
-};
-
 export type BookVolume = {
   id: string;
   title: string;
   totalPages: number;
   deliveryMode: "bundled" | "remote" | "hybrid";
   sections: Section[];
-  plans: ReadingPlan[];
 };
 
 export type BookLanguage = {
@@ -78,14 +61,6 @@ export type Bookmark = {
 };
 
 export type AppThemePreference = "system" | "light" | "dark";
-
-export type ActiveReadingPlan = {
-  bookId: string;
-  languageId: string;
-  volumeId: string;
-  planId: string;
-  startedAt: string;
-};
 
 export type BookCompletion = {
   bookId: string;
@@ -137,7 +112,6 @@ export type PublicBookMetadataVolume = {
   todayTarget?: string;
   sections?: PublicBookSection[];
   tocEntries?: PublicBookTocEntry[];
-  plans?: PublicBookPlan[];
 };
 
 export type PublicBookMetadataLanguage = {
@@ -194,22 +168,6 @@ export type PublicBookTocEntry = {
   printedPage?: number | null;
   renderedPage?: number | null;
   level?: number;
-};
-
-export type PublicBookPlanItem = {
-  day: number;
-  label: string;
-  startPage: number;
-  endPage: number;
-  estimatedMinutes: number;
-};
-
-export type PublicBookPlan = {
-  id: string;
-  title: string;
-  description: string;
-  totalDays: number;
-  items: PublicBookPlanItem[];
 };
 
 export type PublicManifestPage = {

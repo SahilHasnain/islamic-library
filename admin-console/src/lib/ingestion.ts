@@ -73,19 +73,6 @@ export type EditionVolumeInput = {
     renderedPage?: number | null;
     level?: number;
   }[];
-  plans?: {
-    id: string;
-    title: string;
-    description: string;
-    totalDays: number;
-    items: {
-      day: number;
-      label: string;
-      startPage: number;
-      endPage: number;
-      estimatedMinutes: number;
-    }[];
-  }[];
 };
 
 export type EditionLanguageInput = {
@@ -175,7 +162,6 @@ export type AiAnalysisDraft = {
   todayTarget?: string | null;
   printedPageStartPage?: number | null;
   sections?: EditionVolumeInput["sections"];
-  plans?: EditionVolumeInput["plans"];
   confidence?: "low" | "medium" | "high";
   notes?: string;
 };

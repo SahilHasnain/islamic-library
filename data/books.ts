@@ -1,41 +1,9 @@
 import type {
-  ActiveReadingPlan,
   BookLanguage,
   LibraryBook,
-  ReadingPlan,
   ReadingProgress,
   Section,
 } from "./types";
-
-function createPlan(
-  id: string,
-  title: string,
-  description: string,
-  totalDays: number,
-  totalPages: number,
-): ReadingPlan {
-  const pagesPerDay = Math.ceil(totalPages / totalDays);
-
-  return {
-    id,
-    title,
-    description,
-    totalDays,
-    items: Array.from({ length: totalDays }, (_, index) => {
-      const day = index + 1;
-      const startPage = index * pagesPerDay + 1;
-      const endPage = Math.min(totalPages, startPage + pagesPerDay - 1);
-
-      return {
-        day,
-        label: `Day ${day}`,
-        startPage,
-        endPage,
-        estimatedMinutes: Math.max(5, Math.round((endPage - startPage + 1) * 2.5)),
-      };
-    }),
-  };
-}
 
 function createLanguage(
   id: string,
@@ -54,11 +22,6 @@ function createLanguage(
         totalPages,
         deliveryMode: "hybrid",
         sections,
-        plans: [
-          createPlan("daily-light", "Daily Light", "A gentle low-friction daily plan.", 30, totalPages),
-          createPlan("21-day", "21-Day Balanced", "Steady progress for regular readers.", 21, totalPages),
-          createPlan("7-day", "7-Day Intensive", "A shorter focused completion plan.", 7, totalPages),
-        ],
       },
     ],
   };
@@ -252,7 +215,7 @@ export function getGeneratedPageContent(
     paragraphs: [
       `${book.title} invites a slower reading pace. This page belongs to ${section?.title ?? "the current section"}, where the reader is meant to focus on meaning, steadiness, and continuity rather than speed.`,
       `The structure of this library is intentionally light. Each page should feel like a manageable step, giving the reader enough context to continue without the friction of a dense academic interface.`,
-      `Within ${language.title}, ${volume.title} preserves the rhythm of the book while the app adds supportive scaffolding around it: resume flow, section context, reading plans, and a calmer sense of progress.`,
+      `Within ${language.title}, ${volume.title} preserves the rhythm of the book while the app adds supportive scaffolding around it: resume flow, section context, and a calmer sense of progress.`,
     ],
     reflection:
       `Reading becomes sustainable when the next step is clear. ${sectionProgress} keeps the user oriented without turning the experience into a dashboard.`,
@@ -264,40 +227,4 @@ export function getGeneratedPageContent(
   };
 }
 
-export function getPlanById(book: LibraryBook, languageId: string, volumeId: string, planId?: string) {
-  if (!planId) {
-    return undefined;
-  }
 
-  return getVolumeForBook(book, languageId, volumeId).plans.find((plan) => plan.id === planId);
-}
-
-export function getPlanProgress(
-  book: LibraryBook,
-  progress: ReadingProgress,
-  activePlan?: ActiveReadingPlan,
-) {
-  if (!activePlan) {
-    return undefined;
-  }
-
-  const plan = getPlanById(book, activePlan.languageId, activePlan.volumeId, activePlan.planId);
-  if (!plan) {
-    return undefined;
-  }
-
-  const currentItem =
-    plan.items.find(
-      (item) => progress.page >= item.startPage && progress.page <= item.endPage,
-    ) ?? plan.items[plan.items.length - 1];
-
-  const currentDay = currentItem?.day ?? 1;
-  const progressPercent = Math.round((currentDay / plan.totalDays) * 100);
-
-  return {
-    plan,
-    currentDay,
-    progressPercent,
-    currentItem,
-  };
-}

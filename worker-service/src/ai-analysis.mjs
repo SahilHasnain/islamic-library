@@ -309,7 +309,6 @@ Return shape:
   "todayTarget": string | null,
   "printedPageStartPage": number | null,
   "sections": [{"id": string, "title": string, "kind": string, "startPage": number, "endPage": number, "estimatedMinutes": number}],
-  "plans": [{"id": string, "title": string, "description": string, "totalDays": number, "items": [{"day": number, "label": string, "startPage": number, "endPage": number, "estimatedMinutes": number}]}],
   "confidence": "low" | "medium" | "high",
   "notes": string
 }
@@ -336,9 +335,6 @@ ${buildLanguageRules(context)}
 - Do not use generic IDs like sec-01 when a title-based ID is possible.
 - Do not mention OCR unless OCR text was explicitly provided.
 - If unsure, use null and explain in notes.
-- Generate summary, introNote, todayTarget, and reading plans in the book language/script.
-- Reading plans should cover the full book using rendered page ranges and avoid overlaps/gaps.
-- Prefer one practical complete-book plan unless the book is short enough for multiple useful plans.
 - Keep sections conservative; include sections supported by body pages or clearly listed in the TOC.`;
 }
 
@@ -375,14 +371,13 @@ Return shape:
   "todayTarget": string | null,
   "printedPageStartPage": number | null,
   "sections": [],
-  "plans": [],
   "confidence": "low" | "medium" | "high",
   "notes": string
 }
 
 Rules:
 ${buildLanguageRules(context)}
-- Do not generate sections or reading plans in this step.
+- Do not generate sections in this step.
 - category must be exactly one item from this list: ${allowedCategories.join(", ")}.
 - description and summary are required unless no meaningful text is extractable; do not put the only description in notes.
 - Write description, summary, introNote, todayTarget, and notes in the book language/script.
@@ -459,7 +454,6 @@ Return shape:
   "todayTarget": string | null,
   "printedPageStartPage": number | null,
   "sections": [{"id": string, "title": string, "kind": string, "startPage": number, "endPage": number, "estimatedMinutes": number}],
-  "plans": [{"id": string, "title": string, "description": string, "totalDays": number, "items": [{"day": number, "label": string, "startPage": number, "endPage": number, "estimatedMinutes": number}]}],
   "confidence": "low" | "medium" | "high",
   "notes": string
 }
@@ -475,11 +469,9 @@ ${buildLanguageRules(context)}
 - Section endPage should be one page before the next section startPage. Final section should end at total rendered pages (${extracted.pageCount || "pageCount"}) when known.
 - Do not stop at the last text sample page. The full PDF exists.
 - Keep category exactly one item from: ${allowedCategories.join(", ")}.
-- Keep title/description/summary/section titles/plan text in the book language/script.
+- Keep title/description/summary/section titles in the book language/script.
 - description and summary are required unless no meaningful text is extractable; do not put the only description in notes.
-- Generate introNote and todayTarget for the volume in the same language/script.
-- Generate one complete-book reading plan from page 1 to ${extracted.pageCount || "pageCount"}; use 7, 14, or 30 days depending on book length.
-- Reading plan item ranges must be rendered pages, sorted, and should cover the full book without overlaps.`;
+- Generate introNote and todayTarget for the volume in the same language/script.`;
 }
 
 function buildSectionChunkPrompt({ pages, context }) {
@@ -544,7 +536,6 @@ Return shape:
   "todayTarget": string | null,
   "printedPageStartPage": number | null,
   "sections": [{"id": string, "title": string, "kind": string, "startPage": number, "endPage": number, "estimatedMinutes": number}],
-  "plans": [{"id": string, "title": string, "description": string, "totalDays": number, "items": [{"day": number, "label": string, "startPage": number, "endPage": number, "estimatedMinutes": number}]}],
   "confidence": "low" | "medium" | "high",
   "notes": string
 }
@@ -584,39 +575,9 @@ function buildFallbackDraft({ title, category, languageId, volumeId, extracted }
     printedPageStartPage: firstTextPage && firstTextPage > 1 ? firstTextPage : undefined,
     description: undefined,
     sections: [],
-    plans: buildDefaultReadingPlans(totalPages),
     confidence: "low",
     notes: "AI provider is not configured. Draft is based on basic PDF text extraction only.",
   };
-}
-
-function buildDefaultReadingPlans(totalPages) {
-  const pageCount = Math.max(1, Math.floor(Number(totalPages) || 1));
-  const totalDays = pageCount > 200 ? 30 : pageCount > 80 ? 14 : 7;
-  const pageSpan = Math.max(1, Math.ceil(pageCount / totalDays));
-  const items = [];
-
-  for (let day = 1; day <= totalDays; day += 1) {
-    const startPage = Math.floor(((day - 1) * pageCount) / totalDays) + 1;
-    const endPage = Math.floor((day * pageCount) / totalDays);
-    items.push({
-      day,
-      label: `Day ${day}`,
-      startPage,
-      endPage,
-      estimatedMinutes: Math.max(3, (endPage - startPage + 1) * 2),
-    });
-  }
-
-  return [
-    {
-      id: `${totalDays}-day-reading-plan`,
-      title: `${totalDays}-day reading plan`,
-      description: `Read the complete book in ${totalDays} steady sessions.`,
-      totalDays,
-      items,
-    },
-  ];
 }
 
 function sleep(ms) {
@@ -1126,7 +1087,6 @@ async function buildTocFirstDraft({ extracted, context }) {
       ...draft,
       printedPageStartPage: tocResult.printedPageStartPage ?? draft?.printedPageStartPage ?? null,
       sections: tocSections.length > 0 ? tocSections : draftSections,
-      plans: draft?.plans?.length ? draft.plans : buildDefaultReadingPlans(extracted.pageCount),
       notes: [draft?.notes, tocResult?.notes ? `TOC extraction: ${tocResult.notes}` : ""]
         .filter(Boolean)
         .join("\n"),
@@ -1166,7 +1126,6 @@ async function buildChunkedDraft({ extracted, context }) {
       ...baseDraft,
       printedPageStartPage: deterministicTocResult.printedPageStartPage ?? baseDraft.printedPageStartPage,
       sections: tocSections,
-      plans: baseDraft.plans?.length ? baseDraft.plans : buildDefaultReadingPlans(extracted.pageCount),
       notes: [baseDraft.notes, deterministicTocResult.notes].filter(Boolean).join("\n"),
     };
   }
@@ -1241,68 +1200,7 @@ function normalizeDraft(draft, totalPages = 100000) {
     todayTarget: draft.todayTarget || (totalPages ? `Read pages 1-${Math.min(totalPages, 5)} with focus and consistency.` : undefined),
     category: allowedCategories.includes(draft.category) ? draft.category : null,
     sections: cleanSections(draft.sections, totalPages),
-    plans: normalizePlans(draft.plans, totalPages),
   };
-}
-
-function normalizePlans(plans, totalPages) {
-  if (!Array.isArray(plans)) {
-    return [];
-  }
-
-  return plans
-    .map((plan, planIndex) => {
-      const title = String(plan?.title || "").trim();
-      const rawItems = Array.isArray(plan?.items) ? plan.items : [];
-      const normalizedItems = rawItems
-        .map((item, itemIndex) => {
-          const startPage = Math.max(1, Math.floor(Number(item?.startPage)));
-          const endPage = Math.min(totalPages, Math.floor(Number(item?.endPage)));
-          if (!Number.isFinite(startPage) || !Number.isFinite(endPage) || endPage < startPage) {
-            return null;
-          }
-
-          return {
-            day: Math.max(1, Math.floor(Number(item?.day) || itemIndex + 1)),
-            label: String(item?.label || `Day ${itemIndex + 1}`).trim(),
-            startPage,
-            endPage,
-            estimatedMinutes: Math.max(3, Math.floor(Number(item?.estimatedMinutes) || (endPage - startPage + 1) * 2)),
-          };
-        })
-        .filter(Boolean)
-        .sort((left, right) => left.startPage - right.startPage);
-
-      const items = normalizedItems.map((item, itemIndex) => {
-        const previousFixedEndPage = itemIndex === 0
-          ? 0
-          : Math.floor((itemIndex * totalPages) / normalizedItems.length);
-        const startPage = itemIndex === 0 ? 1 : previousFixedEndPage + 1;
-        const endPage = itemIndex === normalizedItems.length - 1
-          ? totalPages
-          : Math.max(startPage, Math.floor(((itemIndex + 1) * totalPages) / normalizedItems.length));
-        return {
-          ...item,
-          day: itemIndex + 1,
-          startPage,
-          endPage,
-          estimatedMinutes: Math.max(3, (endPage - startPage + 1) * 2),
-        };
-      });
-
-      if (!title || items.length === 0) {
-        return null;
-      }
-
-      return {
-        id: slugifyTitle(String(plan?.id || title), `plan-${planIndex + 1}`),
-        title,
-        description: String(plan?.description || "").trim(),
-        totalDays: items.length,
-        items,
-      };
-    })
-    .filter(Boolean);
 }
 
 function buildExtractedTextPreview(extracted) {

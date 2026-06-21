@@ -93,49 +93,6 @@ function validateAiDraftForReview(draft: AiAnalysisResult["draft"] | null | unde
   return issues;
 }
 
-function validateAiPlansForReview(draft: AiAnalysisResult["draft"] | null | undefined, pageCount?: number) {
-  const issues: AiDraftValidationIssue[] = [];
-  const plans = Array.isArray(draft?.plans) ? draft.plans : [];
-  plans.forEach((plan) => {
-    const items = Array.isArray(plan.items) ? [...plan.items] : [];
-    if (items.length === 0) {
-      issues.push({ severity: "error", message: `${plan.title || "Plan"} has no days.` });
-      return;
-    }
-
-    const sorted = items
-      .map((item) => ({
-        day: Number(item.day),
-        label: String(item.label || ""),
-        startPage: Number(item.startPage),
-        endPage: Number(item.endPage),
-      }))
-      .sort((left, right) => left.startPage - right.startPage);
-
-    sorted.forEach((item) => {
-      if (!Number.isFinite(item.startPage) || !Number.isFinite(item.endPage) || item.startPage < 1 || item.endPage < item.startPage) {
-        issues.push({ severity: "error", message: `${plan.title}: day ${item.day || "?"} has an invalid page range.` });
-      }
-    });
-
-    for (let index = 1; index < sorted.length; index += 1) {
-      const previous = sorted[index - 1];
-      const current = sorted[index];
-      if (current.startPage <= previous.endPage) {
-        issues.push({ severity: "error", message: `${plan.title}: overlap between day ${previous.day} and day ${current.day}.` });
-      } else if (current.startPage > previous.endPage + 1) {
-        issues.push({ severity: "warning", message: `${plan.title}: gap before day ${current.day}.` });
-      }
-    }
-
-    if (pageCount && sorted[sorted.length - 1]?.endPage < pageCount - 2) {
-      issues.push({ severity: "warning", message: `${plan.title}: final day ends at page ${sorted[sorted.length - 1].endPage}, book has ${pageCount} pages.` });
-    }
-  });
-
-  return issues;
-}
-
 function keywordSet(value: string) {
   const stopWords = new Set(["the", "and", "for", "with", "book", "volume", "hai", "aur", "ke", "ka", "ki"]);
   return new Set(
@@ -185,15 +142,6 @@ type EditionVolumeEditorItem = {
   todayTarget: string;
   sections: SectionEditorItem[];
   tocEntries: TocEntryEditorItem[];
-  plans: PlanEditorItem[];
-};
-
-type PlanEditorItem = {
-  id: string;
-  title: string;
-  description: string;
-  totalDays: string;
-  items: PlanDayEditorItem[];
 };
 
 type RecommendationEditorItem = {
@@ -201,14 +149,6 @@ type RecommendationEditorItem = {
   reason: string;
   type: string;
   score: string;
-};
-
-type PlanDayEditorItem = {
-  day: string;
-  label: string;
-  startPage: string;
-  endPage: string;
-  estimatedMinutes: string;
 };
 
 type EditionLanguageEditorItem = {
@@ -289,7 +229,6 @@ type PublishedMetadataPayload = {
       todayTarget?: string;
       sections?: unknown[];
       tocEntries?: unknown[];
-      plans?: unknown[];
     }[];
   }[];
 };
@@ -306,27 +245,6 @@ function createEmptyVolume(): EditionVolumeEditorItem {
     todayTarget: "",
     sections: [],
     tocEntries: [],
-    plans: [],
-  };
-}
-
-function createEmptyPlanDay(): PlanDayEditorItem {
-  return {
-    day: "",
-    label: "",
-    startPage: "",
-    endPage: "",
-    estimatedMinutes: "",
-  };
-}
-
-function createEmptyPlan(): PlanEditorItem {
-  return {
-    id: "",
-    title: "",
-    description: "",
-    totalDays: "",
-    items: [createEmptyPlanDay()],
   };
 }
 
@@ -394,36 +312,6 @@ function normalizeTocEntries(value: unknown[] | undefined): TocEntryEditorItem[]
     .filter((entry): entry is TocEntryEditorItem => Boolean(entry));
 }
 
-function normalizePlans(value: unknown[] | undefined): PlanEditorItem[] {
-  if (!value || value.length === 0) {
-    return [];
-  }
-
-  return value.map((plan) => {
-    const item = plan as Record<string, unknown>;
-    const rawItems = Array.isArray(item.items) ? item.items : [];
-    return {
-      id: String(item.id || ""),
-      title: String(item.title || ""),
-      description: String(item.description || ""),
-      totalDays: item.totalDays == null ? "" : String(item.totalDays),
-      items: rawItems.length
-        ? rawItems.map((dayItem) => {
-          const day = dayItem as Record<string, unknown>;
-          return {
-            day: day.day == null ? "" : String(day.day),
-            label: String(day.label || ""),
-            startPage: day.startPage == null ? "" : String(day.startPage),
-            endPage: day.endPage == null ? "" : String(day.endPage),
-            estimatedMinutes:
-              day.estimatedMinutes == null ? "" : String(day.estimatedMinutes),
-          };
-        })
-        : [createEmptyPlanDay()],
-    };
-  });
-}
-
 function normalizeLanguages(
   value: PublishedMetadataPayload["languages"],
   fallbackLanguageId?: string,
@@ -454,7 +342,6 @@ function normalizeLanguages(
             todayTarget: "",
             sections: [],
             tocEntries: [],
-            plans: [],
           },
         ],
       },
@@ -482,7 +369,6 @@ function normalizeLanguages(
           todayTarget: String(volume.todayTarget || ""),
           sections: normalizeSections(volume.sections),
           tocEntries: normalizeTocEntries(volume.tocEntries),
-          plans: normalizePlans((volume as { plans?: unknown[] }).plans),
         }))
         : [createEmptyVolume()],
   }));
@@ -521,60 +407,6 @@ function buildLanguagePayload(languages: EditionLanguageEditorItem[]) {
             introNote: volume.introNote.trim() || undefined,
             todayTarget: volume.todayTarget.trim() || undefined,
             tocEntries: buildTocPayload(volume.tocEntries),
-            plans: volume.plans
-              .filter((plan) => plan.id.trim() || plan.title.trim())
-              .map((plan, planIndex) => {
-                const id = plan.id.trim();
-                const title = plan.title.trim();
-                const totalDays = Number(plan.totalDays);
-
-                if (!id || !title || !Number.isFinite(totalDays)) {
-                  throw new Error(
-                    `Plan ${planIndex + 1} in ${title || volumeTitle} is incomplete.`,
-                  );
-                }
-
-                const items = plan.items
-                  .filter((item) => item.day.trim() || item.label.trim())
-                  .map((item, itemIndex) => {
-                    const day = Number(item.day);
-                    const startPage = Number(item.startPage);
-                    const endPage = Number(item.endPage);
-                    const estimatedMinutes = Number(item.estimatedMinutes);
-
-                    if (
-                      !Number.isFinite(day) ||
-                      !item.label.trim() ||
-                      !Number.isFinite(startPage) ||
-                      !Number.isFinite(endPage) ||
-                      !Number.isFinite(estimatedMinutes)
-                    ) {
-                      throw new Error(
-                        `Plan day ${itemIndex + 1} in ${title} is incomplete.`,
-                      );
-                    }
-
-                    return {
-                      day,
-                      label: item.label.trim(),
-                      startPage,
-                      endPage,
-                      estimatedMinutes,
-                    };
-                  });
-
-                if (items.length === 0) {
-                  throw new Error(`Plan ${title} needs at least one day item.`);
-                }
-
-                return {
-                  id,
-                  title,
-                  description: plan.description.trim(),
-                  totalDays,
-                  items,
-                };
-              }),
           };
         });
 
@@ -873,11 +705,6 @@ export function AdminConsole({ initialSnapshot }: { initialSnapshot: MonitoringS
       return null;
     }
   }, [aiDraftJson]);
-
-  const aiPlanValidationIssues = useMemo(
-    () => validateAiPlansForReview(aiDraftForReview, aiAnalysis?.pageCount),
-    [aiAnalysis, aiDraftForReview],
-  );
 
   const aiTocEntriesForReview = useMemo(() => {
     if (!aiTocJson.trim()) {
@@ -1805,83 +1632,6 @@ export function AdminConsole({ initialSnapshot }: { initialSnapshot: MonitoringS
     setMetadataState({ message: "Auto-fixed section ranges in the editable AI draft." });
   }
 
-  function updateEditableAiPlan(planIndex: number, field: string, value: string) {
-    updateEditableAiDraft((draft) => {
-      const plans = Array.isArray(draft.plans) ? [...draft.plans] : [];
-      const current = plans[planIndex];
-      if (!current) {
-        return draft;
-      }
-
-      plans[planIndex] = {
-        ...current,
-        [field]: field === "totalDays" ? Number(value) || 0 : value,
-      };
-      return { ...draft, plans };
-    });
-  }
-
-  function updateEditableAiPlanItem(planIndex: number, itemIndex: number, field: string, value: string) {
-    updateEditableAiDraft((draft) => {
-      const plans = Array.isArray(draft.plans) ? [...draft.plans] : [];
-      const plan = plans[planIndex];
-      if (!plan) {
-        return draft;
-      }
-
-      const items = Array.isArray(plan.items) ? [...plan.items] : [];
-      const current = items[itemIndex];
-      if (!current) {
-        return draft;
-      }
-
-      const numericFields = new Set(["day", "startPage", "endPage", "estimatedMinutes"]);
-      items[itemIndex] = {
-        ...current,
-        [field]: numericFields.has(field) ? Number(value) || 0 : value,
-      };
-      plans[planIndex] = { ...plan, items };
-      return { ...draft, plans };
-    });
-  }
-
-  function autoFixEditableAiPlanRanges(planIndex: number) {
-    updateEditableAiDraft((draft) => {
-      const pageCount = Number(aiAnalysis?.pageCount || 0);
-      const plans = Array.isArray(draft.plans) ? [...draft.plans] : [];
-      const plan = plans[planIndex];
-      if (!plan?.items?.length) {
-        return draft;
-      }
-
-      const totalDays = Math.max(1, Number(plan.totalDays) || plan.items.length);
-      const effectivePageCount = Math.max(1, pageCount || Math.max(...plan.items.map((item) => Number(item.endPage) || 1)));
-      const pagesPerDay = Math.ceil(effectivePageCount / totalDays);
-      const items = Array.from({ length: totalDays }).map((_, index) => {
-        const startPage = index * pagesPerDay + 1;
-        const endPage = Math.min(effectivePageCount, (index + 1) * pagesPerDay);
-        const existing = plan.items[index];
-        return {
-          day: index + 1,
-          label: existing?.label || `Day ${index + 1}`,
-          startPage,
-          endPage,
-          estimatedMinutes: Math.max(3, (endPage - startPage + 1) * 2),
-        };
-      });
-
-      plans[planIndex] = { ...plan, items };
-      return {
-        ...draft,
-        plans,
-        notes: [draft.notes, `${plan.title || "Reading plan"} ranges auto-fixed in admin review.`]
-          .filter(Boolean)
-          .join("\n"),
-      };
-    });
-    setMetadataState({ message: "Auto-fixed reading plan ranges in the editable AI draft." });
-  }
-
   function applyAiMetadataDraft() {
     const draft = getEditableAiDraft();
     if (!draft) {
@@ -1938,22 +1688,10 @@ export function AdminConsole({ initialSnapshot }: { initialSnapshot: MonitoringS
     setMetadataState({ message: `Applied ${tocEntries.length} TOC entries to the first volume.` });
   }
 
-  function applyAiPlansDraft() {
-    const draft = getEditableAiDraft();
-    if (!draft?.plans?.length) {
-      setMetadataState({ error: "AI draft does not include reading plans." });
-      return;
-    }
-
-    updateFirstVolume((volume) => ({ ...volume, plans: normalizePlans(draft.plans as unknown[] | undefined) }));
-    setMetadataState({ message: `Applied ${draft.plans.length} AI reading plan(s) to the first volume.` });
-  }
-
   function applyAiAnalysisDraft() {
     applyAiMetadataDraft();
     applyAiPageNumberingDraft();
     applyAiTocDraft();
-    applyAiPlansDraft();
   }
 
   return (
@@ -2651,90 +2389,6 @@ export function AdminConsole({ initialSnapshot }: { initialSnapshot: MonitoringS
                       </div>
                     </details>
                   ) : null}
-                  {aiDraftForReview?.plans?.length ? (
-                    <details className="rounded-2xl border border-stone-800 bg-stone-950/80 p-3">
-                      <summary className="cursor-pointer text-xs font-medium text-emerald-200">
-                        Reading plans ({aiDraftForReview.plans.length})
-                      </summary>
-                      {aiPlanValidationIssues.length > 0 ? (
-                        <ul className="mt-3 space-y-2 text-xs leading-5">
-                          {aiPlanValidationIssues.map((issue, index) => (
-                            <li key={`${issue.severity}-${index}`} className={issue.severity === "error" ? "text-rose-300" : "text-amber-300"}>
-                              {issue.severity === "error" ? "Error" : "Warning"}: {issue.message}
-                            </li>
-                          ))}
-                        </ul>
-                      ) : (
-                        <p className="mt-3 text-xs text-emerald-300">No obvious reading-plan issues found.</p>
-                      )}
-                      <div className="mt-3 space-y-4 text-xs text-stone-300">
-                        {aiDraftForReview.plans.map((plan, planIndex) => (
-                          <div key={plan.id || planIndex} className="space-y-3 rounded-xl bg-stone-900/70 p-3">
-                            <div className="grid gap-2 md:grid-cols-[1fr_7rem_auto]">
-                              <input
-                                value={plan.title}
-                                onChange={(event) => updateEditableAiPlan(planIndex, "title", event.target.value)}
-                                className="rounded-xl border border-stone-800 bg-stone-950 px-3 py-2 outline-none transition focus:border-emerald-400"
-                              />
-                              <input
-                                inputMode="numeric"
-                                value={plan.totalDays}
-                                onChange={(event) => updateEditableAiPlan(planIndex, "totalDays", event.target.value)}
-                                className="rounded-xl border border-stone-800 bg-stone-950 px-3 py-2 outline-none transition focus:border-emerald-400"
-                              />
-                              <button
-                                type="button"
-                                onClick={() => autoFixEditableAiPlanRanges(planIndex)}
-                                className="rounded-full border border-emerald-800 px-3 py-1.5 text-xs font-medium text-emerald-100 transition hover:border-emerald-300"
-                              >
-                                Auto-fix plan
-                              </button>
-                            </div>
-                            <textarea
-                              value={plan.description}
-                              onChange={(event) => updateEditableAiPlan(planIndex, "description", event.target.value)}
-                              className="w-full rounded-xl border border-stone-800 bg-stone-950 px-3 py-2 outline-none transition focus:border-emerald-400"
-                              rows={2}
-                            />
-                            <div className="max-h-72 overflow-auto rounded-xl bg-stone-950/80">
-                              <table className="w-full min-w-[760px] text-left text-xs">
-                                <thead className="sticky top-0 bg-stone-950 text-[11px] uppercase tracking-[0.18em] text-stone-500">
-                                  <tr>
-                                    <th className="px-3 py-2 font-medium">Day</th>
-                                    <th className="px-3 py-2 font-medium">Label</th>
-                                    <th className="px-3 py-2 font-medium">Start</th>
-                                    <th className="px-3 py-2 font-medium">End</th>
-                                    <th className="px-3 py-2 font-medium">Minutes</th>
-                                  </tr>
-                                </thead>
-                                <tbody>
-                                  {plan.items.map((item, itemIndex) => (
-                                    <tr key={`${plan.id || planIndex}-${item.day}-${itemIndex}`} className="border-t border-stone-800">
-                                      <td className="px-3 py-2">
-                                        <input inputMode="numeric" value={item.day} onChange={(event) => updateEditableAiPlanItem(planIndex, itemIndex, "day", event.target.value)} className="w-16 rounded-xl border border-stone-800 bg-stone-950 px-3 py-2 outline-none transition focus:border-emerald-400" />
-                                      </td>
-                                      <td className="px-3 py-2">
-                                        <input value={item.label} onChange={(event) => updateEditableAiPlanItem(planIndex, itemIndex, "label", event.target.value)} className="w-56 rounded-xl border border-stone-800 bg-stone-950 px-3 py-2 outline-none transition focus:border-emerald-400" />
-                                      </td>
-                                      <td className="px-3 py-2">
-                                        <input inputMode="numeric" value={item.startPage} onChange={(event) => updateEditableAiPlanItem(planIndex, itemIndex, "startPage", event.target.value)} className="w-20 rounded-xl border border-stone-800 bg-stone-950 px-3 py-2 outline-none transition focus:border-emerald-400" />
-                                      </td>
-                                      <td className="px-3 py-2">
-                                        <input inputMode="numeric" value={item.endPage} onChange={(event) => updateEditableAiPlanItem(planIndex, itemIndex, "endPage", event.target.value)} className="w-20 rounded-xl border border-stone-800 bg-stone-950 px-3 py-2 outline-none transition focus:border-emerald-400" />
-                                      </td>
-                                      <td className="px-3 py-2">
-                                        <input inputMode="numeric" value={item.estimatedMinutes} onChange={(event) => updateEditableAiPlanItem(planIndex, itemIndex, "estimatedMinutes", event.target.value)} className="w-20 rounded-xl border border-stone-800 bg-stone-950 px-3 py-2 outline-none transition focus:border-emerald-400" />
-                                      </td>
-                                    </tr>
-                                  ))}
-                                </tbody>
-                              </table>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    </details>
-                  ) : null}
                   <div className="space-y-2">
                     <div className="flex flex-wrap items-center justify-between gap-2">
                       <span className="text-xs font-medium text-stone-300">Editable response JSON</span>
@@ -2913,13 +2567,6 @@ export function AdminConsole({ initialSnapshot }: { initialSnapshot: MonitoringS
                       className="rounded-full border border-emerald-800 px-4 py-2 text-xs font-medium text-emerald-100 transition hover:border-emerald-300"
                     >
                       Apply TOC
-                    </button>
-                    <button
-                      type="button"
-                      onClick={applyAiPlansDraft}
-                      className="rounded-full border border-emerald-800 px-4 py-2 text-xs font-medium text-emerald-100 transition hover:border-emerald-300"
-                    >
-                      Apply plans
                     </button>
                     <button
                       type="button"
@@ -3139,7 +2786,7 @@ export function AdminConsole({ initialSnapshot }: { initialSnapshot: MonitoringS
                               <div>
                                 <p className="text-sm font-medium text-stone-100">Volume {volumeIndex + 1}</p>
                                 <p className="text-xs text-stone-400">
-                                  Existing volume details, sections, and plans.
+                                  Existing volume details and sections.
                                 </p>
                               </div>
                             </div>
@@ -3563,434 +3210,7 @@ export function AdminConsole({ initialSnapshot }: { initialSnapshot: MonitoringS
                               )}
                             </div>
 
-                            <div className="mt-5 space-y-4">
-                              <div className="flex items-center justify-between gap-4">
-                                <div>
-                                  <span className="text-sm text-stone-200">Plans</span>
-                                  <p className="mt-1 text-xs leading-5 text-stone-400">
-                                    Author reading plans for this specific volume.
-                                  </p>
-                                </div>
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    setMetadataForm((current) => ({
-                                      ...current,
-                                      languages: current.languages.map((item, currentIndex) =>
-                                        currentIndex === languageIndex
-                                          ? {
-                                            ...item,
-                                            volumes: item.volumes.map((currentVolume, currentVolumeIndex) =>
-                                              currentVolumeIndex === volumeIndex
-                                                ? {
-                                                  ...currentVolume,
-                                                  plans: [...currentVolume.plans, createEmptyPlan()],
-                                                }
-                                                : currentVolume,
-                                            ),
-                                          }
-                                          : item,
-                                      ),
-                                    }));
-                                  }}
-                                  className="rounded-full border border-stone-700 px-4 py-2 text-xs font-medium text-stone-200 transition hover:border-amber-300 hover:text-amber-200"
-                                >
-                                  Add plan
-                                </button>
-                              </div>
 
-                              {volume.plans.length === 0 ? (
-                                <div className="rounded-2xl border border-dashed border-stone-700 bg-stone-950/60 p-4 text-sm text-stone-400">
-                                  No plans yet for this volume.
-                                </div>
-                              ) : (
-                                <div className="space-y-4">
-                                  {volume.plans.map((plan, planIndex) => (
-                                    <div
-                                      key={`${plan.id || "plan"}-${planIndex}`}
-                                      className="rounded-3xl border border-stone-800 bg-stone-950/60 p-4"
-                                    >
-                                      <div className="mb-4 flex items-center justify-between gap-4">
-                                        <div>
-                                          <p className="text-sm font-medium text-stone-100">Plan {planIndex + 1}</p>
-                                          <p className="text-xs text-stone-400">A structured pace for this volume.</p>
-                                        </div>
-                                        <button
-                                          type="button"
-                                          onClick={() => {
-                                            setMetadataForm((current) => ({
-                                              ...current,
-                                              languages: current.languages.map((item, currentIndex) =>
-                                                currentIndex === languageIndex
-                                                  ? {
-                                                    ...item,
-                                                    volumes: item.volumes.map((currentVolume, currentVolumeIndex) =>
-                                                      currentVolumeIndex === volumeIndex
-                                                        ? {
-                                                          ...currentVolume,
-                                                          plans: currentVolume.plans.filter((_, currentPlanIndex) => currentPlanIndex !== planIndex),
-                                                        }
-                                                        : currentVolume,
-                                                    ),
-                                                  }
-                                                  : item,
-                                              ),
-                                            }));
-                                          }}
-                                          className="rounded-full border border-rose-900/60 px-4 py-2 text-xs font-medium text-rose-200 transition hover:border-rose-400 hover:text-rose-100"
-                                        >
-                                          Remove
-                                        </button>
-                                      </div>
-
-                                      <div className="grid gap-4 md:grid-cols-2">
-                                        <label className="space-y-2">
-                                          <span className="text-xs text-stone-300">Plan ID</span>
-                                          <input
-                                            value={plan.id}
-                                            onChange={(event) => {
-                                              const value = event.target.value;
-                                              setMetadataForm((current) => ({
-                                                ...current,
-                                                languages: current.languages.map((item, currentIndex) =>
-                                                  currentIndex === languageIndex
-                                                    ? {
-                                                      ...item,
-                                                      volumes: item.volumes.map((currentVolume, currentVolumeIndex) =>
-                                                        currentVolumeIndex === volumeIndex
-                                                          ? {
-                                                            ...currentVolume,
-                                                            plans: currentVolume.plans.map((currentPlan, currentPlanIndex) =>
-                                                              currentPlanIndex === planIndex ? { ...currentPlan, id: value } : currentPlan,
-                                                            ),
-                                                          }
-                                                          : currentVolume,
-                                                      ),
-                                                    }
-                                                    : item,
-                                                ),
-                                              }));
-                                            }}
-                                            className="w-full rounded-2xl border border-stone-700 bg-stone-950 px-4 py-3 text-sm outline-none transition focus:border-amber-300"
-                                          />
-                                        </label>
-                                        <label className="space-y-2">
-                                          <span className="text-xs text-stone-300">Title</span>
-                                          <input
-                                            value={plan.title}
-                                            onChange={(event) => {
-                                              const value = event.target.value;
-                                              setMetadataForm((current) => ({
-                                                ...current,
-                                                languages: current.languages.map((item, currentIndex) =>
-                                                  currentIndex === languageIndex
-                                                    ? {
-                                                      ...item,
-                                                      volumes: item.volumes.map((currentVolume, currentVolumeIndex) =>
-                                                        currentVolumeIndex === volumeIndex
-                                                          ? {
-                                                            ...currentVolume,
-                                                            plans: currentVolume.plans.map((currentPlan, currentPlanIndex) =>
-                                                              currentPlanIndex === planIndex ? { ...currentPlan, title: value } : currentPlan,
-                                                            ),
-                                                          }
-                                                          : currentVolume,
-                                                      ),
-                                                    }
-                                                    : item,
-                                                ),
-                                              }));
-                                            }}
-                                            className="w-full rounded-2xl border border-stone-700 bg-stone-950 px-4 py-3 text-sm outline-none transition focus:border-amber-300"
-                                          />
-                                        </label>
-                                        <label className="space-y-2">
-                                          <span className="text-xs text-stone-300">Total days</span>
-                                          <input
-                                            inputMode="numeric"
-                                            value={plan.totalDays}
-                                            onChange={(event) => {
-                                              const value = event.target.value;
-                                              setMetadataForm((current) => ({
-                                                ...current,
-                                                languages: current.languages.map((item, currentIndex) =>
-                                                  currentIndex === languageIndex
-                                                    ? {
-                                                      ...item,
-                                                      volumes: item.volumes.map((currentVolume, currentVolumeIndex) =>
-                                                        currentVolumeIndex === volumeIndex
-                                                          ? {
-                                                            ...currentVolume,
-                                                            plans: currentVolume.plans.map((currentPlan, currentPlanIndex) =>
-                                                              currentPlanIndex === planIndex ? { ...currentPlan, totalDays: value } : currentPlan,
-                                                            ),
-                                                          }
-                                                          : currentVolume,
-                                                      ),
-                                                    }
-                                                    : item,
-                                                ),
-                                              }));
-                                            }}
-                                            className="w-full rounded-2xl border border-stone-700 bg-stone-950 px-4 py-3 text-sm outline-none transition focus:border-amber-300"
-                                          />
-                                        </label>
-                                        <label className="space-y-2 md:col-span-2">
-                                          <span className="text-xs text-stone-300">Description</span>
-                                          <textarea
-                                            rows={3}
-                                            value={plan.description}
-                                            onChange={(event) => {
-                                              const value = event.target.value;
-                                              setMetadataForm((current) => ({
-                                                ...current,
-                                                languages: current.languages.map((item, currentIndex) =>
-                                                  currentIndex === languageIndex
-                                                    ? {
-                                                      ...item,
-                                                      volumes: item.volumes.map((currentVolume, currentVolumeIndex) =>
-                                                        currentVolumeIndex === volumeIndex
-                                                          ? {
-                                                            ...currentVolume,
-                                                            plans: currentVolume.plans.map((currentPlan, currentPlanIndex) =>
-                                                              currentPlanIndex === planIndex ? { ...currentPlan, description: value } : currentPlan,
-                                                            ),
-                                                          }
-                                                          : currentVolume,
-                                                      ),
-                                                    }
-                                                    : item,
-                                                ),
-                                              }));
-                                            }}
-                                            className="w-full rounded-2xl border border-stone-700 bg-stone-950 px-4 py-3 text-sm leading-6 outline-none transition focus:border-amber-300"
-                                          />
-                                        </label>
-                                      </div>
-
-                                      <div className="mt-4 space-y-3">
-                                        <div className="flex items-center justify-between gap-4">
-                                          <span className="text-xs uppercase tracking-[0.18em] text-stone-400">Plan days</span>
-                                          <button
-                                            type="button"
-                                            onClick={() => {
-                                              setMetadataForm((current) => ({
-                                                ...current,
-                                                languages: current.languages.map((item, currentIndex) =>
-                                                  currentIndex === languageIndex
-                                                    ? {
-                                                      ...item,
-                                                      volumes: item.volumes.map((currentVolume, currentVolumeIndex) =>
-                                                        currentVolumeIndex === volumeIndex
-                                                          ? {
-                                                            ...currentVolume,
-                                                            plans: currentVolume.plans.map((currentPlan, currentPlanIndex) =>
-                                                              currentPlanIndex === planIndex
-                                                                ? { ...currentPlan, items: [...currentPlan.items, createEmptyPlanDay()] }
-                                                                : currentPlan,
-                                                            ),
-                                                          }
-                                                          : currentVolume,
-                                                      ),
-                                                    }
-                                                    : item,
-                                                ),
-                                              }));
-                                            }}
-                                            className="rounded-full border border-stone-700 px-4 py-2 text-xs font-medium text-stone-200 transition hover:border-amber-300 hover:text-amber-200"
-                                          >
-                                            Add day
-                                          </button>
-                                        </div>
-
-                                        {plan.items.map((planItem, itemIndex) => (
-                                          <div
-                                            key={`${planItem.day || "day"}-${itemIndex}`}
-                                            className="rounded-2xl border border-stone-800 bg-stone-900/40 p-4"
-                                          >
-                                            <div className="mb-3 flex items-center justify-between gap-4">
-                                              <p className="text-xs font-medium uppercase tracking-[0.18em] text-stone-400">
-                                                Day {itemIndex + 1}
-                                              </p>
-                                              <button
-                                                type="button"
-                                                onClick={() => {
-                                                  setMetadataForm((current) => ({
-                                                    ...current,
-                                                    languages: current.languages.map((item, currentIndex) =>
-                                                      currentIndex === languageIndex
-                                                        ? {
-                                                          ...item,
-                                                          volumes: item.volumes.map((currentVolume, currentVolumeIndex) =>
-                                                            currentVolumeIndex === volumeIndex
-                                                              ? {
-                                                                ...currentVolume,
-                                                                plans: currentVolume.plans.map((currentPlan, currentPlanIndex) =>
-                                                                  currentPlanIndex === planIndex
-                                                                    ? {
-                                                                      ...currentPlan,
-                                                                      items: currentPlan.items.filter((_, currentItemIndex) => currentItemIndex !== itemIndex),
-                                                                    }
-                                                                    : currentPlan,
-                                                                ),
-                                                              }
-                                                              : currentVolume,
-                                                          ),
-                                                        }
-                                                        : item,
-                                                    ),
-                                                  }));
-                                                }}
-                                                className="rounded-full border border-rose-900/60 px-3 py-1.5 text-xs font-medium text-rose-200 transition hover:border-rose-400 hover:text-rose-100"
-                                              >
-                                                Remove
-                                              </button>
-                                            </div>
-                                            <div className="grid gap-4 md:grid-cols-2">
-                                              <label className="space-y-2">
-                                                <span className="text-xs text-stone-300">Day</span>
-                                                <input inputMode="numeric" value={planItem.day} onChange={(event) => {
-                                                  const value = event.target.value;
-                                                  setMetadataForm((current) => ({
-                                                    ...current,
-                                                    languages: current.languages.map((item, currentIndex) =>
-                                                      currentIndex === languageIndex ? {
-                                                        ...item,
-                                                        volumes: item.volumes.map((currentVolume, currentVolumeIndex) =>
-                                                          currentVolumeIndex === volumeIndex ? {
-                                                            ...currentVolume,
-                                                            plans: currentVolume.plans.map((currentPlan, currentPlanIndex) =>
-                                                              currentPlanIndex === planIndex ? {
-                                                                ...currentPlan,
-                                                                items: currentPlan.items.map((currentItem, currentItemIndex) =>
-                                                                  currentItemIndex === itemIndex ? { ...currentItem, day: value } : currentItem,
-                                                                ),
-                                                              } : currentPlan,
-                                                            ),
-                                                          } : currentVolume,
-                                                        ),
-                                                      } : item,
-                                                    ),
-                                                  }));
-                                                }} className="w-full rounded-2xl border border-stone-700 bg-stone-950 px-4 py-3 text-sm outline-none transition focus:border-amber-300" />
-                                              </label>
-                                              <label className="space-y-2">
-                                                <span className="text-xs text-stone-300">Label</span>
-                                                <input value={planItem.label} onChange={(event) => {
-                                                  const value = event.target.value;
-                                                  setMetadataForm((current) => ({
-                                                    ...current,
-                                                    languages: current.languages.map((item, currentIndex) =>
-                                                      currentIndex === languageIndex ? {
-                                                        ...item,
-                                                        volumes: item.volumes.map((currentVolume, currentVolumeIndex) =>
-                                                          currentVolumeIndex === volumeIndex ? {
-                                                            ...currentVolume,
-                                                            plans: currentVolume.plans.map((currentPlan, currentPlanIndex) =>
-                                                              currentPlanIndex === planIndex ? {
-                                                                ...currentPlan,
-                                                                items: currentPlan.items.map((currentItem, currentItemIndex) =>
-                                                                  currentItemIndex === itemIndex ? { ...currentItem, label: value } : currentItem,
-                                                                ),
-                                                              } : currentPlan,
-                                                            ),
-                                                          } : currentVolume,
-                                                        ),
-                                                      } : item,
-                                                    ),
-                                                  }));
-                                                }} className="w-full rounded-2xl border border-stone-700 bg-stone-950 px-4 py-3 text-sm outline-none transition focus:border-amber-300" />
-                                              </label>
-                                              <label className="space-y-2">
-                                                <span className="text-xs text-stone-300">Start page</span>
-                                                <input inputMode="numeric" value={planItem.startPage} onChange={(event) => {
-                                                  const value = event.target.value;
-                                                  setMetadataForm((current) => ({
-                                                    ...current,
-                                                    languages: current.languages.map((item, currentIndex) =>
-                                                      currentIndex === languageIndex ? {
-                                                        ...item,
-                                                        volumes: item.volumes.map((currentVolume, currentVolumeIndex) =>
-                                                          currentVolumeIndex === volumeIndex ? {
-                                                            ...currentVolume,
-                                                            plans: currentVolume.plans.map((currentPlan, currentPlanIndex) =>
-                                                              currentPlanIndex === planIndex ? {
-                                                                ...currentPlan,
-                                                                items: currentPlan.items.map((currentItem, currentItemIndex) =>
-                                                                  currentItemIndex === itemIndex ? { ...currentItem, startPage: value } : currentItem,
-                                                                ),
-                                                              } : currentPlan,
-                                                            ),
-                                                          } : currentVolume,
-                                                        ),
-                                                      } : item,
-                                                    ),
-                                                  }));
-                                                }} className="w-full rounded-2xl border border-stone-700 bg-stone-950 px-4 py-3 text-sm outline-none transition focus:border-amber-300" />
-                                              </label>
-                                              <label className="space-y-2">
-                                                <span className="text-xs text-stone-300">End page</span>
-                                                <input inputMode="numeric" value={planItem.endPage} onChange={(event) => {
-                                                  const value = event.target.value;
-                                                  setMetadataForm((current) => ({
-                                                    ...current,
-                                                    languages: current.languages.map((item, currentIndex) =>
-                                                      currentIndex === languageIndex ? {
-                                                        ...item,
-                                                        volumes: item.volumes.map((currentVolume, currentVolumeIndex) =>
-                                                          currentVolumeIndex === volumeIndex ? {
-                                                            ...currentVolume,
-                                                            plans: currentVolume.plans.map((currentPlan, currentPlanIndex) =>
-                                                              currentPlanIndex === planIndex ? {
-                                                                ...currentPlan,
-                                                                items: currentPlan.items.map((currentItem, currentItemIndex) =>
-                                                                  currentItemIndex === itemIndex ? { ...currentItem, endPage: value } : currentItem,
-                                                                ),
-                                                              } : currentPlan,
-                                                            ),
-                                                          } : currentVolume,
-                                                        ),
-                                                      } : item,
-                                                    ),
-                                                  }));
-                                                }} className="w-full rounded-2xl border border-stone-700 bg-stone-950 px-4 py-3 text-sm outline-none transition focus:border-amber-300" />
-                                              </label>
-                                              <label className="space-y-2">
-                                                <span className="text-xs text-stone-300">Estimated minutes</span>
-                                                <input inputMode="numeric" value={planItem.estimatedMinutes} onChange={(event) => {
-                                                  const value = event.target.value;
-                                                  setMetadataForm((current) => ({
-                                                    ...current,
-                                                    languages: current.languages.map((item, currentIndex) =>
-                                                      currentIndex === languageIndex ? {
-                                                        ...item,
-                                                        volumes: item.volumes.map((currentVolume, currentVolumeIndex) =>
-                                                          currentVolumeIndex === volumeIndex ? {
-                                                            ...currentVolume,
-                                                            plans: currentVolume.plans.map((currentPlan, currentPlanIndex) =>
-                                                              currentPlanIndex === planIndex ? {
-                                                                ...currentPlan,
-                                                                items: currentPlan.items.map((currentItem, currentItemIndex) =>
-                                                                  currentItemIndex === itemIndex ? { ...currentItem, estimatedMinutes: value } : currentItem,
-                                                                ),
-                                                              } : currentPlan,
-                                                            ),
-                                                          } : currentVolume,
-                                                        ),
-                                                      } : item,
-                                                    ),
-                                                  }));
-                                                }} className="w-full rounded-2xl border border-stone-700 bg-stone-950 px-4 py-3 text-sm outline-none transition focus:border-amber-300" />
-                                              </label>
-                                            </div>
-                                          </div>
-                                        ))}
-                                      </div>
-                                    </div>
-                                  ))}
-                                </div>
-                              )}
-                            </div>
                           </div>
                           );
                         })}

@@ -5,11 +5,10 @@ import { Pressable, ScrollView, Text, View } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { ErrorCard } from "../../../components/ui";
-import type { PublicBookPlan, PublicBookTocEntry, PublicCatalogBook } from "../../../data/types";
+import type { PublicBookTocEntry, PublicCatalogBook } from "../../../data/types";
 import { useAppTheme } from "../../../hooks/useAppTheme";
 import { useBookCompletions } from "../../../hooks/useBookCompletions";
 import { useRemoteBookData } from "../../../hooks/useRemoteBookData";
-import { useReadingPlans } from "../../../hooks/useReadingPlans";
 import { useReadingProgress } from "../../../hooks/useReadingProgress";
 import { useVolumeDownload } from "../../../hooks/useVolumeDownload";
 import {
@@ -38,34 +37,6 @@ function SkeletonBlock({
   );
 }
 
-function buildFallbackPlans(totalPages: number): PublicBookPlan[] {
-  const total = Math.max(totalPages, 1);
-  const presets = [7, 21, 30];
-
-  return presets.map((days) => {
-    const pageSpan = Math.max(1, Math.ceil(total / days));
-    return {
-      id: `remote-${days}-day`,
-      title: `${days}-day reading path`,
-      description: `Read through this book over ${days} steady sessions.`,
-      totalDays: days,
-      items: Array.from({ length: days }, (_, index) => {
-        const startPage = Math.min(total, index * pageSpan + 1);
-        const endPage =
-          index === days - 1 ? total : Math.min(total, (index + 1) * pageSpan);
-
-        return {
-          day: index + 1,
-          label: `Day ${index + 1}`,
-          startPage,
-          endPage,
-          estimatedMinutes: Math.max(8, (endPage - startPage + 1) * 2),
-        };
-      }),
-    };
-  });
-}
-
 function getRelatedBookScore(book: PublicCatalogBook, currentBook?: PublicCatalogBook) {
   if (!currentBook || book.id === currentBook.id) {
     return 0;
@@ -79,21 +50,6 @@ function getRelatedBookScore(book: PublicCatalogBook, currentBook?: PublicCatalo
   const currentTags = new Set(currentBook.tags ?? []);
   score += (book.tags ?? []).filter((tag) => currentTags.has(tag)).length * 12;
   return score;
-}
-
-function formatEstimatedTime(minutes: number) {
-  if (minutes <= 60) {
-    return `${minutes}m`;
-  }
-
-  const hours = Math.floor(minutes / 60);
-  const remainingMinutes = minutes % 60;
-  const hourLabel = hours === 1 ? "hr" : "hrs";
-  if (remainingMinutes === 0) {
-    return `${hours} ${hourLabel}`;
-  }
-
-  return `${hours} ${hourLabel} ${remainingMinutes} min`;
 }
 
 function getOrderedTocEntries(entries: PublicBookTocEntry[]) {
@@ -145,11 +101,6 @@ export default function BookHomeScreen() {
     useState<LibraryLanguagePreference | null>(null);
   const [isLanguagePreferenceLoaded, setIsLanguagePreferenceLoaded] = useState(false);
   const effectiveLanguageId = selectedLanguageId ?? libraryLanguagePreference?.id ?? progress?.languageId;
-  const { activePlan } = useReadingPlans(
-    readingBookId,
-    effectiveLanguageId,
-    selectedVolumeId ?? progress?.volumeId,
-  );
   const {
     catalogBooks,
     catalogBook,
@@ -278,8 +229,6 @@ export default function BookHomeScreen() {
   const displayAuthor = metadata?.author ?? catalogBook?.author;
   const displayCategory = metadata?.category ?? catalogBook?.category ?? "Library";
   const tocEntries = getOrderedTocEntries(selectedVolume?.tocEntries ?? []);
-  const plans =
-    selectedVolume?.plans?.length ? selectedVolume.plans : buildFallbackPlans(totalPages);
   const relatedBooks = useMemo(() => {
     return catalogBooks
       .filter((book) => book.id !== readingBookId)
@@ -297,24 +246,6 @@ export default function BookHomeScreen() {
       })
       .slice(0, 5);
   }, [catalogBook, catalogBooks, readingBookId]);
-  const activeRemotePlan =
-    activePlan &&
-    activePlan.languageId === resolvedLanguageId &&
-    activePlan.volumeId === resolvedVolumeId
-      ? plans.find((plan) => plan.id === activePlan.planId)
-      : undefined;
-  const currentPlanItem =
-    activeRemotePlan?.items.find(
-      (item) => resumePage >= item.startPage && resumePage <= item.endPage,
-    ) ?? activeRemotePlan?.items[0];
-  const currentDay = currentPlanItem?.day ?? 1;
-  const progressPercent = activeRemotePlan
-    ? Math.min(100, Math.round((currentDay / activeRemotePlan.totalDays) * 100))
-    : 0;
-  const todayTarget =
-    selectedVolume?.todayTarget ??
-    metadata?.todayPrompt ??
-    "Read 2 pages from your current place. The goal is consistency, not speed.";
   const isBookDataLoading =
     isCatalogLoading || isMetadataLoading || isManifestLoading || !isProgressLoaded || !isLanguagePreferenceLoaded;
   const shouldShowInitialSkeleton =
@@ -619,6 +550,82 @@ export default function BookHomeScreen() {
             </View>
           )}
 
+          {/* About This Book */}
+          <View style={{ backgroundColor: colors.surface, borderRadius: 24, padding: 18, gap: 12 }}>
+            <View style={{ gap: 2 }}>
+              <Text
+                style={{
+                  color: colors.accent,
+                  fontSize: 12,
+                  fontWeight: "700",
+                  textTransform: "uppercase",
+                  letterSpacing: 0.4,
+                }}
+              >
+                ℹ️ About This Book
+              </Text>
+            </View>
+
+            {displayDescription ? (
+              <ScrollView
+                nestedScrollEnabled
+                style={{ maxHeight: 180 }}
+                showsVerticalScrollIndicator={false}
+              >
+                <Text style={{ color: colors.textMuted, fontSize: 14, lineHeight: 22 }}>
+                  {displayDescription}
+                </Text>
+              </ScrollView>
+            ) : null}
+
+            {/* Metadata - Compact Grid */}
+            <View style={{ gap: 10 }}>
+              <View
+                style={{
+                  backgroundColor: colors.surfaceMuted,
+                  borderRadius: 12,
+                  padding: 12,
+                  flexDirection: "row",
+                  alignItems: "center",
+                  gap: 10,
+                }}
+              >
+                <Text style={{ fontSize: 16 }}>📂</Text>
+                <View style={{ flex: 1 }}>
+                  <Text style={{ color: colors.textMuted, fontSize: 11, fontWeight: "600", opacity: 0.8 }}>
+                    Category
+                  </Text>
+                  <Text style={{ color: colors.text, fontSize: 13, fontWeight: "700", marginTop: 2 }}>
+                    {displayCategory}
+                  </Text>
+                </View>
+              </View>
+
+              {displayAuthor ? (
+                <View
+                  style={{
+                    backgroundColor: colors.surfaceMuted,
+                    borderRadius: 12,
+                    padding: 12,
+                    flexDirection: "row",
+                    alignItems: "center",
+                    gap: 10,
+                  }}
+                >
+                  <Text style={{ fontSize: 16 }}>✍️</Text>
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ color: colors.textMuted, fontSize: 11, fontWeight: "600", opacity: 0.8 }}>
+                      Author
+                    </Text>
+                    <Text style={{ color: colors.text, fontSize: 13, fontWeight: "700", marginTop: 2 }}>
+                      {displayAuthor}
+                    </Text>
+                  </View>
+                </View>
+              ) : null}
+            </View>
+          </View>
+
           {/* Primary Action Section - Compact */}
           <View
             style={{
@@ -711,201 +718,6 @@ export default function BookHomeScreen() {
               </Pressable>
              </View>
            </View>
-
-          {/* About This Book */}
-          <View style={{ backgroundColor: colors.surface, borderRadius: 24, padding: 18, gap: 12 }}>
-            <View style={{ gap: 2 }}>
-              <Text
-                style={{
-                  color: colors.accent,
-                  fontSize: 12,
-                  fontWeight: "700",
-                  textTransform: "uppercase",
-                  letterSpacing: 0.4,
-                }}
-              >
-                ℹ️ About This Book
-              </Text>
-            </View>
-
-            {displayDescription ? (
-              <Text style={{ color: colors.textMuted, fontSize: 14, lineHeight: 22 }}>
-                {displayDescription}
-              </Text>
-            ) : null}
-
-            {/* Metadata - Compact Grid */}
-            <View style={{ gap: 10 }}>
-              <View
-                style={{
-                  backgroundColor: colors.surfaceMuted,
-                  borderRadius: 12,
-                  padding: 12,
-                  flexDirection: "row",
-                  alignItems: "center",
-                  gap: 10,
-                }}
-              >
-                <Text style={{ fontSize: 16 }}>📂</Text>
-                <View style={{ flex: 1 }}>
-                  <Text style={{ color: colors.textMuted, fontSize: 11, fontWeight: "600", opacity: 0.8 }}>
-                    Category
-                  </Text>
-                  <Text style={{ color: colors.text, fontSize: 13, fontWeight: "700", marginTop: 2 }}>
-                    {displayCategory}
-                  </Text>
-                </View>
-              </View>
-
-              {displayAuthor ? (
-                <View
-                  style={{
-                    backgroundColor: colors.surfaceMuted,
-                    borderRadius: 12,
-                    padding: 12,
-                    flexDirection: "row",
-                    alignItems: "center",
-                    gap: 10,
-                  }}
-                >
-                  <Text style={{ fontSize: 16 }}>✍️</Text>
-                  <View style={{ flex: 1 }}>
-                    <Text style={{ color: colors.textMuted, fontSize: 11, fontWeight: "600", opacity: 0.8 }}>
-                      Author
-                    </Text>
-                    <Text style={{ color: colors.text, fontSize: 13, fontWeight: "700", marginTop: 2 }}>
-                      {displayAuthor}
-                    </Text>
-                  </View>
-                </View>
-              ) : null}
-            </View>
-          </View>
-
-          {/* Today's Focus Section - Improved */}
-            <View
-              style={{
-                backgroundColor: colors.surface,
-                borderRadius: 24,
-                padding: 18,
-                gap: 10,
-              }}
-            >
-            {/* Header */}
-            <View style={{ gap: 2 }}>
-              <Text
-                style={{
-                  color: colors.accent,
-                  fontSize: 12,
-                  fontWeight: "700",
-                  textTransform: "uppercase",
-                  letterSpacing: 0.4,
-                }}
-              >
-                📅 Today&apos;s Focus
-              </Text>
-              <Text style={{ color: colors.text, fontSize: 20, fontWeight: "800" }}>
-                {activeRemotePlan ? activeRemotePlan.title : "Set Your Reading Pace"}
-              </Text>
-            </View>
-
-            {activeRemotePlan ? (
-              <>
-                {/* Progress Bar - Compact */}
-                <View style={{ gap: 6 }}>
-                  <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
-                    <Text style={{ color: colors.textMuted, fontSize: 13, fontWeight: "600" }}>
-                      Day {currentDay}/{activeRemotePlan.totalDays}
-                    </Text>
-                    <Text style={{ color: colors.accent, fontSize: 13, fontWeight: "700" }}>
-                      {progressPercent}%
-                    </Text>
-                  </View>
-                  <View
-                    style={{
-                      height: 5,
-                      borderRadius: 999,
-                      backgroundColor: colors.surfaceMuted,
-                      overflow: "hidden",
-                    }}
-                  >
-                    <View
-                      style={{
-                        width: `${progressPercent}%`,
-                        height: "100%",
-                        backgroundColor: colors.accent,
-                      }}
-                    />
-                  </View>
-                </View>
-
-                {/* Today's Task - Highlighted */}
-                <View style={{ backgroundColor: colors.surfaceMuted, borderRadius: 16, padding: 14, gap: 6 }}>
-                  <Text style={{ color: colors.textMuted, fontSize: 12, fontWeight: "600" }}>
-                    📖 {currentPlanItem?.label}
-                  </Text>
-                  <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
-                    <Text style={{ color: colors.text, fontSize: 16, fontWeight: "800" }}>
-                      Pages {currentPlanItem?.startPage}–{currentPlanItem?.endPage}
-                    </Text>
-                    <Text style={{ color: colors.textMuted, fontSize: 12, fontWeight: "600" }}>
-                      {currentPlanItem ? `⏱️ ${formatEstimatedTime(currentPlanItem.estimatedMinutes)}` : null}
-                    </Text>
-                  </View>
-                </View>
-
-                {/* Daily Target - Subtle */}
-                 <Text style={{ color: colors.textMuted, fontSize: 13, lineHeight: 20, fontStyle: "italic" }}>
-                  💭 &quot;{todayTarget}&quot;
-                 </Text>
-
-                {/* View Plans Button */}
-                <Link
-                  href={
-                    `/book/${readingBookId}/plans?languageId=${resolvedLanguageId}&volumeId=${resolvedVolumeId}` as const
-                  }
-                  asChild
-                >
-                  <Pressable
-                    style={{
-                      alignSelf: "flex-start",
-                      borderRadius: 999,
-                      backgroundColor: colors.surfaceMuted,
-                      paddingHorizontal: 16,
-                      paddingVertical: 10,
-                    }}
-                  >
-                    <Text style={{ color: colors.text, fontSize: 13, fontWeight: "800" }}>
-                      View Plans
-                    </Text>
-                  </Pressable>
-                </Link>
-              </>
-            ) : (
-              <>
-                <Link
-                  href={
-                    `/book/${readingBookId}/plans?languageId=${resolvedLanguageId}&volumeId=${resolvedVolumeId}` as const
-                  }
-                  asChild
-                >
-                  <Pressable
-                    style={{
-                      alignSelf: "flex-start",
-                      borderRadius: 999,
-                      backgroundColor: colors.accent,
-                      paddingHorizontal: 18,
-                      paddingVertical: 11,
-                    }}
-                  >
-                    <Text style={{ color: colors.text, fontSize: 14, fontWeight: "800" }}>
-                      Choose Plan
-                    </Text>
-                  </Pressable>
-                </Link>
-              </>
-            )}
-          </View>
 
           {relatedBooks.length > 0 ? (
             <View style={{ backgroundColor: colors.surface, borderRadius: 24, padding: 18, gap: 14 }}>

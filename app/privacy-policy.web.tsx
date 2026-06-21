@@ -79,7 +79,7 @@ export default function PrivacyPolicy() {
               AlNoor Library is designed with privacy in mind. We collect minimal information:
             </p>
             <ul style={{ marginLeft: "24px", fontSize: "16px", color: palette.body, lineHeight: "1.75" }}>
-              <li>Reading progress, bookmarks, and plan selections stored locally on your device</li>
+              <li>Reading progress and bookmarks stored locally on your device</li>
               <li>Appearance preferences and offline download data stored locally</li>
               <li>App settings required to maintain your reading experience</li>
             </ul>
@@ -93,7 +93,7 @@ export default function PrivacyPolicy() {
               We use this information to:
             </p>
             <ul style={{ marginLeft: "24px", fontSize: "16px", color: palette.body, lineHeight: "1.75" }}>
-              <li>Remember your reading position, bookmarks, and active plans</li>
+              <li>Remember your reading position and bookmarks</li>
               <li>Support offline reading and downloaded volume access</li>
               <li>Maintain your appearance and app preferences</li>
               <li>Improve app continuity and stability</li>

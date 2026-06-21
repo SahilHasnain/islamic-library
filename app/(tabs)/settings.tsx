@@ -15,7 +15,6 @@ import { radii, spacing, typography } from "../../constants/theme";
 import type { AppThemePreference } from "../../data/types";
 import { useAppTheme } from "../../hooks/useAppTheme";
 import { useBookmarks } from "../../hooks/useBookmarks";
-import { useReadingPlans } from "../../hooks/useReadingPlans";
 import { useReadingProgress } from "../../hooks/useReadingProgress";
 import { useRemoteCatalog } from "../../hooks/useRemoteCatalog";
 
@@ -174,12 +173,6 @@ export default function SettingsScreen() {
     bookmarks,
   } = useBookmarks();
   const {
-    activePlanMap,
-    clearAllPlans,
-    error: plansError,
-    isLoaded: plansLoaded,
-  } = useReadingPlans();
-  const {
     error: progressError,
     isLoaded: progressLoaded,
     latestProgressByBook,
@@ -191,11 +184,10 @@ export default function SettingsScreen() {
   const [toastMessage, setToastMessage] = useState("");
   const [showToast, setShowToast] = useState(false);
 
-  const activePlanCount = Object.keys(activePlanMap).length;
   const progressCount = Object.keys(latestProgressByBook).length;
   const editionProgressCount = Object.keys(progressMap).length;
   const storageIsLoading =
-    !bookmarksLoaded || !plansLoaded || !themeLoaded || !progressLoaded;
+    !bookmarksLoaded || !themeLoaded || !progressLoaded;
 
   const displayToast = (message: string) => {
     if (Platform.OS === "android") {
@@ -231,7 +223,7 @@ export default function SettingsScreen() {
           />
         ) : null}
 
-        {themeError || bookmarksError || plansError || progressError ? (
+        {themeError || bookmarksError || progressError ? (
           <ErrorCard
             title="Couldn't load some settings"
             message="Some of your preferences couldn't be loaded. Using defaults for now."
@@ -293,12 +285,6 @@ export default function SettingsScreen() {
                 {bookmarks.length}
               </Text>
             </View>
-            <View style={{ gap: spacing.gapXs }}>
-              <MetaText>Active reading plans</MetaText>
-              <Text style={{ color: colors.text, fontSize: typography.subtitle, fontWeight: "800" }}>
-                {activePlanCount}
-              </Text>
-            </View>
           </View>
         </SectionCard>
 
@@ -358,26 +344,6 @@ export default function SettingsScreen() {
                           onPress: () => {
                             void clearBookmarks();
                             displayToast("Bookmarks cleared");
-                          },
-                        },
-                      ]
-                    );
-                  }}
-                />
-                <ActionButton
-                  label="Clear reading plans"
-                  onPress={() => {
-                    Alert.alert(
-                      "Clear all reading plans?",
-                      "This will remove all active reading plans. This cannot be undone.",
-                      [
-                        { text: "Cancel", style: "cancel" },
-                        {
-                          text: "Clear",
-                          style: "destructive",
-                          onPress: () => {
-                            void clearAllPlans();
-                            displayToast("Reading plans cleared");
                           },
                         },
                       ]

@@ -15,7 +15,6 @@ import { radii, spacing, typography } from "../../constants/theme";
 import type { PublicCatalogBook, ReadingProgress } from "../../data/types";
 import { useAppTheme } from "../../hooks/useAppTheme";
 import { useBookCompletions } from "../../hooks/useBookCompletions";
-import { useReadingPlans } from "../../hooks/useReadingPlans";
 import { useReadingProgress } from "../../hooks/useReadingProgress";
 import { useRemoteBookData } from "../../hooks/useRemoteBookData";
 import { useRemoteCatalog } from "../../hooks/useRemoteCatalog";
@@ -128,14 +127,12 @@ function sortBooksForYou({
   latestProgressByBook,
   completionMap,
   completedBookIdSet,
-  activePlanBookIds,
 }: {
   books: PublicCatalogBook[];
   remoteBooks: PublicCatalogBook[];
   latestProgressByBook: Record<string, ReadingProgress | undefined>;
   completionMap: Record<string, { bookId: string; completedAt: string }>;
   completedBookIdSet: Set<string>;
-  activePlanBookIds: Set<string>;
 }) {
   const visibleBookIds = new Set(books.map((book) => book.id));
   const booksById = new Map(remoteBooks.map((book) => [book.id, book]));
@@ -223,7 +220,6 @@ function sortBooksForYou({
     .sort((a, b) => {
       const getForYouScore = (book: PublicCatalogBook) => {
         let score = 0;
-        if (activePlanBookIds.has(book.id)) score += 30;
         if (book.nextRecommendedBookId && visibleBookIds.has(book.nextRecommendedBookId)) score += 18;
         score += (incomingRecommendationCount.get(book.id) ?? 0) * 10;
         score += getSharedSignalScore(book, anchorBook) * 12;
@@ -706,7 +702,6 @@ export default function LibraryScreen() {
   const { colors } = useAppTheme();
   const { error, isLoaded, latestProgressByBook, refreshProgress } = useReadingProgress();
   const { completedBookIds, completionMap, refreshCompletions } = useBookCompletions();
-  const { activePlanMap, refreshPlans } = useReadingPlans();
   const {
     catalog,
     error: catalogError,
@@ -742,8 +737,7 @@ export default function LibraryScreen() {
     useCallback(() => {
       void refreshProgress();
       void refreshCompletions();
-      void refreshPlans();
-    }, [refreshCompletions, refreshPlans, refreshProgress]),
+    }, [refreshCompletions, refreshProgress]),
   );
 
   useEffect(() => {
@@ -781,10 +775,6 @@ export default function LibraryScreen() {
   const remoteBooks = useMemo(() => catalog?.books ?? [], [catalog?.books]);
   const catalogCacheKey = catalog?.version ?? catalog?.generatedAt ?? "library";
   const completedBookIdSet = useMemo(() => new Set(completedBookIds), [completedBookIds]);
-  const activePlanBookIds = useMemo(
-    () => new Set(Object.values(activePlanMap).map((plan) => plan.bookId)),
-    [activePlanMap],
-  );
   const inProgressBooks = useMemo(
     () =>
       remoteBooks.filter(
@@ -1006,7 +996,6 @@ export default function LibraryScreen() {
         latestProgressByBook,
         completionMap,
         completedBookIdSet,
-        activePlanBookIds,
       });
     }
 
@@ -1021,7 +1010,6 @@ export default function LibraryScreen() {
     latestProgressByBook,
     completionMap,
     completedBookIdSet,
-    activePlanBookIds,
     bookMetadataMap,
   ]);
 
