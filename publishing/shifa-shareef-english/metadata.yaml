@@ -1,0 +1,12 @@
+title: Asshifa
+subtitle: English Translation
+author: Imam Qadi Iyad
+source_language: Roman Urdu edition based on Urdu translation
+language: English
+status: draft
+edition: 0.1
+website_source: ../../content/books/shifa-shareef.json
+legacy_draft_source: ../../content/drafts/shifa-shareef-english.md
+publisher: Mustafawi Publishing
+honorific_policy: Preserve Islamic honorifics in Arabic/Urdu superscript form.
+notes: This publishing project is intended for digital PDF, EPUB, and potential hard copy editions.

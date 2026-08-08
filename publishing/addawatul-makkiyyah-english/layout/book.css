@@ -1,0 +1,331 @@
+:root {
+  color-scheme: light;
+  --page-bg: #fbf8f1;
+  --paper: #fffefb;
+  --ink: #17130f;
+  --muted: #6f6252;
+  --rule: #d8cbb8;
+  --accent: #1a4c7a;
+  --accent-warm: #8b3a2a;
+  --gold: #b8944f;
+}
+
+@page {
+  size: A5;
+  margin: 18mm 16mm 20mm 16mm;
+}
+
+@page:first {
+  margin: 0;
+}
+
+@page :left {
+  margin-left: 20mm;
+  margin-right: 14mm;
+}
+
+@page :right {
+  margin-left: 14mm;
+  margin-right: 20mm;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  background: var(--page-bg);
+  color: var(--ink);
+  font-family: "Georgia", "Times New Roman", "Noto Serif", serif;
+  font-size: 15px;
+  line-height: 1.65;
+}
+
+body {
+  margin: 0;
+}
+
+.book {
+  background: var(--paper);
+  margin: 0 auto;
+  max-width: 760px;
+  min-height: 100vh;
+  padding: 46px 56px 64px;
+  box-shadow: 0 18px 60px rgba(45, 30, 12, 0.16);
+}
+
+.cover-page {
+  background: #0b2a3a;
+  break-after: page;
+  display: flex;
+  height: 100vh;
+  margin: 0;
+  overflow: hidden;
+  page-break-after: always;
+}
+
+.book > .cover-page {
+  margin: -46px -56px 0;
+}
+
+.cover-page img {
+  display: block;
+  height: 100%;
+  object-fit: cover;
+  width: 100%;
+}
+
+.title-page {
+  align-items: center;
+  border: 3px double #5f7b8b;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  min-height: 78vh;
+  padding: 2.4rem 1.5rem;
+  text-align: center;
+}
+
+.title-page h1 {
+  color: var(--accent-warm);
+  font-size: 2.65rem;
+  line-height: 1.25;
+  margin: 0 0 1rem;
+}
+
+.title-page .subtitle {
+  color: var(--muted);
+  font-size: 1.05rem;
+  letter-spacing: 0.04em;
+  margin: 0 0 2rem;
+}
+
+.title-page .author {
+  font-size: 1.15rem;
+  margin-top: 2rem;
+}
+
+.title-page .translator {
+  color: var(--muted);
+  font-size: 0.95rem;
+  margin-top: 0.5rem;
+}
+
+.publishing-note {
+  border-bottom: 1px solid var(--rule);
+  color: var(--muted);
+  font-size: 0.92rem;
+  margin-bottom: 2.4rem;
+  padding: 1.2rem 0 1.8rem;
+}
+
+h1,
+h2,
+h3 {
+  color: var(--accent);
+  font-weight: 700;
+  line-height: 1.35;
+  text-wrap: balance;
+}
+
+h1 {
+  font-size: 2rem;
+  margin: 2.6rem 0 1.4rem;
+  text-align: center;
+}
+
+h2 {
+  font-size: 1.52rem;
+  margin: 2.7rem 0 1.15rem;
+  text-align: center;
+}
+
+h2::before,
+h2::after {
+  color: var(--gold);
+  content: "\25C6";
+  font-size: 0.42em;
+  margin: 0 0.58rem;
+  vertical-align: middle;
+}
+
+h3 {
+  color: var(--accent-warm);
+  font-size: 1.18rem;
+  margin: 2rem 0 0.8rem;
+}
+
+p {
+  margin: 0 0 1rem;
+  text-align: justify;
+  text-justify: inter-word;
+}
+
+blockquote {
+  margin: 1rem 0 1rem 1.5rem;
+  padding: 0.5rem 1rem;
+  border-left: 3px solid var(--gold);
+  color: var(--ink);
+  font-style: italic;
+}
+
+blockquote p {
+  margin: 0 0 0.5rem;
+}
+
+.poetry {
+  color: var(--accent);
+  font-size: 1rem;
+  font-style: italic;
+  line-height: 1.78;
+  margin: 1.15rem auto 1.55rem;
+  max-width: 27rem;
+  text-align: center;
+}
+
+.reference {
+  color: var(--muted);
+  font-size: 0.86rem;
+  font-style: italic;
+  margin: 0.5rem 0 1.15rem;
+  text-align: center;
+}
+
+ul {
+  margin: 0.7rem 0 1.2rem 1.4rem;
+  padding: 0;
+}
+
+li {
+  margin: 0.25rem 0;
+}
+
+sup {
+  font-family: "Noto Naskh Arabic", "Amiri", "Scheherazade New", serif;
+  font-size: 0.72em;
+  line-height: 0;
+}
+
+.arabic,
+sup,
+[dir="rtl"] {
+  direction: rtl;
+  unicode-bidi: isolate;
+}
+
+.toc-page {
+  break-after: page;
+  page-break-after: always;
+}
+
+.toc-page h1 {
+  font-size: 1.8rem;
+  letter-spacing: 0.08em;
+  margin-bottom: 2.5rem;
+}
+
+.toc-row {
+  align-items: baseline;
+  display: flex;
+  gap: 0;
+  margin: 0 0 0.75rem;
+  text-align: start;
+}
+
+.toc-row.toc-chapter {
+  padding-left: 1.5rem;
+}
+
+.toc-title {
+  flex: 0 1 auto;
+  font-size: 0.95rem;
+  line-height: 1.5;
+}
+
+.toc-leader {
+  border-bottom: 1px dotted var(--muted);
+  flex: 1 1 auto;
+  margin: 0 0.3rem;
+  min-width: 0.5rem;
+  transform: translateY(-0.2em);
+}
+
+.toc-major .toc-title {
+  font-weight: 700;
+  font-size: 1.05rem;
+  color: var(--accent);
+}
+
+.toc-pages {
+  flex: 0 0 auto;
+  font-size: 0.9rem;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.page-break {
+  break-before: page;
+  page-break-before: always;
+}
+
+[data-toc-section] {
+  break-before: page;
+  page-break-before: always;
+}
+
+hr {
+  border: none;
+  border-top: 1px solid var(--rule);
+  margin: 1.5rem 0;
+}
+
+@media print {
+  html {
+    font-size: 14.5px;
+    line-height: 1.62;
+  }
+
+  html,
+  body {
+    background: white;
+  }
+
+  .book {
+    background: white;
+    box-shadow: none;
+    margin: 0;
+    max-width: none;
+    min-height: auto;
+    padding: 0;
+  }
+
+  .cover-page {
+    height: 100vh;
+    margin: 0;
+  }
+
+  .title-page {
+    break-after: page;
+    min-height: 90vh;
+  }
+
+  .title-page h1 {
+    color: var(--accent);
+  }
+
+  .publishing-note {
+    break-after: page;
+  }
+
+  h2 {
+    break-after: avoid;
+    break-inside: avoid;
+  }
+
+  p,
+  .poetry {
+    orphans: 3;
+    widows: 3;
+  }
+}

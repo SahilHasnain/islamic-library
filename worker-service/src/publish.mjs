@@ -144,6 +144,7 @@ function rawGithubUrl(relativePath) {
 export async function publishWorkspace({
   workspace,
   bookSlug,
+  canonicalBookSlug,
   languageId,
   volumeId,
   metadata,
@@ -151,10 +152,11 @@ export async function publishWorkspace({
   version,
 }) {
   const normalizedLanguageId = normalizeLanguageId(languageId);
+  const assetsBookSlug = canonicalBookSlug || bookSlug;
   const coverFileName = manifest.coverImage || path.basename(workspace.coverImagePath);
-  const bookRoot = path.join(assetsRepoPath, "books", bookSlug);
+  const bookRoot = path.join(assetsRepoPath, "books", assetsBookSlug);
   const volumeRoot = path.join(bookRoot, normalizedLanguageId, volumeId);
-  const relativeBookRoot = path.join("books", bookSlug);
+  const relativeBookRoot = path.join("books", assetsBookSlug);
   const relativeVolumeRoot = path.join(relativeBookRoot, normalizedLanguageId, volumeId);
   const metadataRelativePath = path.join(relativeBookRoot, "metadata.json");
   const manifestRelativePath = path.join(relativeVolumeRoot, "manifest.json");
@@ -256,6 +258,7 @@ export async function publishWorkspace({
   const publishedMetadata = {
     ...existingMetadata,
     ...metadata,
+    id: assetsBookSlug,
     coverImage: existingMetadata.coverImage || jsdelivrUrl(rootCoverRelativePath),
     defaultLanguageId: normalizeLanguageId(metadata.defaultLanguageId || existingMetadata.defaultLanguageId || normalizedLanguageId),
     languages: updatedLanguages,
@@ -276,7 +279,7 @@ export async function publishWorkspace({
   const currentCatalog = JSON.parse(await fs.readFile(catalogPath, "utf8"));
   const metadataUrl = rawGithubUrl(metadataRelativePath);
   const updatedEntry = {
-    id: bookSlug,
+    id: assetsBookSlug,
     title: publishedMetadata.title,
     subtitle: publishedMetadata.subtitle,
     author: publishedMetadata.author,
@@ -288,7 +291,7 @@ export async function publishWorkspace({
     metadataUrl,
   };
 
-  const remainingBooks = (currentCatalog.books || []).filter((book) => book.id !== bookSlug);
+  const remainingBooks = (currentCatalog.books || []).filter((book) => book.id !== assetsBookSlug);
   const nextCatalog = {
     version,
     generatedAt: new Date().toISOString(),
@@ -298,7 +301,7 @@ export async function publishWorkspace({
   await fs.writeFile(catalogPath, JSON.stringify(nextCatalog, null, 2), "utf8");
 
   await runGit(["add", "."]);
-  const commit = await runGit(["commit", "-m", `Publish ${bookSlug} ${languageId}/${volumeId} ${version}`]).catch(
+  const commit = await runGit(["commit", "-m", `Publish ${assetsBookSlug} ${languageId}/${volumeId} ${version}`]).catch(
     async (error) => {
       if (String(error.message).includes("nothing to commit")) {
         return { stdout: "", stderr: "" };
@@ -371,6 +374,7 @@ export function getPublicMetadataUrl(relativePath) {
 
 export async function republishBookMetadata({
   bookSlug,
+  canonicalBookSlug,
   title,
   subtitle,
   author,
@@ -386,11 +390,12 @@ export async function republishBookMetadata({
 }) {
   const normalizedLanguageId = normalizeLanguageId(languageId);
   const normalizedDefaultLanguageId = normalizeLanguageId(defaultLanguageId);
-  const bookRoot = path.join(assetsRepoPath, "books", bookSlug);
+  const assetsBookSlug = canonicalBookSlug || bookSlug;
+  const bookRoot = path.join(assetsRepoPath, "books", assetsBookSlug);
   const metadataPath = path.join(bookRoot, "metadata.json");
-  const manifestRelativePath = path.join("books", bookSlug, normalizedLanguageId, volumeId, "manifest.json");
+  const manifestRelativePath = path.join("books", assetsBookSlug, normalizedLanguageId, volumeId, "manifest.json");
   const coverFileName = "cover.webp";
-  const coverRelativePath = path.join("books", bookSlug, coverFileName);
+  const coverRelativePath = path.join("books", assetsBookSlug, coverFileName);
 
   const existingMetadata = JSON.parse(await fs.readFile(metadataPath, "utf8"));
   const catalogPath = path.join(assetsRepoPath, "catalog.json");
@@ -470,10 +475,10 @@ export async function republishBookMetadata({
 
   await fs.writeFile(metadataPath, JSON.stringify(publishedMetadata, null, 2), "utf8");
 
-  const metadataRelativePath = path.join("books", bookSlug, "metadata.json");
+  const metadataRelativePath = path.join("books", assetsBookSlug, "metadata.json");
   const metadataUrl = rawGithubUrl(metadataRelativePath);
   const updatedEntry = {
-    id: bookSlug,
+    id: assetsBookSlug,
     title,
     subtitle,
     author,
@@ -485,7 +490,7 @@ export async function republishBookMetadata({
     metadataUrl,
   };
 
-  const remainingBooks = (currentCatalog.books || []).filter((book) => book.id !== bookSlug);
+  const remainingBooks = (currentCatalog.books || []).filter((book) => book.id !== assetsBookSlug);
   const nextCatalog = {
     version,
     generatedAt: new Date().toISOString(),
@@ -495,7 +500,7 @@ export async function republishBookMetadata({
   await fs.writeFile(catalogPath, JSON.stringify(nextCatalog, null, 2), "utf8");
 
   await runGit(["add", "."]);
-  const commit = await runGit(["commit", "-m", `Republish metadata for ${bookSlug} ${version}`]).catch(
+  const commit = await runGit(["commit", "-m", `Republish metadata for ${assetsBookSlug} ${version}`]).catch(
     async (error) => {
       if (String(error.message).includes("nothing to commit")) {
         return { stdout: "", stderr: "" };

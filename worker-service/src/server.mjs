@@ -4,7 +4,6 @@ import path from "node:path";
 
 import {
   appwriteConfig,
-  createPublishEvent,
   downloadSourcePdf,
   findBookBySlug,
   findJobDocument,
@@ -195,8 +194,16 @@ async function handleIngest(request, response) {
     });
 
     const workspace = await createJobWorkspace(jobId);
-    const pdfBuffer = await downloadSourcePdf(sourceFileId);
-    await fs.writeFile(workspace.sourcePdfPath, pdfBuffer);
+    const localPdfPath = payload.localPdfPath;
+    let pdfBuffer;
+    if (localPdfPath) {
+      await fs.copyFile(localPdfPath, workspace.sourcePdfPath);
+      const stat = await fs.stat(workspace.sourcePdfPath);
+      pdfBuffer = { byteLength: stat.size };
+    } else {
+      pdfBuffer = await downloadSourcePdf(sourceFileId);
+      await fs.writeFile(workspace.sourcePdfPath, pdfBuffer);
+    }
 
     const renderResult = await renderPdfWorkspace({
       sourcePdfPath: workspace.sourcePdfPath,
@@ -298,6 +305,7 @@ async function handleIngest(request, response) {
     const publishResult = await publishWorkspace({
       workspace,
       bookSlug,
+      canonicalBookSlug: bookDocument.canonicalBookSlug || "",
       languageId: normalizedLanguageId,
       volumeId,
       metadata,
@@ -305,18 +313,7 @@ async function handleIngest(request, response) {
       version,
     });
 
-    await createPublishEvent({
-      publishId: `publish_${jobId}`,
-      bookSlug,
-      version,
-      gitCommitSha: publishResult.gitCommitSha,
-      catalogPath: publishResult.catalogPath,
-      metadataPath: publishResult.metadataPath,
-      manifestPath: publishResult.manifestPath,
-      assetBasePath: publishResult.assetBasePath,
-      publishedAt: new Date().toISOString(),
-      triggeredBy: requestedBy || "admin-console",
-    }).catch(() => {});
+
 
     await updateBookDocument(bookDocument.$id, {
       status: "published",
@@ -435,6 +432,7 @@ async function handleMetadataRepublish(request, response) {
   try {
     const publishResult = await republishBookMetadata({
       bookSlug,
+      canonicalBookSlug: bookDocument.canonicalBookSlug || "",
       title,
       subtitle,
       author,
@@ -467,17 +465,7 @@ async function handleMetadataRepublish(request, response) {
       updatedAt: new Date().toISOString(),
     });
 
-    await createPublishEvent({
-      jobId: `metadata_${bookSlug}`,
-      bookSlug,
-      status: "metadata-published",
-      commitSha: publishResult.gitCommitSha,
-      catalogUrl: getPublicAssetUrl("catalog.json"),
-      metadataUrl: publishResult.metadataUrl,
-      manifestUrl: publishResult.manifestUrl,
-      createdAt: new Date().toISOString(),
-      triggeredBy: requestedBy || "admin-console",
-    }).catch(() => {});
+
 
     sendJson(response, 200, {
       ok: true,
