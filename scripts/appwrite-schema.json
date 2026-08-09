@@ -1,0 +1,467 @@
+{
+  "schemaVersion": "1.0.0",
+  "database": {
+    "id": "library_ingestion",
+    "name": "Library Ingestion"
+  },
+  "collections": [
+    {
+      "id": "books",
+      "name": "Books",
+      "documentSecurity": false,
+      "attributes": [
+        {
+          "key": "slug",
+          "type": "string",
+          "size": 128,
+          "required": true
+        },
+        {
+          "key": "title",
+          "type": "string",
+          "size": 255,
+          "required": true
+        },
+        {
+          "key": "subtitle",
+          "type": "string",
+          "size": 255,
+          "required": false
+        },
+        {
+          "key": "author",
+          "type": "string",
+          "size": 255,
+          "required": false
+        },
+        {
+          "key": "description",
+          "type": "string",
+          "size": 5000,
+          "required": false
+        },
+        {
+          "key": "category",
+          "type": "string",
+          "size": 120,
+          "required": false
+        },
+        {
+          "key": "languageId",
+          "type": "string",
+          "size": 64,
+          "required": true
+        },
+        {
+          "key": "volumeId",
+          "type": "string",
+          "size": 64,
+          "required": true
+        },
+        {
+          "key": "sourceFileId",
+          "type": "string",
+          "size": 128,
+          "required": true
+        },
+        {
+          "key": "status",
+          "type": "enum",
+          "elements": [
+            "draft",
+            "queued",
+            "processing",
+            "published",
+            "failed",
+            "archived"
+          ],
+          "required": false,
+          "default": "draft"
+        },
+        {
+          "key": "publishedVersion",
+          "type": "string",
+          "size": 64,
+          "required": false
+        },
+        {
+          "key": "manifestUrl",
+          "type": "string",
+          "size": 2048,
+          "required": false
+        },
+        {
+          "key": "metadataUrl",
+          "type": "string",
+          "size": 2048,
+          "required": false
+        },
+        {
+          "key": "coverImageUrl",
+          "type": "string",
+          "size": 2048,
+          "required": false
+        },
+        {
+          "key": "nextRecommendedBookId",
+          "type": "string",
+          "size": 128,
+          "required": false
+        },
+        {
+          "key": "defaultLanguageId",
+          "type": "string",
+          "size": 255,
+          "required": false
+        },
+        {
+          "key": "defaultVolumeId",
+          "type": "string",
+          "size": 255,
+          "required": false
+        },
+        {
+          "key": "totalPages",
+          "type": "integer",
+          "min": 1,
+          "max": 100000,
+          "required": false
+        },
+        {
+          "key": "createdBy",
+          "type": "string",
+          "size": 128,
+          "required": true
+        },
+        {
+          "key": "createdAt",
+          "type": "datetime",
+          "required": true
+        },
+        {
+          "key": "updatedAt",
+          "type": "datetime",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "ingestion_jobs",
+      "name": "Ingestion Jobs",
+      "documentSecurity": false,
+      "attributes": [
+        {
+          "key": "jobId",
+          "type": "string",
+          "size": 128,
+          "required": true
+        },
+        {
+          "key": "bookSlug",
+          "type": "string",
+          "size": 128,
+          "required": true
+        },
+        {
+          "key": "sourceFileId",
+          "type": "string",
+          "size": 128,
+          "required": true
+        },
+        {
+          "key": "languageId",
+          "type": "string",
+          "size": 64,
+          "required": true
+        },
+        {
+          "key": "volumeId",
+          "type": "string",
+          "size": 64,
+          "required": true
+        },
+        {
+          "key": "printedPageStartPage",
+          "type": "integer",
+          "min": 1,
+          "max": 100000,
+          "required": false
+        },
+        {
+          "key": "workerDispatchToken",
+          "type": "string",
+          "size": 128,
+          "required": false
+        },
+        {
+          "key": "pushStatus",
+          "type": "string",
+          "size": 24,
+          "required": false
+        },
+        {
+          "key": "pushError",
+          "type": "string",
+          "size": 5000,
+          "required": false
+        },
+        {
+          "key": "pushAttempts",
+          "type": "integer",
+          "min": 0,
+          "max": 100000,
+          "required": false,
+          "default": 0
+        },
+        {
+          "key": "lastPushAttempt",
+          "type": "datetime",
+          "required": false
+        },
+        {
+          "key": "status",
+          "type": "enum",
+          "elements": [
+            "draft",
+            "queued",
+            "processing",
+            "validating",
+            "publishing",
+            "published",
+            "failed",
+            "cancelled",
+            "retrying"
+          ],
+          "required": false,
+          "default": "draft"
+        },
+        {
+          "key": "attempt",
+          "type": "integer",
+          "min": 0,
+          "max": 1000,
+          "required": false,
+          "default": 0
+        },
+        {
+          "key": "workerId",
+          "type": "string",
+          "size": 128,
+          "required": false
+        },
+        {
+          "key": "workerVersion",
+          "type": "string",
+          "size": 64,
+          "required": false
+        },
+        {
+          "key": "errorCode",
+          "type": "string",
+          "size": 128,
+          "required": false
+        },
+        {
+          "key": "errorMessage",
+          "type": "string",
+          "size": 5000,
+          "required": false
+        },
+        {
+          "key": "outputVersion",
+          "type": "string",
+          "size": 64,
+          "required": false
+        },
+        {
+          "key": "pageCount",
+          "type": "integer",
+          "min": 1,
+          "max": 100000,
+          "required": false
+        },
+        {
+          "key": "startedAt",
+          "type": "datetime",
+          "required": false
+        },
+        {
+          "key": "finishedAt",
+          "type": "datetime",
+          "required": false
+        },
+        {
+          "key": "createdAt",
+          "type": "datetime",
+          "required": true
+        },
+        {
+          "key": "updatedAt",
+          "type": "datetime",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "publish_events",
+      "name": "Publish Events",
+      "documentSecurity": false,
+      "attributes": [
+        {
+          "key": "publishId",
+          "type": "string",
+          "size": 128,
+          "required": true
+        },
+        {
+          "key": "bookSlug",
+          "type": "string",
+          "size": 128,
+          "required": true
+        },
+        {
+          "key": "version",
+          "type": "string",
+          "size": 64,
+          "required": true
+        },
+        {
+          "key": "gitCommitSha",
+          "type": "string",
+          "size": 128,
+          "required": false
+        },
+        {
+          "key": "catalogPath",
+          "type": "string",
+          "size": 2048,
+          "required": true
+        },
+        {
+          "key": "metadataPath",
+          "type": "string",
+          "size": 2048,
+          "required": true
+        },
+        {
+          "key": "manifestPath",
+          "type": "string",
+          "size": 2048,
+          "required": true
+        },
+        {
+          "key": "assetBasePath",
+          "type": "string",
+          "size": 2048,
+          "required": true
+        },
+        {
+          "key": "publishedAt",
+          "type": "datetime",
+          "required": true
+        },
+        {
+          "key": "triggeredBy",
+          "type": "string",
+          "size": 128,
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "ai_analysis_drafts",
+      "name": "AI Analysis Drafts",
+      "documentSecurity": false,
+      "attributes": [
+        {
+          "key": "bookSlug",
+          "type": "string",
+          "size": 128,
+          "required": true
+        },
+        {
+          "key": "sourceKey",
+          "type": "string",
+          "size": 512,
+          "required": true
+        },
+        {
+          "key": "sourceFileId",
+          "type": "string",
+          "size": 128,
+          "required": false
+        },
+        {
+          "key": "payloadJson",
+          "type": "string",
+          "size": 100000,
+          "required": true
+        },
+        {
+          "key": "savedBy",
+          "type": "string",
+          "size": 128,
+          "required": false
+        },
+        {
+          "key": "savedAt",
+          "type": "datetime",
+          "required": true
+        },
+        {
+          "key": "updatedAt",
+          "type": "datetime",
+          "required": true
+        }
+      ]
+    }
+  ],
+  "buckets": [
+    {
+      "id": "source_pdfs",
+      "name": "Source PDFs",
+      "permissions": [],
+      "fileSecurity": false,
+      "maximumFileSize": 30000000,
+      "allowedFileExtensions": [],
+      "compression": "none",
+      "encryption": true,
+      "antivirus": true
+    },
+    {
+      "id": "generated_previews",
+      "name": "Generated Previews",
+      "permissions": [],
+      "fileSecurity": false,
+      "maximumFileSize": 30000000,
+      "allowedFileExtensions": [],
+      "compression": "none",
+      "encryption": true,
+      "antivirus": true
+    },
+    {
+      "id": "worker_logs",
+      "name": "Worker Logs",
+      "permissions": [],
+      "fileSecurity": false,
+      "maximumFileSize": 20000000,
+      "allowedFileExtensions": [],
+      "compression": "none",
+      "encryption": true,
+      "antivirus": true
+    },
+    {
+      "id": "public_assets",
+      "name": "Public Assets",
+      "permissions": [
+        "read(\"any\")"
+      ],
+      "fileSecurity": false,
+      "maximumFileSize": 30000000,
+      "allowedFileExtensions": [],
+      "compression": "none",
+      "encryption": false,
+      "antivirus": false
+    }
+  ]
+}

@@ -32,6 +32,7 @@ const requiredNames = [
   "APPWRITE_JOBS_COLLECTION_ID",
   "APPWRITE_BOOKS_COLLECTION_ID",
   "APPWRITE_SOURCE_BUCKET_ID",
+  "APPWRITE_PUBLIC_BUCKET_ID",
 ];
 
 function requireEnv(name) {
@@ -145,4 +146,102 @@ export async function createPublishEvent(data) {
       data,
     },
   );
+}
+
+export function publicFileViewUrl(bucketId, fileId) {
+  return `${appwriteConfig.APPWRITE_ENDPOINT}/storage/buckets/${bucketId}/files/${fileId}/view?project=${appwriteConfig.APPWRITE_PROJECT_ID}`;
+}
+
+export async function uploadBucketFile({
+  bucketId,
+  fileId,
+  fileBuffer,
+  fileName,
+  contentType,
+}) {
+  const boundary = `----islamicLibraryBoundary${Date.now().toString(36)}`;
+  const encoder = new TextEncoder();
+  const chunks = [];
+
+  function pushText(value) {
+    chunks.push(encoder.encode(value));
+  }
+
+  function pushBuffer(buffer) {
+    chunks.push(new Uint8Array(buffer));
+  }
+
+  pushText(`--${boundary}\r\n`);
+  pushText(`Content-Disposition: form-data; name="fileId"\r\n\r\n`);
+  pushText(`${fileId}\r\n`);
+  pushText(`--${boundary}\r\n`);
+  pushText(`Content-Disposition: form-data; name="file"; filename="${fileName}"\r\n`);
+  pushText(`Content-Type: ${contentType}\r\n\r\n`);
+  pushBuffer(fileBuffer);
+  pushText(`\r\n--${boundary}--\r\n`);
+
+  const body = Buffer.concat(chunks.map((chunk) => Buffer.from(chunk)));
+
+  const response = await fetch(
+    `${appwriteConfig.APPWRITE_ENDPOINT}/storage/buckets/${bucketId}/files`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": `multipart/form-data; boundary=${boundary}`,
+        "X-Appwrite-Project": appwriteConfig.APPWRITE_PROJECT_ID,
+        "X-Appwrite-Key": appwriteConfig.APPWRITE_API_KEY,
+      },
+      body,
+    },
+  );
+
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(`Upload ${fileId} failed (${response.status}): ${text}`);
+  }
+
+  return response.json();
+}
+
+export async function deleteBucketFile(bucketId, fileId) {
+  const response = await fetch(
+    `${appwriteConfig.APPWRITE_ENDPOINT}/storage/buckets/${bucketId}/files/${fileId}`,
+    {
+      method: "DELETE",
+      headers: {
+        "X-Appwrite-Project": appwriteConfig.APPWRITE_PROJECT_ID,
+        "X-Appwrite-Key": appwriteConfig.APPWRITE_API_KEY,
+      },
+    },
+  );
+
+  if (!response.ok && response.status !== 404) {
+    const text = await response.text();
+    throw new Error(`Delete ${fileId} failed (${response.status}): ${text}`);
+  }
+
+  return response.ok;
+}
+
+export async function downloadBucketFileText(bucketId, fileId) {
+  const response = await fetch(
+    `${appwriteConfig.APPWRITE_ENDPOINT}/storage/buckets/${bucketId}/files/${fileId}/download`,
+    {
+      headers: {
+        "X-Appwrite-Project": appwriteConfig.APPWRITE_PROJECT_ID,
+        "X-Appwrite-Key": appwriteConfig.APPWRITE_API_KEY,
+      },
+    },
+  );
+
+  if (response.status === 404) {
+    return null;
+  }
+
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(`Download ${fileId} failed (${response.status}): ${text}`);
+  }
+
+  return response.text();
 }

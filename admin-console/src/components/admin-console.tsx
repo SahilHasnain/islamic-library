@@ -522,7 +522,6 @@ export function AdminConsole({ initialSnapshot }: { initialSnapshot: MonitoringS
   const [isLoadingJobs, setIsLoadingJobs] = useState(false);
   const [dispatchingJobId, setDispatchingJobId] = useState<string>();
   const [recoveringJobId, setRecoveringJobId] = useState<string>();
-  const [retryingPushJobId, setRetryingPushJobId] = useState<string>();
   const [jobFilter, setJobFilter] = useState<(typeof jobFilters)[number]["value"]>("all");
   const [searchQuery, setSearchQuery] = useState("");
   const [activeWorkspace, setActiveWorkspace] = useState<"upload" | "edit" | "jobs" | "events">("edit");
@@ -1013,28 +1012,6 @@ export function AdminConsole({ initialSnapshot }: { initialSnapshot: MonitoringS
       setJobsError("Recovery action failed.");
     } finally {
       setRecoveringJobId(undefined);
-    }
-  }
-
-  async function handleRetryPush(jobId: string) {
-    setRetryingPushJobId(jobId);
-    setJobsError(undefined);
-
-    try {
-      const response = await fetch(`/api/ingestion/retry-push/${jobId}`, {
-        method: "POST",
-      });
-      const payload = (await response.json().catch(() => ({}))) as { error?: string };
-      if (!response.ok) {
-        setJobsError(payload.error || "Retry push failed.");
-        return;
-      }
-
-      await loadJobs();
-    } catch {
-      setJobsError("Retry push failed.");
-    } finally {
-      setRetryingPushJobId(undefined);
     }
   }
 
@@ -3270,11 +3247,9 @@ export function AdminConsole({ initialSnapshot }: { initialSnapshot: MonitoringS
             <p className="mt-2 text-sm text-stone-400">Books visible through the published asset catalog.</p>
           </div>
           <div className="rounded-2xl border border-stone-800 bg-stone-900/70 p-4">
-            <p className="text-xs uppercase tracking-[0.24em] text-stone-500">Push Health</p>
-            <p className="mt-3 text-3xl font-semibold text-stone-50">{summary.pushedJobs}</p>
-            <p className="mt-2 text-sm text-stone-400">
-              Pushed: {summary.pushedJobs} | Pending: {summary.pushPendingJobs} | Failed: {summary.pushFailedJobs}
-            </p>
+            <p className="text-xs uppercase tracking-[0.24em] text-stone-500">Published Jobs</p>
+            <p className="mt-3 text-3xl font-semibold text-stone-50">{summary.publishedJobs}</p>
+            <p className="mt-2 text-sm text-stone-400">Jobs that completed publishing to the public bucket.</p>
           </div>
           <div className="rounded-2xl border border-stone-800 bg-stone-900/70 p-4">
             <p className="text-xs uppercase tracking-[0.24em] text-stone-500">Failures</p>
@@ -3371,14 +3346,6 @@ export function AdminConsole({ initialSnapshot }: { initialSnapshot: MonitoringS
                       {job.jobId} | {job.volumeId} | {formatDate(job.updatedAt)}
                     </p>
                     {job.errorMessage ? <p className="mt-2 text-xs text-rose-300">{job.errorMessage}</p> : null}
-                    {job.status === "published" && job.pushStatus === "failed" ? (
-                      <div className="mt-2 flex flex-wrap items-center gap-2">
-                        <span className="text-xs text-amber-300">Push failed</span>
-                        {job.pushError ? (
-                          <span className="text-xs text-stone-500 break-all">{job.pushError}</span>
-                        ) : null}
-                      </div>
-                    ) : null}
                     {job.status === "published" && job.pushStatus === "succeeded" ? (
                       <div className="mt-2">
                         <span className="text-xs text-emerald-300">Pushed</span>
@@ -3421,16 +3388,6 @@ export function AdminConsole({ initialSnapshot }: { initialSnapshot: MonitoringS
                       </button>
                     ) : null}
 
-                    {job.status === "published" && job.pushStatus === "failed" ? (
-                      <button
-                        type="button"
-                        disabled={retryingPushJobId === job.jobId}
-                        onClick={() => void handleRetryPush(job.jobId)}
-                        className="rounded-full border border-amber-900/60 px-4 py-2 text-xs font-medium text-amber-200 transition hover:border-amber-300 hover:text-amber-100 disabled:cursor-not-allowed disabled:border-stone-800 disabled:text-stone-500"
-                      >
-                        {retryingPushJobId === job.jobId ? "Retrying push..." : "Retry push"}
-                      </button>
-                    ) : null}
                     {job.status === "processing" ||
                       job.status === "validating" ||
                       job.status === "publishing" ? (

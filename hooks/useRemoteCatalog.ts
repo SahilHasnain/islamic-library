@@ -2,8 +2,29 @@ import { useEffect, useState } from "react";
 
 import type { PublicCatalog } from "../data/types";
 
+const DEFAULT_ENDPOINT = "http://35.200.174.46/v1";
+const DEFAULT_BUCKET_ID = "public_assets";
+const DEFAULT_CATALOG_FILE_ID = "catalog";
+
+function buildCatalogUrl(): string {
+  const override = process.env.EXPO_PUBLIC_LIBRARY_CATALOG_URL;
+  if (override) {
+    return override;
+  }
+
+  const endpoint = (process.env.EXPO_PUBLIC_APPWRITE_ENDPOINT || DEFAULT_ENDPOINT)
+    .trim()
+    .replace(/\/+$/, "");
+  const projectId = process.env.EXPO_PUBLIC_APPWRITE_PROJECT_ID || "";
+  const bucketId = process.env.EXPO_PUBLIC_APPWRITE_PUBLIC_BUCKET_ID || DEFAULT_BUCKET_ID;
+  const fileId = process.env.EXPO_PUBLIC_APPWRITE_CATALOG_FILE_ID || DEFAULT_CATALOG_FILE_ID;
+
+  const projectQuery = projectId ? `?project=${encodeURIComponent(projectId)}` : "";
+  return `${endpoint}/storage/buckets/${bucketId}/files/${fileId}/view${projectQuery}`;
+}
+
 export function useRemoteCatalog() {
-  const catalogUrl = "https://raw.githubusercontent.com/SahilHasnain/islamic-library-assets/main/catalog.json";
+  const catalogUrl = buildCatalogUrl();
   const [catalog, setCatalog] = useState<PublicCatalog | null>(null);
   const [isLoading, setIsLoading] = useState(Boolean(catalogUrl));
   const [error, setError] = useState<string | null>(null);

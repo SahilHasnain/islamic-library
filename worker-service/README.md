@@ -61,67 +61,36 @@ In this mode the worker will:
 - create a fake cover
 - generate manifest and metadata
 - run validation
-- publish to the assets repo
+- publish to the `public_assets` Appwrite bucket
 
 This lets you verify:
 
 - Appwrite job flow
 - worker handoff
 - validation
-- assets repo publishing
+- bucket publishing (pages, covers, manifest, metadata, catalog)
 - catalog updates
 
 without waiting on `PyMuPDF`.
 
-## Assets Repo
+## Public Bucket Publishing
 
-Default local publish target:
+The worker publishes all rendered content to the **`public_assets`** bucket (anonymous read).
 
-- `D:/Projects/islamic-library-assets`
+- File IDs are deterministic (`md5` of `book:lang:volume:page`-style seeds); overwriting is delete-then-create.
+- Public view URLs use `${APPWRITE_ENDPOINT}/storage/buckets/${bucketId}/files/${fileId}/view?project=${projectId}`.
+- `catalog.json` is written with the fixed file ID `catalog`.
 
-Expected env values:
+Required env:
 
-- `ASSETS_REPO_PATH`
-- `ASSETS_REPO_BRANCH`
-- `ASSETS_REPO_OWNER`
-- `ASSETS_REPO_NAME`
+- `APPWRITE_PUBLIC_BUCKET_ID` (e.g. `public_assets`)
 
-## GitHub Push Setup
+## GitHub Assets Repo (legacy)
 
-By default, the worker only writes and commits into the local assets repo clone.
-
-That means:
-
-- local `git add`
-- local `git commit`
-- no remote GitHub push unless you enable it
-
-To enable real VPS publishing, set these env values:
-
-```env
-GIT_PUSH_ENABLED=true
-GIT_REMOTE_NAME=origin
-GITHUB_REPO_HTTPS=https://github.com/<your-user>/islamic-library-assets.git
-GITHUB_TOKEN=<your-fine-grained-token>
-```
-
-Recommended VPS setup:
-
-1. Clone the assets repo on the VPS
-2. Set `ASSETS_REPO_PATH` to that clone path
-3. Add a fine-grained GitHub token in `.env.local`
-4. Enable `GIT_PUSH_ENABLED=true`
-5. Keep the token only on the VPS, never in the app
-
-The worker will then:
-
-1. write files into the clone
-2. `git add`
-3. `git commit`
-4. configure the authenticated remote URL
-5. `git push origin <branch>`
-
-If `GIT_PUSH_ENABLED=false`, the worker stays in local-only mode.
+The previous delivery path wrote into a local clone of `sahilhasnain/islamic-library-assets`
+and optionally pushed it to GitHub. That path has been replaced by Appwrite bucket publishing;
+the repo remains only as a reference. The legacy env vars (`ASSETS_REPO_*`, `GIT_*`, `GITHUB_*`)
+are no longer read by the worker.
 
 ## Pending
 

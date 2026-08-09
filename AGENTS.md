@@ -17,7 +17,7 @@
 
 # Runtime Config
 
-- Mobile app reads the public catalog from a hardcoded GitHub URL in `hooks/useRemoteCatalog.ts`.
+- Mobile app reads the public catalog from the self-hosted Appwrite `public_assets` bucket. `hooks/useRemoteCatalog.ts` assembles the view URL from `EXPO_PUBLIC_APPWRITE_ENDPOINT` / `EXPO_PUBLIC_APPWRITE_PROJECT_ID` / `EXPO_PUBLIC_APPWRITE_PUBLIC_BUCKET_ID` / `EXPO_PUBLIC_APPWRITE_CATALOG_FILE_ID` (see root `.env.example`); a full URL can be forced via `EXPO_PUBLIC_LIBRARY_CATALOG_URL`.
 - The repo contains a committed root `.env.local` with secrets; do not echo/copy its contents into chat or logs.
 
 # Expo Router / NativeWind Gotchas
@@ -39,12 +39,16 @@
 - Worker loads env from `worker-service/.env.local` via a small custom parser in `worker-service/src/appwrite.mjs` (not `dotenv`); it's a basic `KEY=value` reader (no quoting/expansion).
 - Real PDF rendering requires Python + `PyMuPDF`; otherwise use mock rendering: `MOCK_RENDER_ENABLED=true` (see `worker-service/README.md` + `worker-service/.env.example`).
 - Publishing writes into a separate local clone at `ASSETS_REPO_PATH` and commits there; pushing is disabled by default (`GIT_PUSH_ENABLED=false`).
-- `ASSETS_REPO_PATH` has a developer-machine fallback in `worker-service/src/publish.mjs`; set it explicitly so publishing doesn't try to write into a non-existent path.
+- Publishing uploads pages/covers/manifests/metadata/catalog to the Appwrite `public_assets` bucket via `worker-service/src/upload.mjs` (deterministic file IDs, delete-then-create overwrite, anonymous read).
 
 # Appwrite Schema Scripts
 
+- Schema-of-record + provisioning for the self-hosted Appwrite at `http://35.200.174.46/v1` (set `APPWRITE_ENDPOINT`/`APPWRITE_PROJECT_ID`/`APPWRITE_API_KEY` in `admin-console/.env.local`):
+  - `scripts/appwrite-schema.json` — declarative schema (database, collections + attributes, buckets incl. the public `public_assets` bucket with anonymous read).
+  - Root `npm run appwrite:provision` → `./scripts/provision-appwrite.mjs` (idempotent, zero-dependency; dry-run: `npm run appwrite:provision:dry`).
 - Root script `npm run appwrite:add-attributes` runs `./scripts/add-missing-attributes.mjs` and expects Appwrite env values to be present in `admin-console/.env.local` (see `scripts/README.md`).
 - Admin console has the same script locally: `npm --prefix admin-console run add-attributes`.
+- Public delivery migration (GitHub assets -> Appwrite `public_assets`) is planned in `plans/appwrite-delivery-migration.md`.
 
 # Known Footguns
 

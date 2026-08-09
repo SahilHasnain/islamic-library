@@ -17,11 +17,9 @@ import {
 } from "./render.mjs";
 import {
   buildPublishVersion,
-  getPublicAssetUrl,
   publishWorkspace,
   republishBookMetadata,
-  retryPushOnly,
-} from "./publish.mjs";
+} from "./upload.mjs";
 import { validateRenderedWorkspace } from "./validate.mjs";
 import { createJobWorkspace, writeWorkspaceSummary } from "./workspace.mjs";
 import { analyzeSourcePdf, rerankRecommendationCandidates } from "./ai-analysis.mjs";
@@ -355,7 +353,6 @@ async function handleIngest(request, response) {
       sourcePdfSize: pdfBuffer.byteLength,
       totalPages: renderResult.totalPages,
       outputVersion: version,
-      gitCommitSha: publishResult.gitCommitSha,
       catalogPath: publishResult.catalogPath,
       metadataPath: publishResult.metadataPath,
       manifestPath: publishResult.manifestPath,
@@ -472,7 +469,6 @@ async function handleMetadataRepublish(request, response) {
       status: "metadata-published",
       bookSlug,
       outputVersion: version,
-      gitCommitSha: publishResult.gitCommitSha,
       metadataUrl: publishResult.metadataUrl,
       manifestUrl: publishResult.manifestUrl,
     });
@@ -484,59 +480,6 @@ async function handleMetadataRepublish(request, response) {
       bookSlug,
     });
   }
-}
-
-async function handleRetryPush(request, response) {
-  if (!isAuthorized(request)) {
-    sendJson(response, 401, { error: "Unauthorized" });
-    return;
-  }
-
-  const payload = await readJsonBody(request);
-  const { jobId } = payload || {};
-
-  if (!jobId) {
-    sendJson(response, 400, { error: "Missing required field: jobId" });
-    return;
-  }
-
-  const jobDocument = await findJobDocument(jobId);
-  if (!jobDocument) {
-    sendJson(response, 404, { error: "Job document not found in Appwrite." });
-    return;
-  }
-
-  if (jobDocument.status !== "published") {
-    sendJson(response, 409, { error: "Only published jobs can retry push." });
-    return;
-  }
-
-  if (jobDocument.pushStatus !== "failed") {
-    sendJson(response, 409, { error: "Retry push is only allowed when pushStatus is failed." });
-    return;
-  }
-
-  const now = new Date().toISOString();
-  const pushResult = await retryPushOnly();
-
-  await updateJobDocument(jobDocument.$id, {
-    pushStatus: pushResult.pushStatus,
-    pushError: pushResult.pushError || "",
-    pushAttempts:
-      Number(jobDocument.pushAttempts || 0) + (pushResult.pushStatus === "skipped" ? 0 : 1),
-    lastPushAttempt: pushResult.pushStatus === "skipped" ? "" : now,
-    updatedAt: now,
-  }).catch(() => {});
-
-  sendJson(response, 200, {
-    ok: true,
-    jobId,
-    pushStatus: pushResult.pushStatus,
-    pushError: pushResult.pushError || "",
-    pushConfigured: pushResult.pushConfigured,
-    remoteName: pushResult.remoteName,
-    remoteUrl: pushResult.remoteUrl,
-  });
 }
 
 async function handleAiAnalyze(request, response) {
@@ -688,12 +631,7 @@ const server = http.createServer(async (request, response) => {
       return;
     }
 
-    if (request.method === "POST" && request.url === "/jobs/retry-push") {
-      await handleRetryPush(request, response);
-      return;
-    }
-
-    if (request.method === "POST" && request.url === "/ai/analyze") {
+if (request.method === "POST" && request.url === "/ai/analyze") {
       await handleAiAnalyze(request, response);
       return;
     }

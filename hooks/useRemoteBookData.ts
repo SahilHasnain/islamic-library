@@ -10,7 +10,7 @@ import type {
 import { useRemoteCatalog } from "./useRemoteCatalog";
 
 async function fetchJson<T>(url: string) {
-  const response = await fetch(normalizeJsonAssetUrl(url), {
+  const response = await fetch(url, {
     headers: {
       "Cache-Control": "no-cache",
     },
@@ -20,16 +20,6 @@ async function fetchJson<T>(url: string) {
   }
 
   return (await response.json()) as T;
-}
-
-function normalizeJsonAssetUrl(url: string) {
-  const match = url.match(/^https:\/\/cdn\.jsdelivr\.net\/gh\/([^/]+)\/([^@/]+)@([^/]+)\/(.+)$/);
-  if (!match) {
-    return url;
-  }
-
-  const [, owner, repo, branch, assetPath] = match;
-  return `https://raw.githubusercontent.com/${owner}/${repo}/${branch}/${assetPath}`;
 }
 
 function withCacheBust(url: string, cacheKey: string) {
