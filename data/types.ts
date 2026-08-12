@@ -51,15 +51,6 @@ export type ReadingProgress = {
   pagesViewed?: number[];
 };
 
-export type Bookmark = {
-  id: string;
-  bookId: string;
-  languageId: string;
-  volumeId: string;
-  page: number;
-  createdAt: string;
-};
-
 export type AppThemePreference = "system" | "light" | "dark";
 
 export type BookCompletion = {

@@ -1,6 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
 import { Image } from "expo-image";
-import { Link, useFocusEffect } from "expo-router";
+import { Link, useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Animated, FlatList, Pressable, ScrollView, Text, TextInput, View, useWindowDimensions } from "react-native";
 
@@ -67,6 +67,37 @@ const librarySortLabels: Record<LibrarySortMode, string> = {
 
 const librarySortOptions: LibrarySortMode[] = ["forYou", "recent", "alpha"];
 
+const REFINE_FAB_SIZE = 56;
+const REFINE_FAB_MARGIN = 16;
+const TAB_BAR_HEIGHT = 56;
+
+// "For You" ranking model.
+// Each signal below is normalized to a 0..1 magnitude before being scaled by its
+// weight, so weights are comparable and tunable in isolation.
+const FOR_YOU_WEIGHTS = {
+  // Book points to another book in the visible list (curated "next" link).
+  curatedChain: 40,
+  // How many other books explicitly recommend this book (capped).
+  incomingRecommendation: 25,
+  // Category / tag overlap with the anchor book (recently-read or last completed).
+  sharedAnchor: 15,
+  // Aggregate affinity across recently-read/completed books.
+  categoryAffinity: 8,
+  authorAffinity: 14,
+  tagAffinity: 6,
+  // Early catalog position acts as a mild editorial ordering preference.
+  catalogOrder: 3,
+} as const;
+
+// Negative: demote already-completed books so the front of the list stays fresh.
+const COMPLETION_PENALTY = -20;
+
+// Caps used to normalize unbounded signals into 0..1.
+const INCOMING_RECOMMENDATION_CAP = 5;
+const AFFINITY_CAP = 10;
+const RECENT_AFFINITY_COUNT = 5;
+const COMPLETION_AFFINITY_COUNT = 5;
+
 function getTimeValue(value?: string) {
   if (!value) {
     return 0;
@@ -121,6 +152,147 @@ function sortBooksByRecentProgress(
   });
 }
 
+function normalizeSignal(value: number, cap: number) {
+  return Math.max(0, Math.min(value, cap)) / cap;
+}
+
+type ForYouContext = {
+  visibleBookIds: Set<string>;
+  booksById: Map<string, PublicCatalogBook>;
+  catalogRank: Map<string, number>;
+  incomingRecommendationCount: Map<string, number>;
+  categoryAffinity: Map<string, number>;
+  authorAffinity: Map<string, number>;
+  tagAffinity: Map<string, number>;
+  anchorBook?: PublicCatalogBook;
+  completedBookIdSet: Set<string>;
+};
+
+function buildForYouContext({
+  books,
+  remoteBooks,
+  latestProgressByBook,
+  completionMap,
+  completedBookIdSet,
+}: {
+  books: PublicCatalogBook[];
+  remoteBooks: PublicCatalogBook[];
+  latestProgressByBook: Record<string, ReadingProgress | undefined>;
+  completionMap: Record<string, { bookId: string; completedAt: string }>;
+  completedBookIdSet: Set<string>;
+}): ForYouContext {
+  const visibleBookIds = new Set(books.map((book) => book.id));
+  const booksById = new Map(remoteBooks.map((book) => [book.id, book]));
+  const catalogRank = new Map(remoteBooks.map((book, index) => [book.id, index]));
+
+  const incomingRecommendationCount = new Map<string, number>();
+  remoteBooks.forEach((book) => {
+    if (book.nextRecommendedBookId) {
+      incomingRecommendationCount.set(
+        book.nextRecommendedBookId,
+        (incomingRecommendationCount.get(book.nextRecommendedBookId) ?? 0) + 1,
+      );
+    }
+  });
+
+  const inProgressBooks = sortBooksByRecentProgress(
+    books.filter((book) => latestProgressByBook[book.id]),
+    latestProgressByBook,
+  );
+  const anchorBook =
+    inProgressBooks[0] ??
+    Object.values(completionMap)
+      .sort((a, b) => getTimeValue(b.completedAt) - getTimeValue(a.completedAt))
+      .map((completion) => booksById.get(completion.bookId))
+      .find(Boolean);
+
+  const categoryAffinity = new Map<string, number>();
+  const authorAffinity = new Map<string, number>();
+  const tagAffinity = new Map<string, number>();
+  inProgressBooks
+    .slice(0, RECENT_AFFINITY_COUNT)
+    .forEach((book, index) => {
+      const weight = Math.max(1, RECENT_AFFINITY_COUNT - index);
+      addWeightedCount(categoryAffinity, book.category, weight * 2);
+      addWeightedCount(authorAffinity, book.author, weight * 2);
+      (book.tags ?? []).forEach((tag) => addWeightedCount(tagAffinity, tag, weight));
+    });
+
+  Object.values(completionMap)
+    .sort((a, b) => getTimeValue(b.completedAt) - getTimeValue(a.completedAt))
+    .slice(0, COMPLETION_AFFINITY_COUNT)
+    .forEach((completion, index) => {
+      const book = booksById.get(completion.bookId);
+      const weight = Math.max(1, COMPLETION_AFFINITY_COUNT - index);
+      addWeightedCount(categoryAffinity, book?.category, weight);
+      addWeightedCount(authorAffinity, book?.author, weight);
+      (book?.tags ?? []).forEach((tag) => addWeightedCount(tagAffinity, tag, weight * 0.5));
+    });
+
+  return {
+    visibleBookIds,
+    booksById,
+    catalogRank,
+    incomingRecommendationCount,
+    categoryAffinity,
+    authorAffinity,
+    tagAffinity,
+    anchorBook,
+    completedBookIdSet,
+  };
+}
+
+function scoreBookForYou(book: PublicCatalogBook, context: ForYouContext) {
+  let score = 0;
+
+  // Curated next-link: this book points to another visible book.
+  if (book.nextRecommendedBookId && context.visibleBookIds.has(book.nextRecommendedBookId)) {
+    score += FOR_YOU_WEIGHTS.curatedChain;
+  }
+
+  // Explicit recommendations from other books in the catalog.
+  score +=
+    normalizeSignal(
+      context.incomingRecommendationCount.get(book.id) ?? 0,
+      INCOMING_RECOMMENDATION_CAP,
+    ) * FOR_YOU_WEIGHTS.incomingRecommendation;
+
+  // Shared signals with the anchor book (0..3 normalized to 0..1).
+  score +=
+    (getSharedSignalScore(book, context.anchorBook) / 3) * FOR_YOU_WEIGHTS.sharedAnchor;
+
+  // Aggregate affinity from recently-read and completed books.
+  if (book.category) {
+    score +=
+      normalizeSignal(context.categoryAffinity.get(book.category) ?? 0, AFFINITY_CAP) *
+      FOR_YOU_WEIGHTS.categoryAffinity;
+  }
+  if (book.author) {
+    score +=
+      normalizeSignal(context.authorAffinity.get(book.author) ?? 0, AFFINITY_CAP) *
+      FOR_YOU_WEIGHTS.authorAffinity;
+  }
+  const tagSum = (book.tags ?? []).reduce(
+    (total, tag) => total + (context.tagAffinity.get(tag) ?? 0),
+    0,
+  );
+  score += normalizeSignal(tagSum, AFFINITY_CAP) * FOR_YOU_WEIGHTS.tagAffinity;
+
+  // Editorial ordering preference for books appearing earlier in the catalog.
+  score +=
+    normalizeSignal(
+      Math.max(0, 10 - (context.catalogRank.get(book.id) ?? 999)),
+      10,
+    ) * FOR_YOU_WEIGHTS.catalogOrder;
+
+  // Demote books the reader has already completed.
+  if (context.completedBookIdSet.has(book.id)) {
+    score += COMPLETION_PENALTY;
+  }
+
+  return score;
+}
+
 function sortBooksForYou({
   books,
   remoteBooks,
@@ -134,60 +306,18 @@ function sortBooksForYou({
   completionMap: Record<string, { bookId: string; completedAt: string }>;
   completedBookIdSet: Set<string>;
 }) {
-  const visibleBookIds = new Set(books.map((book) => book.id));
-  const booksById = new Map(remoteBooks.map((book) => [book.id, book]));
-  const catalogRank = new Map(remoteBooks.map((book, index) => [book.id, index]));
-  const incomingRecommendationCount = new Map<string, number>();
-  remoteBooks.forEach((book) => {
-    if (book.nextRecommendedBookId) {
-      incomingRecommendationCount.set(
-        book.nextRecommendedBookId,
-        (incomingRecommendationCount.get(book.nextRecommendedBookId) ?? 0) + 1,
-      );
-    }
+  const context = buildForYouContext({
+    books,
+    remoteBooks,
+    latestProgressByBook,
+    completionMap,
+    completedBookIdSet,
   });
+
   const shownBookIds = new Set<string>();
-
-  const inProgressBooks = sortBooksByRecentProgress(
-    books.filter((book) => latestProgressByBook[book.id] && !completedBookIdSet.has(book.id)),
-    latestProgressByBook,
-  );
-
-  const anchorBook =
-    inProgressBooks[0] ??
-    Object.values(completionMap)
-      .sort((a, b) => getTimeValue(b.completedAt) - getTimeValue(a.completedAt))
-      .map((completion) => booksById.get(completion.bookId))
-      .find(Boolean);
-  const categoryAffinity = new Map<string, number>();
-  const authorAffinity = new Map<string, number>();
-  const tagAffinity = new Map<string, number>();
-  sortBooksByRecentProgress(
-    remoteBooks.filter((book) => latestProgressByBook[book.id]),
-    latestProgressByBook,
-  )
-    .slice(0, 5)
-    .forEach((book, index) => {
-      const weight = Math.max(1, 5 - index);
-      addWeightedCount(categoryAffinity, book.category, weight * 2);
-      addWeightedCount(authorAffinity, book.author, weight);
-      (book.tags ?? []).forEach((tag) => addWeightedCount(tagAffinity, tag, weight));
-    });
-
-  Object.values(completionMap)
-    .sort((a, b) => getTimeValue(b.completedAt) - getTimeValue(a.completedAt))
-    .slice(0, 5)
-    .forEach((completion, index) => {
-      const book = booksById.get(completion.bookId);
-      const weight = Math.max(1, 4 - index);
-      addWeightedCount(categoryAffinity, book?.category, weight);
-      addWeightedCount(authorAffinity, book?.author, weight * 0.5);
-      (book?.tags ?? []).forEach((tag) => addWeightedCount(tagAffinity, tag, weight * 0.5));
-    });
-
   const orderedBooks: PublicCatalogBook[] = [];
   const pushBook = (book?: PublicCatalogBook) => {
-    if (!book || shownBookIds.has(book.id) || !visibleBookIds.has(book.id)) {
+    if (!book || shownBookIds.has(book.id) || !context.visibleBookIds.has(book.id)) {
       return;
     }
 
@@ -195,43 +325,35 @@ function sortBooksForYou({
     orderedBooks.push(book);
   };
 
+  const inProgressBooks = sortBooksByRecentProgress(
+    books.filter((book) => latestProgressByBook[book.id] && !completedBookIdSet.has(book.id)),
+    latestProgressByBook,
+  );
   inProgressBooks.forEach(pushBook);
 
+  // Follow the curated recommendation chain, skipping broken/invisible links
+  // so a single missing book can't kill the walk.
   const visitedChainIds = new Set<string>();
-  let currentBook = anchorBook;
-  for (let index = 0; index < 10; index += 1) {
-    const nextBookId = currentBook?.nextRecommendedBookId;
+  let currentBook = context.anchorBook;
+  for (let index = 0; index < 10 && currentBook; index += 1) {
+    const nextBookId = currentBook.nextRecommendedBookId;
     if (!nextBookId || visitedChainIds.has(nextBookId)) {
       break;
     }
 
     visitedChainIds.add(nextBookId);
-    const nextBook = booksById.get(nextBookId);
-    if (!nextBook) {
+    currentBook = context.booksById.get(nextBookId);
+    if (!currentBook) {
       break;
     }
 
-    pushBook(nextBook);
-    currentBook = nextBook;
+    pushBook(currentBook);
   }
 
   const remainingBooks = books
     .filter((book) => !shownBookIds.has(book.id))
     .sort((a, b) => {
-      const getForYouScore = (book: PublicCatalogBook) => {
-        let score = 0;
-        if (book.nextRecommendedBookId && visibleBookIds.has(book.nextRecommendedBookId)) score += 18;
-        score += (incomingRecommendationCount.get(book.id) ?? 0) * 10;
-        score += getSharedSignalScore(book, anchorBook) * 12;
-        score += book.category ? (categoryAffinity.get(book.category) ?? 0) * 3 : 0;
-        score += book.author ? (authorAffinity.get(book.author) ?? 0) * 2 : 0;
-        score += (book.tags ?? []).reduce((total, tag) => total + (tagAffinity.get(tag) ?? 0), 0);
-        score += Math.max(0, 8 - (catalogRank.get(book.id) ?? 999) * 0.1);
-        if (completedBookIdSet.has(book.id)) score -= 40;
-        return score;
-      };
-
-      const scoreDifference = getForYouScore(b) - getForYouScore(a);
+      const scoreDifference = scoreBookForYou(b, context) - scoreBookForYou(a, context);
       if (scoreDifference !== 0) return scoreDifference;
 
       return a.title.localeCompare(b.title);
@@ -538,7 +660,7 @@ function ResumeReadingHero({
       </View>
 
       <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
-        <View style={{ flex: 1, flexDirection: "row", gap: 12, flexWrap: "wrap" }}>
+        <View style={{ flex: 1, minWidth: 0, flexDirection: "row", gap: 12 }}>
           <Link
             href={
               activeBook
@@ -552,7 +674,9 @@ function ResumeReadingHero({
                 borderRadius: radii.pill,
                 backgroundColor: colors.accent,
                 paddingHorizontal: 20,
-                paddingVertical: 13,
+                paddingVertical: 10,
+                alignItems: "center",
+                justifyContent: "center",
               }}
             >
               <Text
@@ -560,9 +684,11 @@ function ResumeReadingHero({
                   color: colors.text,
                   fontSize: typography.bodySmall,
                   fontWeight: "800",
+                  textAlign: "center",
                 }}
+                numberOfLines={1}
               >
-                {activeProgress?.page ? "Resume Reading" : "Start Reading"}
+                {activeProgress?.page ? "Resume" : "Start"}
               </Text>
             </Pressable>
           </Link>
@@ -575,8 +701,9 @@ function ResumeReadingHero({
               style={{
                 borderRadius: radii.pill,
                 backgroundColor: colors.surfaceMuted,
-                paddingHorizontal: 16,
-                paddingVertical: 13,
+                paddingHorizontal: 20,
+                paddingVertical: 10,
+                justifyContent: "center",
               }}
             >
               <Text
@@ -584,7 +711,9 @@ function ResumeReadingHero({
                   color: colors.text,
                   fontSize: typography.control,
                   fontWeight: "800",
+                  textAlign: "center",
                 }}
+                numberOfLines={1}
               >
                 View Book
               </Text>
@@ -612,6 +741,124 @@ function ResumeReadingHero({
         ) : null}
       </View>
     </View>
+  );
+}
+
+function hexToRgb(hex: string): [number, number, number] {
+  const normalized = hex.replace("#", "");
+  const value = normalized.length === 3
+    ? normalized.split("").map((part) => part + part).join("")
+    : normalized;
+  const number = parseInt(value, 16);
+  return [(number >> 16) & 255, (number >> 8) & 255, number & 255];
+}
+
+function rgbToHex([r, g, b]: [number, number, number]) {
+  const clamp = (part: number) => Math.max(0, Math.min(255, Math.round(part))).toString(16).padStart(2, "0");
+  return `#${clamp(r)}${clamp(g)}${clamp(b)}`;
+}
+
+function interpolateColor(from: string, to: string, amount: number) {
+  const fromRgb = hexToRgb(from);
+  const toRgb = hexToRgb(to);
+  return rgbToHex([
+    fromRgb[0] + (toRgb[0] - fromRgb[0]) * amount,
+    fromRgb[1] + (toRgb[1] - fromRgb[1]) * amount,
+    fromRgb[2] + (toRgb[2] - fromRgb[2]) * amount,
+  ]);
+}
+
+function GradientFab({
+  size,
+  colors,
+  onPress,
+  badge,
+  active,
+}: {
+  size: number;
+  colors: ReturnType<typeof useAppTheme>["colors"];
+  onPress: () => void;
+  badge?: number;
+  active?: boolean;
+}) {
+  const steps = 10;
+  const from = active ? colors.accentStrong : colors.accent;
+  const to = colors.accentStrong;
+
+  return (
+    <Pressable
+      onPress={onPress}
+      accessibilityRole="button"
+      accessibilityLabel="Refine library"
+      style={{
+        width: size,
+        height: size,
+        borderRadius: size / 2,
+        shadowColor: "#000",
+        shadowOffset: { width: 0, height: 6 },
+        shadowOpacity: 0.28,
+        shadowRadius: 10,
+        elevation: 8,
+      }}
+    >
+      <View
+        style={{
+          width: size,
+          height: size,
+          borderRadius: size / 2,
+          overflow: "hidden",
+          alignItems: "center",
+          justifyContent: "center",
+        }}
+      >
+        {Array.from({ length: steps }).map((_, index) => (
+          <View
+            key={index}
+            style={{
+              position: "absolute",
+              top: 0,
+              left: 0,
+              right: 0,
+              height: size / steps,
+              transform: [{ translateY: (size / steps) * index }],
+              backgroundColor: interpolateColor(from, to, index / (steps - 1)),
+            }}
+          />
+        ))}
+        <View
+          style={{
+            width: size,
+            height: size,
+            borderRadius: size / 2,
+            backgroundColor: "rgba(255,255,255,0.12)",
+            alignItems: "center",
+            justifyContent: "center",
+          }}
+        >
+          <Ionicons name={active ? "options" : "options-outline"} size={Math.round(size * 0.44)} color="#1B1206" />
+        </View>
+      </View>
+      {badge && badge > 0 ? (
+        <View
+          style={{
+            position: "absolute",
+            top: -4,
+            right: -4,
+            minWidth: 20,
+            height: 20,
+            borderRadius: 10,
+            paddingHorizontal: 5,
+            alignItems: "center",
+            justifyContent: "center",
+            backgroundColor: colors.surfaceElevated,
+            borderWidth: 2,
+            borderColor: colors.background,
+          }}
+        >
+          <Text style={{ color: colors.text, fontSize: 11, fontWeight: "800" }}>{badge}</Text>
+        </View>
+      ) : null}
+    </Pressable>
   );
 }
 
@@ -700,6 +947,8 @@ function LibraryBookCard({
 
 export default function LibraryScreen() {
   const { colors } = useAppTheme();
+  const router = useRouter();
+  const searchParams = useLocalSearchParams<{ search?: string }>();
   const { error, isLoaded, latestProgressByBook, refreshProgress } = useReadingProgress();
   const { completedBookIds, completionMap, refreshCompletions } = useBookCompletions();
   const {
@@ -712,9 +961,12 @@ export default function LibraryScreen() {
   const insets = useSafeAreaInsets();
   const { height: windowHeight, width: windowWidth } = useWindowDimensions();
 
-  const refineButtonRef = useRef<any>(null);
-  const [menuAnchor, setMenuAnchor] = useState<{ top: number; right: number; maxHeight: number } | null>(null);
+  const [menuAnchor, setMenuAnchor] = useState<{ bottom: number; right: number; maxHeight: number } | null>(null);
   const showRefineMenu = menuAnchor !== null;
+
+  const languageButtonRef = useRef<View>(null);
+  const [languageMenuAnchor, setLanguageMenuAnchor] = useState<{ top: number; left: number; maxHeight: number } | null>(null);
+  const showLanguageMenu = languageMenuAnchor !== null;
 
   const [selectedCategory, setSelectedCategory] = useState<string>("all");
   const [selectedAuthor, setSelectedAuthor] = useState<string>("all");
@@ -732,6 +984,35 @@ export default function LibraryScreen() {
   });
   const refineCount = (sortBy !== "forYou" ? 1 : 0) + (selectedAuthor !== "all" ? 1 : 0);
   const shouldShowLibrarySkeleton = !isLoaded || isCatalogLoading;
+
+  function toggleRefineMenu() {
+    if (menuAnchor) {
+      setMenuAnchor(null);
+      return;
+    }
+
+    setLanguageMenuAnchor(null);
+    const bottom = REFINE_FAB_MARGIN + REFINE_FAB_SIZE + 8;
+    const right = REFINE_FAB_MARGIN;
+    const maxHeight = windowHeight - insets.top - TAB_BAR_HEIGHT - insets.bottom - bottom - 12;
+    setMenuAnchor({ bottom, right, maxHeight: Math.max(120, maxHeight) });
+  }
+
+  function toggleLanguageMenu() {
+    if (languageMenuAnchor) {
+      setLanguageMenuAnchor(null);
+      return;
+    }
+
+    setMenuAnchor(null);
+    languageButtonRef.current?.measureInWindow?.((x: number, y: number, width: number, height: number) => {
+      const top = y + height + 6;
+      const maxLeft = windowWidth - 160 - 8;
+      const left = Math.max(8, Math.min(x, maxLeft));
+      const maxHeight = windowHeight - top - insets.bottom - TAB_BAR_HEIGHT - 12;
+      setLanguageMenuAnchor({ top, left, maxHeight: Math.max(160, maxHeight) });
+    });
+  }
 
   useFocusEffect(
     useCallback(() => {
@@ -771,6 +1052,15 @@ export default function LibraryScreen() {
 
     return () => clearTimeout(focusHandle);
   }, [isSearchVisible]);
+
+  useEffect(() => {
+    if (searchParams.search === "1") {
+      setIsSearchVisible(true);
+      setMenuAnchor(null);
+      setLanguageMenuAnchor(null);
+      router.setParams({ search: undefined });
+    }
+  }, [router, searchParams.search]);
 
   const remoteBooks = useMemo(() => catalog?.books ?? [], [catalog?.books]);
   const catalogCacheKey = catalog?.version ?? catalog?.generatedAt ?? "library";
@@ -1116,6 +1406,67 @@ export default function LibraryScreen() {
               zIndex: showRefineMenu ? 2000 : 1,
             }}
           >
+          <View
+            style={{
+              flexDirection: "row",
+              alignItems: "center",
+              gap: 10,
+              flexWrap: "wrap",
+            }}
+          >
+            <Pressable
+              ref={languageButtonRef}
+              onPress={toggleLanguageMenu}
+              style={{
+                flexDirection: "row",
+                alignItems: "center",
+                gap: 8,
+                borderRadius: radii.pill,
+                backgroundColor: showLanguageMenu ? colors.surfaceSoft : colors.surfaceMuted,
+                paddingHorizontal: 14,
+                paddingVertical: 9,
+              }}
+              accessibilityRole="button"
+              accessibilityLabel="Choose language"
+            >
+              <Ionicons name="language" size={15} color={colors.accent} />
+              <Text
+                style={{
+                  color: selectedLanguage === "all" ? colors.textMuted : colors.text,
+                  fontSize: typography.control,
+                  fontWeight: "800",
+                }}
+              >
+                {selectedLanguage === "all" ? "All Languages" : selectedLanguage}
+              </Text>
+              <Text style={{ color: colors.textMuted, fontSize: typography.caption }}>▾</Text>
+            </Pressable>
+
+            {refineCount > 0 ? (
+              <Pressable
+                onPress={() => {
+                  setSortBy("forYou");
+                  setSelectedAuthor("all");
+                  setMenuAnchor(null);
+                }}
+                hitSlop={10}
+                style={{
+                  flexDirection: "row",
+                  alignItems: "center",
+                  gap: 4,
+                  borderRadius: radii.pill,
+                  backgroundColor: colors.surfaceSoft,
+                  paddingHorizontal: 10,
+                  paddingVertical: 10,
+                }}
+                accessibilityRole="button"
+                accessibilityLabel="Reset refinements"
+              >
+                <Text style={{ color: colors.textMuted, fontSize: typography.caption, fontWeight: "600" }}>✕</Text>
+                <Text style={{ color: colors.textMuted, fontSize: typography.caption, fontWeight: "600" }}>Reset</Text>
+              </Pressable>
+            ) : null}
+          </View>
           {/* Category Filter Chips */}
           <View
             style={{
@@ -1182,95 +1533,6 @@ export default function LibraryScreen() {
                   </Pressable>
                 );
               })}
-              <Pressable
-                onPress={() => {
-                  setIsSearchVisible(true);
-                  setMenuAnchor(null);
-                }}
-                hitSlop={10}
-                style={{
-                  marginLeft: 2,
-                  width: 42,
-                  height: 42,
-                  borderRadius: 21,
-                  backgroundColor: colors.surfaceMuted,
-                  alignItems: "center",
-                  justifyContent: "center",
-                }}
-                accessibilityRole="button"
-                accessibilityLabel="Search library"
-              >
-                <Text style={{ color: colors.text, fontSize: 17 }}>🔍</Text>
-              </Pressable>
-              {refineCount > 0 ? (
-                <Pressable
-                  onPress={() => {
-                    setSortBy("forYou");
-                    setSelectedAuthor("all");
-                    setMenuAnchor(null);
-                  }}
-                  hitSlop={10}
-                  style={{
-                    flexDirection: "row",
-                    alignItems: "center",
-                    gap: 4,
-                    borderRadius: radii.pill,
-                    backgroundColor: colors.surfaceSoft,
-                    paddingHorizontal: 10,
-                    paddingVertical: 10,
-                  }}
-                  accessibilityRole="button"
-                  accessibilityLabel="Reset refinements"
-                >
-                  <Text style={{ color: colors.textMuted, fontSize: typography.caption, fontWeight: "600" }}>✕</Text>
-                  <Text style={{ color: colors.textMuted, fontSize: typography.caption, fontWeight: "600" }}>Reset</Text>
-                </Pressable>
-              ) : null}
-              <Pressable
-                ref={refineButtonRef}
-                onPress={() => {
-                  if (menuAnchor) {
-                    setMenuAnchor(null);
-                  } else {
-                    refineButtonRef.current?.measureInWindow?.((x: number, y: number, width: number, height: number) => {
-                      const top = y + height + 4;
-                      const right = windowWidth - x - width;
-                      const maxHeight = windowHeight - top - insets.bottom - 8;
-                      setMenuAnchor({ top, right, maxHeight });
-                    });
-                  }
-                }}
-                hitSlop={10}
-                style={{
-                  flexDirection: "row",
-                  alignItems: "center",
-                  gap: 6,
-                  borderRadius: radii.pill,
-                  backgroundColor: showRefineMenu || refineCount > 0 ? colors.surfaceSoft : colors.surfaceMuted,
-                  paddingHorizontal: 14,
-                  paddingVertical: 10,
-                }}
-                accessibilityRole="button"
-                accessibilityLabel="Refine library"
-              >
-                <Text
-                  style={{
-                    color: showRefineMenu || refineCount > 0 ? colors.accent : colors.text,
-                    fontSize: typography.control,
-                    fontWeight: "800",
-                  }}
-                >
-                  Refine{refineCount > 0 ? ` ${refineCount}` : ""}
-                </Text>
-                <Text
-                  style={{
-                    color: showRefineMenu || refineCount > 0 ? colors.accent : colors.textMuted,
-                    fontSize: typography.caption,
-                  }}
-                >
-                  ▾
-                </Text>
-              </Pressable>
             </ScrollView>
           </View>
           </View>
@@ -1325,7 +1587,7 @@ export default function LibraryScreen() {
           <View
             style={{
               position: "absolute",
-              top: menuAnchor.top,
+              bottom: menuAnchor.bottom,
               right: menuAnchor.right,
               backgroundColor: colors.surface,
               borderRadius: radii.md,
@@ -1351,7 +1613,10 @@ export default function LibraryScreen() {
                   return (
                     <Pressable
                       key={sortMode}
-                      onPress={() => setSortBy(sortMode)}
+                      onPress={() => {
+                        setSortBy(sortMode);
+                        setMenuAnchor(null);
+                      }}
                       style={{
                         borderRadius: radii.pill,
                         backgroundColor: selected ? colors.surfaceSoft : colors.surfaceMuted,
@@ -1373,50 +1638,21 @@ export default function LibraryScreen() {
                 })}
               </View>
 
-              {uniqueLanguages.length > 0 ? (
-                <View style={{ gap: 8, paddingTop: 16 }}>
-                  <Text style={{ color: colors.textMuted, fontSize: typography.caption, fontWeight: "800", paddingHorizontal: 6 }}>
-                    Language
-                  </Text>
-                  <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
-                    {[{ id: "all", title: "All" }, ...uniqueLanguages].map((language) => {
-                      const selected = selectedLanguage === (language.id === "all" ? "all" : language.title);
-
-                      return (
-                        <Pressable
-                          key={language.id}
-                          onPress={() => setSelectedLanguage(language.id === "all" ? "all" : language.title)}
-                          style={{
-                            borderRadius: radii.pill,
-                            backgroundColor: selected ? colors.surfaceSoft : colors.surfaceMuted,
-                            paddingHorizontal: 10,
-                            paddingVertical: 8,
-                          }}
-                        >
-                          <Text
-                            style={{
-                              color: selected ? colors.accent : colors.text,
-                              fontSize: typography.caption,
-                              fontWeight: "800",
-                            }}
-                          >
-                            {language.title}
-                          </Text>
-                        </Pressable>
-                      );
-                    })}
-                  </ScrollView>
-                </View>
-              ) : null}
-
               {uniqueAuthors.length > 0 ? (
                 <View style={{ gap: 8, paddingTop: 16 }}>
                   <Text style={{ color: colors.textMuted, fontSize: typography.caption, fontWeight: "800", paddingHorizontal: 6 }}>
                     Author
                   </Text>
-                  <View>
+                  <ScrollView
+                    style={{ maxHeight: 160 }}
+                    showsVerticalScrollIndicator={false}
+                    nestedScrollEnabled
+                  >
                     <Pressable
-                      onPress={() => setSelectedAuthor("all")}
+                      onPress={() => {
+                        setSelectedAuthor("all");
+                        setMenuAnchor(null);
+                      }}
                       style={{
                         borderRadius: radii.sm,
                         backgroundColor: selectedAuthor === "all" ? colors.surfaceSoft : "transparent",
@@ -1437,7 +1673,10 @@ export default function LibraryScreen() {
                     {uniqueAuthors.map((author) => (
                       <Pressable
                         key={author}
-                        onPress={() => setSelectedAuthor(author)}
+                        onPress={() => {
+                          setSelectedAuthor(author);
+                          setMenuAnchor(null);
+                        }}
                         style={{
                           borderRadius: radii.sm,
                           backgroundColor: selectedAuthor === author ? colors.surfaceSoft : "transparent",
@@ -1457,13 +1696,91 @@ export default function LibraryScreen() {
                         </Text>
                       </Pressable>
                     ))}
-                  </View>
+                  </ScrollView>
                 </View>
               ) : null}
 
             </ScrollView>
           </View>
         </>
+      ) : null}
+
+      {showLanguageMenu && languageMenuAnchor ? (
+        <>
+          <Pressable style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0 }} onPress={() => setLanguageMenuAnchor(null)} />
+          <View
+            style={{
+              position: "absolute",
+              top: languageMenuAnchor.top,
+              left: languageMenuAnchor.left,
+              backgroundColor: colors.surface,
+              borderRadius: radii.md,
+              padding: 6,
+              width: 160,
+              maxHeight: 200,
+              shadowColor: "#000",
+              shadowOffset: { width: 0, height: 4 },
+              shadowOpacity: 0.1,
+              shadowRadius: 10,
+              elevation: 6,
+              zIndex: 3000,
+            }}
+          >
+            <ScrollView showsVerticalScrollIndicator={false} nestedScrollEnabled>
+              <Text style={{ color: colors.textMuted, fontSize: typography.caption, fontWeight: "800", paddingHorizontal: 8, paddingTop: 4, paddingBottom: 4 }}>
+                Language
+              </Text>
+              {[{ id: "all", title: "All" }, ...uniqueLanguages].map((language) => {
+                const selected = selectedLanguage === (language.id === "all" ? "all" : language.title);
+
+                return (
+                  <Pressable
+                    key={language.id}
+                    onPress={() => {
+                      setSelectedLanguage(language.id === "all" ? "all" : language.title);
+                      setLanguageMenuAnchor(null);
+                    }}
+                    style={{
+                      borderRadius: radii.sm,
+                      backgroundColor: selected ? colors.surfaceSoft : "transparent",
+                      paddingHorizontal: 8,
+                      paddingVertical: 6,
+                    }}
+                  >
+                    <Text
+                      style={{
+                        color: selected ? colors.accent : colors.text,
+                        fontSize: typography.caption,
+                        fontWeight: selected ? "800" : "400",
+                      }}
+                    >
+                      {language.title}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </ScrollView>
+          </View>
+        </>
+      ) : null}
+
+      {!shouldShowLibrarySkeleton ? (
+        <View
+          style={{
+            position: "absolute",
+            right: REFINE_FAB_MARGIN,
+            bottom: REFINE_FAB_MARGIN,
+            zIndex: showRefineMenu ? 1000 : 1500,
+          }}
+        >
+          <GradientFab
+            size={REFINE_FAB_SIZE}
+            colors={colors}
+            onPress={toggleRefineMenu}
+            badge={refineCount}
+            active={showRefineMenu}
+          />
+        </View>
       ) : null}
     </Screen>
   );

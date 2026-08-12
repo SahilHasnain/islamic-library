@@ -6,6 +6,7 @@ import {
   BackHandler,
   FlatList,
   Modal,
+  PanResponder,
   Platform,
   Pressable,
   ScrollView,
@@ -18,12 +19,10 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { BookCompletionModal } from "../../../../../components/book-completion-modal";
-import { SessionCompletionModal } from "../../../../../components/session-completion-modal";
 import { getReaderColors } from "../../../../../constants/theme";
 import { ZoomableReaderImage } from "../../../../../components/zoomable-reader-image";
 import { useAppTheme } from "../../../../../hooks/useAppTheme";
 import { useBookCompletions } from "../../../../../hooks/useBookCompletions";
-import { useBookmarks } from "../../../../../hooks/useBookmarks";
 import { useReadingProgress } from "../../../../../hooks/useReadingProgress";
 import { useRemoteBookData } from "../../../../../hooks/useRemoteBookData";
 import { useResolvedManifestPageAsset } from "../../../../../hooks/useResolvedManifestPageAsset";
@@ -47,6 +46,19 @@ function getOrderedTocEntries(entries: PublicBookTocEntry[]) {
 
 function getTocEntryPage(entry: PublicBookTocEntry) {
   return Math.max(1, Math.floor(entry.renderedPage || entry.printedPage || 1));
+}
+
+function toTitleCase(value: string) {
+  return value
+    .split(/(\s+|-)/)
+    .map((part) => {
+      if (!part || /^\s+$/.test(part) || part === "-") {
+        return part;
+      }
+
+      return part.charAt(0).toUpperCase() + part.slice(1).toLowerCase();
+    })
+    .join("");
 }
 
 function ReaderPageSurface({
@@ -149,7 +161,6 @@ export default function ReaderScreen() {
   } = useRemoteBookData(bookId, languageId, volumeId);
   const readingBookId = Array.isArray(bookId) ? bookId[0] : bookId ?? "";
   const { progress, saveProgress } = useReadingProgress(readingBookId, languageId, volumeId);
-  const { addBookmark, getBookmarkForPage, removeBookmark } = useBookmarks(readingBookId);
   const colors = getReaderColors(resolvedTheme);
   const requestedPage = Number(page ?? 1) || 1;
   const totalPages = manifest?.totalPages ?? Math.max(requestedPage, 1);
@@ -172,23 +183,18 @@ export default function ReaderScreen() {
   const [isZoomed, setIsZoomed] = useState(false);
   const [isPageModalVisible, setIsPageModalVisible] = useState(false);
   const [isTocVisible, setIsTocVisible] = useState(false);
-  const [showSessionCompletionModal, setShowSessionCompletionModal] = useState(false);
-  const [sessionCompletionData, setSessionCompletionData] = useState<{
-    pagesRead: number;
-    durationMinutes: number;
-  } | null>(null);
   const [showBookCompletionModal, setShowBookCompletionModal] = useState(false);
   const flatListRef = useRef<FlatList<number>>(null);
-  // Session metrics are computed locally in this screen.
-  // - duration: active app time while this screen is mounted
-  // - pagesRead: count of unique pages actually viewed (not a page range)
+  const progressTrackRef = useRef<View>(null);
+  const tocScrollRef = useRef<ScrollView>(null);
+  const activeTocIndexRef = useRef(0);
+  const tocRowYOffsetsRef = useRef<number[]>([]);
+  const [progressTrackWidth, setProgressTrackWidth] = useState(0);
+  // Session duration is tracked locally in this screen (active app time while mounted)
+  // and used for book completion stats.
   const sessionAccumulatedMs = useRef(0);
   const sessionTickStartedAt = useRef(Date.now());
   const sessionTimerRunning = useRef(true);
-  const sessionPagesViewedRef = useRef<Set<number>>(new Set([initialPage]));
-  const sessionMinPage = useRef(initialPage);
-  const sessionMaxPage = useRef(initialPage);
-  const sessionCompletedRef = useRef(false);
   const finalPagesEnteredAt = useRef<number | null>(null);
   const bookCompletionPromptSuppressedRef = useRef(false);
 
@@ -252,16 +258,8 @@ export default function ReaderScreen() {
   const pageModalSurfaceColor = colors.secondaryPanel;
   const outlineColor = appColors.border;
   const iconBadgeColor = colors.overlayLight;
-  const existingBookmark = getBookmarkForPage(
-    readingBookId,
-    resolvedLanguageId,
-    resolvedVolumeId,
-    currentPage,
-  );
   const bookTitle = metadata?.title ?? catalogBook?.title ?? "Reader";
-  const editionLine = [selectedLanguage?.title ?? languageId, selectedVolume?.title ?? volumeId, currentTocEntry?.title]
-    .filter(Boolean)
-    .join(" | ");
+  const editionLine = currentTocEntry?.title ?? selectedVolume?.title ?? volumeId;
 
   const pagesViewed = useMemo(() => {
     return Array.from(new Set([...(progress?.pagesViewed ?? []), currentPage])).sort(
@@ -326,12 +324,6 @@ export default function ReaderScreen() {
   useEffect(() => {
     setPageInput(pageInputDisplayValue);
   }, [pageInputDisplayValue]);
-
-  useEffect(() => {
-    sessionMinPage.current = Math.min(sessionMinPage.current, currentPage);
-    sessionMaxPage.current = Math.max(sessionMaxPage.current, currentPage);
-    sessionPagesViewedRef.current.add(currentPage);
-  }, [currentPage]);
 
   useEffect(() => {
     const subscription = AppState.addEventListener("change", (nextState) => {
@@ -412,35 +404,6 @@ export default function ReaderScreen() {
     bookCompletionPromptSuppressedRef.current = true;
   }, []);
 
-  const completeSession = useCallback(async () => {
-    if (sessionCompletedRef.current) {
-      return false;
-    }
-
-    const durationMs = getSessionDurationMs();
-    const durationMinutes = Math.max(1, Math.round(durationMs / 60000));
-    const pagesRead = sessionPagesViewedRef.current.size;
-
-    // Only consider it a meaningful session if:
-    // - At least 2 minutes of reading AND
-    // - At least 2 pages read
-    const isMeaningfulSession = durationMs >= 120000 && pagesRead >= 2;
-
-    if (isMeaningfulSession) {
-      sessionCompletedRef.current = true;
-
-      setSessionCompletionData({
-        pagesRead,
-        durationMinutes,
-      });
-      setShowSessionCompletionModal(true);
-      return true;
-    }
-
-    // For short sessions, just exit without modal
-    return false;
-  }, [getSessionDurationMs]);
-
   useEffect(() => {
     const backHandler = BackHandler.addEventListener("hardwareBackPress", () => {
       if (showBookCompletionModal) {
@@ -448,53 +411,67 @@ export default function ReaderScreen() {
         return true;
       }
 
-      if (showSessionCompletionModal) {
-        setShowSessionCompletionModal(false);
-        setSessionCompletionData(null);
-        return true;
-      }
-
-      void completeSession().then((showingModal) => {
-        if (!showingModal) {
-          router.back();
-        }
-      });
+      router.back();
       return true;
     });
 
     return () => backHandler.remove();
-  }, [
-    completeSession,
-    handleKeepReadingBook,
-    router,
-    showBookCompletionModal,
-    showSessionCompletionModal,
-  ]);
+  }, [handleKeepReadingBook, router, showBookCompletionModal]);
 
-  async function toggleBookmark() {
-    if (existingBookmark) {
-      await removeBookmark(existingBookmark.id);
+  useEffect(() => {
+    if (!isTocVisible || tocEntries.length === 0) {
       return;
     }
 
-    await addBookmark({
-      bookId: readingBookId,
-      languageId: resolvedLanguageId,
-      volumeId: resolvedVolumeId,
-      page: currentPage,
-    });
-  }
+    const scrollHandle = setTimeout(() => {
+      const targetOffset = tocRowYOffsetsRef.current[activeTocIndexRef.current] ?? 0;
+      tocScrollRef.current?.scrollTo({
+        y: Math.max(0, targetOffset - 8),
+        animated: false,
+      });
+    }, 120);
+
+    return () => clearTimeout(scrollHandle);
+  }, [isTocVisible, tocEntries.length]);
 
   const moveToPage = useCallback(
-    (nextPage: number) => {
+    (nextPage: number, animated = true) => {
       const safePage = clampPage(nextPage);
       setCurrentPage(safePage);
       flatListRef.current?.scrollToIndex({
         index: safePage - 1,
-        animated: true,
+        animated,
       });
     },
     [clampPage],
+  );
+
+  const updatePageFromProgressGesture = useCallback(
+    (locationX: number) => {
+      if (progressTrackWidth <= 0) {
+        return;
+      }
+
+      const fraction = Math.min(Math.max(locationX / progressTrackWidth, 0), 1);
+      const targetPage = clampPage(Math.round(fraction * totalPages));
+      moveToPage(targetPage, false);
+    },
+    [clampPage, moveToPage, progressTrackWidth, totalPages],
+  );
+
+  const progressPanResponder = useMemo(
+    () =>
+      PanResponder.create({
+        onStartShouldSetPanResponder: () => true,
+        onMoveShouldSetPanResponder: () => true,
+        onPanResponderGrant: (event) => {
+          updatePageFromProgressGesture(event.nativeEvent.locationX);
+        },
+        onPanResponderMove: (event) => {
+          updatePageFromProgressGesture(event.nativeEvent.locationX);
+        },
+      }),
+    [updatePageFromProgressGesture],
   );
 
   const submitPageInput = useCallback(() => {
@@ -622,8 +599,8 @@ export default function ReaderScreen() {
           left: 0,
           right: 0,
           backgroundColor: colors.overlay,
+          height: 102,
           paddingTop: 50,
-          paddingBottom: 12,
           paddingHorizontal: 16,
           flexDirection: "row",
           alignItems: "center",
@@ -632,11 +609,7 @@ export default function ReaderScreen() {
       >
         <Pressable
           onPress={() => {
-            void completeSession().then((showingModal) => {
-              if (!showingModal) {
-                router.back();
-              }
-            });
+            router.back();
           }}
           style={({ pressed }) => ({
             width: 40,
@@ -650,68 +623,20 @@ export default function ReaderScreen() {
         >
           <Ionicons name="chevron-back" size={24} color={colors.text} />
         </Pressable>
-        <View style={{ flex: 1 }}>
-          <Text style={{ color: colors.text, fontSize: 18, fontWeight: "800" }}>
+        <View style={{ flex: 1, minWidth: 0 }}>
+          <Text
+            style={{ color: colors.text, fontSize: 18, fontWeight: "800" }}
+            numberOfLines={1}
+          >
             {bookTitle}
           </Text>
-          <Text style={{ color: colors.textMuted, fontSize: 15, fontWeight: "600" }}>
+          <Text
+            style={{ color: colors.textMuted, fontSize: 15, fontWeight: "600" }}
+            numberOfLines={1}
+          >
             {editionLine}
           </Text>
         </View>
-        <Pressable
-          onPress={() => {
-            void toggleBookmark();
-          }}
-          style={({ pressed }) => ({
-            width: 40,
-            height: 40,
-            borderRadius: 20,
-            backgroundColor: colors.overlayLight,
-            alignItems: "center",
-            justifyContent: "center",
-            opacity: pressed ? 0.7 : 1,
-          })}
-        >
-          <Ionicons
-            name={existingBookmark ? "bookmark" : "bookmark-outline"}
-            size={22}
-            color={colors.text}
-          />
-        </Pressable>
-        <Pressable
-          onPress={() => setIsTocVisible(true)}
-          style={({ pressed }) => ({
-            width: 40,
-            height: 40,
-            borderRadius: 20,
-            backgroundColor: colors.overlayLight,
-            alignItems: "center",
-            justifyContent: "center",
-            opacity: pressed ? 0.7 : 1,
-          })}
-        >
-          <Ionicons name="list-outline" size={22} color={colors.text} />
-        </Pressable>
-
-        {__DEV__ && (
-          <Pressable
-            onPress={() => {
-              setSessionCompletionData({ pagesRead: 7, durationMinutes: 12 });
-              setShowSessionCompletionModal(true);
-            }}
-            style={({ pressed }) => ({
-              width: 40,
-              height: 40,
-              borderRadius: 20,
-              backgroundColor: colors.overlayLight,
-              alignItems: "center",
-              justifyContent: "center",
-              opacity: pressed ? 0.7 : 1,
-            })}
-          >
-            <Ionicons name="checkmark-done" size={20} color={colors.text} />
-          </Pressable>
-        )}
 
         {__DEV__ && (
           <Pressable
@@ -768,30 +693,76 @@ export default function ReaderScreen() {
               <Text style={{ color: colors.text, fontSize: 14, fontWeight: "800" }}>Go</Text>
             </Pressable>
 
-            <View style={{ flex: 1, alignItems: "center", gap: 8, transform: [{ translateX: 14 }] }}>
+            <View style={{ flex: 1, alignItems: "center", gap: 8 }}>
               <Text style={{ color: colors.text, fontSize: 18, fontWeight: "800" }}>
                 {footerPageLabel}
               </Text>
               <View
+                ref={progressTrackRef}
+                onLayout={(event) => {
+                  const { width } = event.nativeEvent.layout;
+                  if (width !== progressTrackWidth) {
+                    setProgressTrackWidth(width);
+                  }
+                }}
+                {...progressPanResponder.panHandlers}
                 style={{
-                  width: "100%",
-                  height: 6,
-                  backgroundColor: colors.overlayMuted,
-                  borderRadius: 3,
-                  overflow: "hidden",
+                  width: "78%",
+                  paddingVertical: 10,
+                  justifyContent: "center",
                 }}
               >
                 <View
                   style={{
-                    height: "100%",
-                    width: `${progressPercent}%`,
-                    backgroundColor: colors.accent,
+                    height: 6,
+                    backgroundColor: colors.overlayMuted,
                     borderRadius: 3,
+                    overflow: "visible",
                   }}
-                />
+                >
+                  <View
+                    style={{
+                      position: "absolute",
+                      left: 0,
+                      top: 0,
+                      bottom: 0,
+                      width: `${progressPercent}%`,
+                      backgroundColor: colors.accent,
+                      borderRadius: 3,
+                    }}
+                  />
+                  <View
+                    style={{
+                      position: "absolute",
+                      top: -5,
+                      left: `${progressPercent}%`,
+                      width: 16,
+                      height: 16,
+                      borderRadius: 8,
+                      backgroundColor: colors.accent,
+                      borderWidth: 2,
+                      borderColor: colors.text,
+                      marginLeft: -8,
+                    }}
+                  />
+                </View>
               </View>
             </View>
 
+            <Pressable
+              onPress={() => setIsTocVisible(true)}
+              style={({ pressed }) => ({
+                width: 48,
+                height: 48,
+                borderRadius: 24,
+                backgroundColor: controlSurfaceColor,
+                alignItems: "center",
+                justifyContent: "center",
+                opacity: pressed ? 0.8 : 1,
+              })}
+            >
+              <Ionicons name="list-outline" size={22} color={colors.text} />
+            </Pressable>
           </View>
         </View>
       </SafeAreaView>
@@ -890,55 +861,55 @@ export default function ReaderScreen() {
       >
         <Pressable
           onPress={() => setIsTocVisible(false)}
-          style={{
-            flex: 1,
-            backgroundColor: appColors.scrim,
-            justifyContent: "flex-end",
-          }}
+          style={{ flex: 1, backgroundColor: appColors.scrim, justifyContent: "flex-end" }}
         >
           <Pressable
-            onPress={() => { }}
+            onPress={() => {}}
             style={{
-              maxHeight: "72%",
+              maxHeight: "68%",
               borderTopLeftRadius: 28,
               borderTopRightRadius: 28,
               backgroundColor: colors.panel,
               paddingHorizontal: 20,
-              paddingTop: 18,
+              paddingTop: 12,
               paddingBottom: 28,
-              gap: 14,
             }}
           >
-            <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
-              <View style={{ flex: 1 }}>
-                <Text style={{ color: colors.panelText, fontSize: 20, fontWeight: "800" }}>
+            <View style={{ width: 36, height: 4, borderRadius: 2, alignSelf: "center", backgroundColor: colors.overlayLight }} />
+
+            <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginTop: 16 }}>
+              <View style={{ flex: 1, minWidth: 0 }}>
+                <Text style={{ color: colors.panelText, fontSize: 21, fontWeight: "800" }}>
                   Table of Contents
                 </Text>
-                <Text style={{ color: appColors.textMuted, fontSize: 13, marginTop: 4 }}>
-                  {tocEntries.length ? `${tocEntries.length} entries` : "TOC not available for this book."}
+                <Text style={{ color: appColors.textMuted, fontSize: 13, marginTop: 3 }} numberOfLines={1}>
+                  {tocEntries.length ? `${tocEntries.length} entries · tap to jump` : bookTitle}
                 </Text>
               </View>
               <Pressable
                 onPress={() => setIsTocVisible(false)}
-                style={({ pressed }) => ({
-                  width: 40,
-                  height: 40,
-                  borderRadius: 20,
-                  backgroundColor: pageModalSurfaceColor,
-                  alignItems: "center",
-                  justifyContent: "center",
-                  opacity: pressed ? 0.8 : 1,
-                })}
+                hitSlop={8}
+                style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1, padding: 6 })}
               >
-                <Ionicons name="close" size={22} color={colors.panelText} />
+                <Ionicons name="close" size={23} color={colors.panelText} />
               </Pressable>
             </View>
 
             {tocEntries.length ? (
-              <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ gap: 8, paddingBottom: 8 }}>
+              <ScrollView
+                ref={tocScrollRef}
+                showsVerticalScrollIndicator={false}
+                contentContainerStyle={{ paddingTop: 14, paddingBottom: 8 }}
+              >
                 {tocEntries.map((entry, index) => {
                   const entryPage = getTocEntryPage(entry);
+                  const hasPage = typeof entry.printedPage === "number" || typeof entry.renderedPage === "number";
                   const isActive = entryPage <= currentPage && (!tocEntries[index + 1] || getTocEntryPage(tocEntries[index + 1]) > currentPage);
+
+                  if (isActive) {
+                    activeTocIndexRef.current = index;
+                  }
+
                   return (
                     <Pressable
                       key={`${entry.title}-${index}`}
@@ -946,27 +917,61 @@ export default function ReaderScreen() {
                         moveToPage(entryPage);
                         setIsTocVisible(false);
                       }}
+                      onLayout={(event) => {
+                        tocRowYOffsetsRef.current[index] = event.nativeEvent.layout.y;
+                      }}
                       style={({ pressed }) => ({
-                        borderRadius: 16,
+                        flexDirection: "row",
+                        alignItems: "flex-start",
+                        flexWrap: "nowrap",
                         paddingVertical: 12,
-                        paddingHorizontal: 14,
-                        marginLeft: Math.min(Math.max((entry.level ?? 1) - 1, 0), 3) * 12,
-                        backgroundColor: isActive ? controlSurfaceColor : pageModalSurfaceColor,
-                        opacity: pressed ? 0.8 : 1,
+                        paddingLeft: 4,
+                        paddingRight: 6,
+                        opacity: pressed ? 0.55 : 1,
                       })}
                     >
-                      <Text style={{ color: isActive ? colors.text : colors.panelText, fontSize: 15, fontWeight: "700" }}>
-                        {entry.title}
-                      </Text>
-                      <Text style={{ color: isActive ? colors.text : appColors.textMuted, fontSize: 12, marginTop: 4 }}>
-                        {entry.printedPage ? `Printed page ${entry.printedPage}` : `Reader page ${entryPage}`}
-                      </Text>
+                      <View
+                        style={{
+                          width: 3,
+                          height: 16,
+                          borderRadius: 2,
+                          marginTop: 3,
+                          marginRight: 10,
+                          backgroundColor: isActive ? colors.accent : "transparent",
+                        }}
+                      />
+                      <View style={{ flex: 1, minWidth: 0 }}>
+                        <Text
+                          style={{
+                            color: isActive ? colors.accent : colors.panelText,
+                            fontSize: 14,
+                            fontWeight: "500",
+                            lineHeight: 21,
+                            textTransform: "capitalize",
+                          }}
+                        >
+                          {toTitleCase(entry.title)}
+                        </Text>
+                      </View>
+                      <View style={{ width: 50, paddingTop: 4, alignItems: "flex-end" }}>
+                        <Text
+                          style={{
+                            color: isActive ? colors.accent : appColors.textMuted,
+                            fontSize: 11.5,
+                            fontWeight: "500",
+                            textAlign: "right",
+                          }}
+                          numberOfLines={1}
+                        >
+                          {hasPage ? `p. ${entryPage}` : "—"}
+                        </Text>
+                      </View>
                     </Pressable>
                   );
                 })}
               </ScrollView>
             ) : (
-              <View style={{ borderRadius: 18, backgroundColor: pageModalSurfaceColor, padding: 16, gap: 8 }}>
+              <View style={{ marginTop: 16, borderTopWidth: 1, borderTopColor: outlineColor, paddingTop: 18, gap: 8 }}>
                 <Text style={{ color: colors.panelText, fontSize: 16, fontWeight: "800" }}>
                   TOC not available
                 </Text>
@@ -999,35 +1004,6 @@ export default function ReaderScreen() {
         }}
         onKeepReading={handleKeepReadingBook}
       />
-
-      {showSessionCompletionModal && sessionCompletionData && (
-        <SessionCompletionModal
-           visible={showSessionCompletionModal}
-           scrimColor={appColors.scrim}
-           panelColor={colors.panel}
-           panelTextColor={colors.panelText}
-           mutedTextColor={appColors.textMuted}
-           encouragementColor={appColors.textSubtle}
-           statsLabelColor={appColors.textSubtle}
-           primaryActionColor={colors.accent}
-           primaryActionTextColor={colors.textStrong}
-           secondaryActionColor={pageModalSurfaceColor}
-           outlineColor={outlineColor}
-           iconBadgeColor={iconBadgeColor}
-           successColor={appColors.success}
-           pagesRead={sessionCompletionData.pagesRead}
-           durationMinutes={sessionCompletionData.durationMinutes}
-           onContinue={() => {
-             setShowSessionCompletionModal(false);
-             setSessionCompletionData(null);
-           }}
-           onGoHome={() => {
-             setShowSessionCompletionModal(false);
-             setSessionCompletionData(null);
-             router.replace("/(tabs)/library");
-           }}
-         />
-      )}
     </View>
   );
 }

@@ -1,10 +1,12 @@
 import { useEffect, useState } from "react";
 
 import type { PublicCatalog } from "../data/types";
+import { loadJsonEntry, saveJsonEntry } from "../lib/library-data-cache";
 
 const DEFAULT_ENDPOINT = "http://35.200.174.46/v1";
 const DEFAULT_BUCKET_ID = "public_assets";
 const DEFAULT_CATALOG_FILE_ID = "catalog";
+const CATALOG_CACHE_KEY = "catalog";
 
 function buildCatalogUrl(): string {
   const override = process.env.EXPO_PUBLIC_LIBRARY_CATALOG_URL;
@@ -43,6 +45,16 @@ export function useRemoteCatalog() {
         return;
       }
 
+      // Serve the cached catalog immediately (fast, local) so screens render
+      // without waiting on the network.
+      const cachedEntry = await loadJsonEntry<PublicCatalog>(CATALOG_CACHE_KEY);
+      if (isMounted && cachedEntry) {
+        setCatalog(cachedEntry.data);
+        setSource("fallback");
+        setError(null);
+        setIsLoading(false);
+      }
+
       try {
         const response = await fetch(catalogUrl, {
           headers: {
@@ -63,14 +75,20 @@ export function useRemoteCatalog() {
         setSource("remote");
         setError(null);
         setIsLoading(false);
+        void saveJsonEntry(
+          CATALOG_CACHE_KEY,
+          payload.version ?? payload.generatedAt ?? "catalog",
+          payload,
+        );
       } catch (loadError) {
         if (!isMounted) {
           return;
         }
 
-        setCatalog(null);
-        setSource("fallback");
-        setError(loadError instanceof Error ? loadError.message : "catalog-load-failed");
+        if (!cachedEntry) {
+          setCatalog(null);
+          setError(loadError instanceof Error ? loadError.message : "catalog-load-failed");
+        }
         setIsLoading(false);
       }
     }

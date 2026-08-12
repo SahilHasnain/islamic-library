@@ -1,5 +1,5 @@
 import { Ionicons } from "@expo/vector-icons";
-import { Tabs } from "expo-router";
+import { Tabs, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { useAppTheme } from "../../hooks/useAppTheme";
@@ -7,6 +7,7 @@ import { useAppTheme } from "../../hooks/useAppTheme";
 export default function TabLayout() {
   const insets = useSafeAreaInsets();
   const { colors } = useAppTheme();
+  const router = useRouter();
 
   return (
     <Tabs
@@ -37,20 +38,17 @@ export default function TabLayout() {
         }}
       />
       <Tabs.Screen
-        name="journey"
-        options={{
-          title: "Journey",
-          tabBarIcon: ({ color, size }) => (
-            <Ionicons name="pulse-outline" size={size} color={color} />
-          ),
+        name="search"
+        listeners={{
+          tabPress: (event) => {
+            event.preventDefault();
+            router.navigate({ pathname: "/library", params: { search: "1" } });
+          },
         }}
-      />
-      <Tabs.Screen
-        name="bookmarks"
         options={{
-          title: "Bookmarks",
+          title: "Search",
           tabBarIcon: ({ color, size }) => (
-            <Ionicons name="bookmark-outline" size={size} color={color} />
+            <Ionicons name="search-outline" size={size} color={color} />
           ),
         }}
       />

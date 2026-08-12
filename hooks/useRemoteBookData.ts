@@ -8,6 +8,15 @@ import type {
   PublicVolumeManifest,
 } from "../data/types";
 import { useRemoteCatalog } from "./useRemoteCatalog";
+import { loadJsonEntry, saveJsonEntry } from "../lib/library-data-cache";
+
+function getMetadataCacheKey(bookId: string) {
+  return `metadata:${bookId}`;
+}
+
+function getManifestCacheKey(bookId: string, languageId: string, volumeId: string) {
+  return `manifest:${bookId}:${languageId}:${volumeId}`;
+}
 
 async function fetchJson<T>(url: string) {
   const response = await fetch(url, {
@@ -159,12 +168,20 @@ export function useRemoteBookData(
         return;
       }
 
+      const metadataCacheKey = getMetadataCacheKey(catalogBook.id);
+      const catalogVersion = catalog?.version ?? catalog?.generatedAt ?? "metadata";
+
+      // Serve cached metadata immediately so the screen renders without a flash.
+      const cachedEntry = await loadJsonEntry<PublicBookMetadata>(metadataCacheKey);
+      if (isMounted && cachedEntry) {
+        setMetadata(cachedEntry.data);
+        setMetadataError(null);
+        setIsMetadataLoading(false);
+      }
+
       try {
         setIsMetadataLoading(true);
-        const metadataUrl = withCacheBust(
-          catalogBook.metadataUrl,
-          catalog?.version ?? catalog?.generatedAt ?? "metadata",
-        );
+        const metadataUrl = withCacheBust(catalogBook.metadataUrl, catalogVersion);
         const nextMetadata = await fetchJson<PublicBookMetadata>(metadataUrl);
         if (!isMounted) {
           return;
@@ -172,13 +189,12 @@ export function useRemoteBookData(
 
         setMetadata(nextMetadata);
         setMetadataError(null);
+        void saveJsonEntry(metadataCacheKey, catalogVersion, nextMetadata);
       } catch (loadError) {
-        if (!isMounted) {
-          return;
+        if (isMounted && !cachedEntry) {
+          setMetadata(null);
+          setMetadataError(loadError instanceof Error ? loadError.message : "metadata-load-failed");
         }
-
-        setMetadata(null);
-        setMetadataError(loadError instanceof Error ? loadError.message : "metadata-load-failed");
       } finally {
         if (isMounted) {
           setIsMetadataLoading(false);
@@ -206,6 +222,20 @@ export function useRemoteBookData(
         return;
       }
 
+      const manifestCacheKey = getManifestCacheKey(
+        bookId ?? "book",
+        selectedLanguage?.id ?? languageId ?? "language",
+        selectedVolume.id,
+      );
+
+      // Serve cached manifest immediately so the reader/detail renders without a flash.
+      const cachedEntry = await loadJsonEntry<PublicVolumeManifest>(manifestCacheKey);
+      if (isMounted && cachedEntry) {
+        setManifest(cachedEntry.data);
+        setManifestError(null);
+        setIsManifestLoading(false);
+      }
+
       try {
         setIsManifestLoading(true);
         const manifestUrl = withCacheBust(
@@ -219,13 +249,16 @@ export function useRemoteBookData(
 
         setManifest(nextManifest);
         setManifestError(null);
+        void saveJsonEntry(
+          manifestCacheKey,
+          catalog?.version ?? catalog?.generatedAt ?? "manifest",
+          nextManifest,
+        );
       } catch (loadError) {
-        if (!isMounted) {
-          return;
+        if (isMounted && !cachedEntry) {
+          setManifest(null);
+          setManifestError(loadError instanceof Error ? loadError.message : "manifest-load-failed");
         }
-
-        setManifest(null);
-        setManifestError(loadError instanceof Error ? loadError.message : "manifest-load-failed");
       } finally {
         if (isMounted) {
           setIsManifestLoading(false);

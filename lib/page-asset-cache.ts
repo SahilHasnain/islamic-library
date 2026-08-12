@@ -1,7 +1,7 @@
 import * as FileSystem from "expo-file-system/legacy";
 
-const CACHE_ROOT = FileSystem.cacheDirectory
-  ? `${FileSystem.cacheDirectory}library-page-assets/`
+const CACHE_ROOT = FileSystem.documentDirectory
+  ? `${FileSystem.documentDirectory}library-page-assets/`
   : null;
 
 function sanitizeSegment(value: string) {

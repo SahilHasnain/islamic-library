@@ -1,8 +1,10 @@
 import { Image } from "expo-image";
-import { Link, Stack, useLocalSearchParams } from "expo-router";
-import { useEffect, useMemo, useState } from "react";
-import { Pressable, ScrollView, Text, View } from "react-native";
+import { Link, Stack, useLocalSearchParams, useRouter, type Href } from "expo-router";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { Alert, Modal, Pressable, ScrollView, Text, View } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
+
+import { Ionicons } from "@expo/vector-icons";
 
 import { ErrorCard } from "../../../components/ui";
 import type { PublicBookTocEntry, PublicCatalogBook } from "../../../data/types";
@@ -62,6 +64,19 @@ function getTocEntryPage(entry: PublicBookTocEntry) {
   return Math.max(1, Math.floor(entry.renderedPage || entry.printedPage || 1));
 }
 
+function toTitleCase(value: string) {
+  return value
+    .split(/(\s+|-)/)
+    .map((part) => {
+      if (!part || /^\s+$/.test(part) || part === "-") {
+        return part;
+      }
+
+      return part.charAt(0).toUpperCase() + part.slice(1).toLowerCase();
+    })
+    .join("");
+}
+
 function getSelectableChipColors({
   selected,
   colors,
@@ -73,6 +88,99 @@ function getSelectableChipColors({
     backgroundColor: selected ? colors.accent : colors.surfaceMuted,
     textColor: selected ? colors.text : colors.textMuted,
   };
+}
+
+function hexToRgb(hex: string): [number, number, number] {
+  const normalized = hex.replace("#", "");
+  const value = normalized.length === 3
+    ? normalized.split("").map((part) => part + part).join("")
+    : normalized;
+  const number = parseInt(value, 16);
+  return [(number >> 16) & 255, (number >> 8) & 255, number & 255];
+}
+
+function rgbToHex([r, g, b]: [number, number, number]) {
+  const clamp = (part: number) => Math.max(0, Math.min(255, Math.round(part))).toString(16).padStart(2, "0");
+  return `#${clamp(r)}${clamp(g)}${clamp(b)}`;
+}
+
+function interpolateColor(from: string, to: string, amount: number) {
+  const fromRgb = hexToRgb(from);
+  const toRgb = hexToRgb(to);
+  return rgbToHex([
+    fromRgb[0] + (toRgb[0] - fromRgb[0]) * amount,
+    fromRgb[1] + (toRgb[1] - fromRgb[1]) * amount,
+    fromRgb[2] + (toRgb[2] - fromRgb[2]) * amount,
+  ]);
+}
+
+function OpenBookFab({
+  size,
+  colors,
+  href,
+}: {
+  size: number;
+  colors: ReturnType<typeof useAppTheme>["colors"];
+  href: Href;
+}) {
+  const steps = 10;
+
+  return (
+    <Link href={href} asChild>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel="Open book"
+        style={{
+          width: size,
+          height: size,
+          borderRadius: size / 2,
+          shadowColor: "#000",
+          shadowOffset: { width: 0, height: 6 },
+          shadowOpacity: 0.28,
+          shadowRadius: 10,
+          elevation: 8,
+        }}
+      >
+        <View
+          style={{
+            width: size,
+            height: size,
+            borderRadius: size / 2,
+            overflow: "hidden",
+            alignItems: "center",
+            justifyContent: "center",
+          }}
+        >
+          {Array.from({ length: steps }).map((_, index) => (
+            <View
+              key={index}
+              style={{
+                position: "absolute",
+                top: 0,
+                left: 0,
+                right: 0,
+                height: size / steps,
+                transform: [{ translateY: (size / steps) * index }],
+                backgroundColor: interpolateColor(colors.accent, colors.accentStrong, index / (steps - 1)),
+              }}
+            />
+          ))}
+          <View
+            style={{
+              width: size,
+              height: size,
+              borderRadius: size / 2,
+              backgroundColor: "rgba(255,255,255,0.12)",
+              alignItems: "center",
+              justifyContent: "center",
+            }}
+          >
+            <Ionicons name="book" size={Math.round(size * 0.44)} color="#1B1206" />
+          </View>
+        </View>
+      </Pressable>
+    </Link>
+  );
 }
 
 export default function BookHomeScreen() {
@@ -100,6 +208,23 @@ export default function BookHomeScreen() {
   const [libraryLanguagePreference, setLibraryLanguagePreference] =
     useState<LibraryLanguagePreference | null>(null);
   const [isLanguagePreferenceLoaded, setIsLanguagePreferenceLoaded] = useState(false);
+  const [isTocSheetVisible, setIsTocSheetVisible] = useState(false);
+  const [actionFeedback, setActionFeedback] = useState<string | null>(null);
+  const actionFeedbackTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const showActionFeedback = useMemo(
+    () => (message: string) => {
+      setActionFeedback(message);
+      if (actionFeedbackTimeoutRef.current) {
+        clearTimeout(actionFeedbackTimeoutRef.current);
+      }
+      actionFeedbackTimeoutRef.current = setTimeout(() => {
+        setActionFeedback(null);
+        actionFeedbackTimeoutRef.current = null;
+      }, 2200);
+    },
+    [],
+  );
   const effectiveLanguageId = selectedLanguageId ?? libraryLanguagePreference?.id ?? progress?.languageId;
   const {
     catalogBooks,
@@ -122,7 +247,10 @@ export default function BookHomeScreen() {
   const {
     canDownload,
     downloadAll,
+    isDownloading,
     isFullyDownloaded,
+    isPartiallyDownloaded,
+    progressPercent,
     removeDownload,
   } = useVolumeDownload(manifest);
 
@@ -255,6 +383,7 @@ export default function BookHomeScreen() {
   const toggleBookCompletion = async () => {
     if (isCompleted) {
       await removeCompletion(readingBookId, resolvedLanguageId, resolvedVolumeId);
+      showActionFeedback("Marked as not completed");
       return;
     }
 
@@ -267,8 +396,10 @@ export default function BookHomeScreen() {
       finalPage: resumePage,
       totalPagesRead: editionProgress?.pagesViewed?.length,
     });
+    showActionFeedback("Marked as completed");
   };
   const insets = useSafeAreaInsets();
+  const router = useRouter();
 
   return (
     <>
@@ -409,7 +540,7 @@ export default function BookHomeScreen() {
         ) : (
         <ScrollView
           showsVerticalScrollIndicator={false}
-          contentContainerStyle={{ paddingTop: insets.top + 16, paddingHorizontal: 20, gap: 20, paddingBottom: 40 }}
+          contentContainerStyle={{ paddingTop: insets.top + 16, paddingHorizontal: 20, gap: 20, paddingBottom: insets.bottom + 96 }}
         >
           {!isBookDataLoading && (metadataError || manifestError) ? (
             <ErrorCard
@@ -550,6 +681,142 @@ export default function BookHomeScreen() {
             </View>
           )}
 
+          {/* Primary Action Section - Compact */}
+          <View
+            style={{
+              backgroundColor: colors.accent,
+              borderRadius: 24,
+              padding: 16,
+              gap: 12,
+            }}
+          >
+            {/* Header with Progress */}
+            <View style={{ gap: 4 }}>
+              <Text
+                style={{
+                  color: colors.text,
+                  fontSize: 13,
+                  fontWeight: "800",
+                }}
+              >
+                ▶️ {editionProgress ? `Continue from Page ${resumePage}` : "Start Reading"}
+              </Text>
+              <Text
+                style={{
+                  color: colors.text,
+                  fontSize: 12,
+                  fontWeight: "600",
+                  opacity: 0.8,
+                }}
+              >
+                {editionProgress ? "Ongoing" : "Not started yet"}
+              </Text>
+            </View>
+
+            {/* Action Buttons */}
+            <View style={{ flexDirection: "row", gap: 10 }}>
+              <Link
+                href={
+                  `/reader/${readingBookId}/${resolvedLanguageId}/${resolvedVolumeId}/${resumePage}` as const
+                }
+                asChild
+              >
+                <Pressable
+                  style={{
+                    flex: 1,
+                    borderRadius: 999,
+                    backgroundColor: colors.text,
+                    paddingVertical: 12,
+                    alignItems: "center",
+                  }}
+                >
+                  <Text style={{ color: colors.accent, fontSize: 14, fontWeight: "800" }}>
+                    {editionProgress ? "Continue" : "Start"}
+                  </Text>
+                </Pressable>
+              </Link>
+              {canDownload ? (
+                <Pressable
+                  onPress={() => {
+                    if (isDownloading) {
+                      return;
+                    }
+                    if (isFullyDownloaded) {
+                      Alert.alert(
+                        "Remove download?",
+                        "This book will no longer be available offline.",
+                        [
+                          { text: "Cancel", style: "cancel" },
+                          {
+                            text: "Remove",
+                            style: "destructive",
+                            onPress: () => {
+                              void removeDownload().then(() => {
+                                showActionFeedback("Download removed");
+                              });
+                            },
+                          },
+                        ],
+                      );
+                    } else if (isPartiallyDownloaded) {
+                      void downloadAll().then(() => {
+                        showActionFeedback("Download complete");
+                      });
+                    } else {
+                      void downloadAll().then(() => {
+                        showActionFeedback("Saved for offline reading");
+                      });
+                    }
+                  }}
+                  style={{
+                    borderRadius: 999,
+                    backgroundColor: colors.surfaceMuted,
+                    paddingHorizontal: 14,
+                    paddingVertical: 10,
+                    justifyContent: "center",
+                    alignItems: "center",
+                    opacity: isDownloading ? 0.6 : 1,
+                  }}
+                >
+                  <Text style={{ color: colors.text, fontSize: 16, fontWeight: "800" }}>
+                    {isDownloading
+                      ? `${progressPercent}%`
+                      : isFullyDownloaded
+                        ? "📦"
+                        : "💾"}
+                  </Text>
+                </Pressable>
+              ) : null}
+              <Pressable
+                onPress={() => {
+                  void toggleBookCompletion();
+                }}
+                  style={{
+                  borderRadius: 999,
+                  backgroundColor: colors.surfaceMuted,
+                  paddingHorizontal: 14,
+                  paddingVertical: 10,
+                  justifyContent: "center",
+                  alignItems: "center",
+                }}
+              >
+                <Text style={{ color: colors.text, fontSize: 16, fontWeight: "800" }}>
+                  {isCompleted ? "✓" : "○"}
+                </Text>
+              </Pressable>
+             </View>
+
+             {isDownloading ? (
+               <Text style={{ color: colors.text, fontSize: 12, fontWeight: "600", opacity: 0.8 }}>
+                 Downloading pages... {progressPercent}%
+               </Text>
+             ) : actionFeedback ? (
+               <Text style={{ color: colors.text, fontSize: 12, fontWeight: "600", opacity: 0.8 }}>
+                 {actionFeedback}
+               </Text>
+             ) : null}
+           </View>
+
           {/* About This Book */}
           <View style={{ backgroundColor: colors.surface, borderRadius: 24, padding: 18, gap: 12 }}>
             <View style={{ gap: 2 }}>
@@ -625,99 +892,6 @@ export default function BookHomeScreen() {
               ) : null}
             </View>
           </View>
-
-          {/* Primary Action Section - Compact */}
-          <View
-            style={{
-              backgroundColor: colors.accent,
-              borderRadius: 24,
-              padding: 16,
-              gap: 12,
-            }}
-          >
-            {/* Header with Progress */}
-            <View style={{ gap: 4 }}>
-              <Text
-                style={{
-                  color: colors.text,
-                  fontSize: 13,
-                  fontWeight: "800",
-                }}
-              >
-                ▶️ {editionProgress ? `Continue from Page ${resumePage}` : "Start Reading"}
-              </Text>
-              <Text
-                style={{
-                  color: colors.text,
-                  fontSize: 12,
-                  fontWeight: "600",
-                  opacity: 0.8,
-                }}
-              >
-                {editionProgress ? "Ongoing" : "Not started yet"}
-              </Text>
-            </View>
-
-            {/* Action Buttons */}
-            <View style={{ flexDirection: "row", gap: 10 }}>
-              <Link
-                href={
-                  `/reader/${readingBookId}/${resolvedLanguageId}/${resolvedVolumeId}/${resumePage}` as const
-                }
-                asChild
-              >
-                <Pressable
-                  style={{
-                    flex: 1,
-                    borderRadius: 999,
-                    backgroundColor: colors.text,
-                    paddingVertical: 12,
-                    alignItems: "center",
-                  }}
-                >
-                  <Text style={{ color: colors.accent, fontSize: 14, fontWeight: "800" }}>
-                    {editionProgress ? "Continue" : "Start"}
-                  </Text>
-                </Pressable>
-              </Link>
-              {canDownload ? (
-                <Pressable
-                  onPress={() => {
-                    void (isFullyDownloaded ? removeDownload() : downloadAll());
-                  }}
-                  style={{
-                    borderRadius: 999,
-                    backgroundColor: colors.surfaceMuted,
-                    paddingHorizontal: 14,
-                    paddingVertical: 10,
-                    justifyContent: "center",
-                    alignItems: "center",
-                  }}
-                >
-                  <Text style={{ color: colors.text, fontSize: 16, fontWeight: "800" }}>
-                    {isFullyDownloaded ? "📦" : "💾"}
-                  </Text>
-                </Pressable>
-              ) : null}
-              <Pressable
-                onPress={() => {
-                  void toggleBookCompletion();
-                }}
-                  style={{
-                  borderRadius: 999,
-                  backgroundColor: colors.surfaceMuted,
-                  paddingHorizontal: 14,
-                  paddingVertical: 10,
-                  justifyContent: "center",
-                  alignItems: "center",
-                }}
-              >
-                <Text style={{ color: colors.text, fontSize: 16, fontWeight: "800" }}>
-                  {isCompleted ? "✓" : "○"}
-                </Text>
-              </Pressable>
-             </View>
-           </View>
 
           {relatedBooks.length > 0 ? (
             <View style={{ backgroundColor: colors.surface, borderRadius: 24, padding: 18, gap: 14 }}>
@@ -800,67 +974,182 @@ export default function BookHomeScreen() {
           {/* Book Structure - TOC */}
           <View style={{ backgroundColor: colors.surface, borderRadius: 24, padding: 18, gap: 14 }}>
             {/* Header */}
-            <View style={{ gap: 2 }}>
-              <Text
-                style={{
-                  color: colors.accent,
-                  fontSize: 12,
-                  fontWeight: "700",
-                  textTransform: "uppercase",
-                  letterSpacing: 0.4,
-                }}
-              >
-                Book Structure
-              </Text>
-              <Text style={{ color: colors.text, fontSize: 20, fontWeight: "800" }}>
-                Table of Contents
-              </Text>
-            </View>
+            <Pressable
+              onPress={() => {
+                if (tocEntries.length > 0) {
+                  setIsTocSheetVisible(true);
+                }
+              }}
+              disabled={tocEntries.length === 0}
+              style={({ pressed }) => ({ opacity: pressed ? 0.7 : 1 })}
+            >
+              <View style={{ gap: 2 }}>
+                <Text
+                  style={{
+                    color: colors.accent,
+                    fontSize: 12,
+                    fontWeight: "700",
+                    textTransform: "uppercase",
+                    letterSpacing: 0.4,
+                  }}
+                >
+                  Book Structure
+                </Text>
+                <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
+                  <Text style={{ color: colors.text, fontSize: 20, fontWeight: "800" }}>
+                    Table of Contents
+                  </Text>
+                  {tocEntries.length > 0 ? (
+                    <View
+                      style={{
+                        flexDirection: "row",
+                        alignItems: "center",
+                        gap: 6,
+                        borderRadius: 999,
+                        backgroundColor: colors.surfaceMuted,
+                        paddingHorizontal: 12,
+                        paddingVertical: 6,
+                      }}
+                    >
+                      <Text style={{ color: colors.text, fontSize: 12, fontWeight: "800" }}>
+                        {tocEntries.length}
+                      </Text>
+                      <Ionicons name="chevron-forward" size={14} color={colors.textMuted} />
+                    </View>
+                  ) : null}
+                </View>
+              </View>
+            </Pressable>
 
             {tocEntries.length === 0 ? (
               <Text style={{ color: colors.textMuted, fontSize: 13, lineHeight: 20 }}>
                 TOC is not available for this book yet. You can still start reading or jump to any page in the reader.
               </Text>
             ) : null}
-
-            {/* TOC Preview */}
-            <View style={{ gap: 8 }}>
-              {tocEntries.slice(0, 5).map((entry, index) => (
-                <Link
-                  key={`${entry.title}-${index}`}
-                  href={`/reader/${readingBookId}/${resolvedLanguageId}/${resolvedVolumeId}/${getTocEntryPage(entry)}` as const}
-                  asChild
-                >
-                <Pressable
-                  style={{
-                    backgroundColor: colors.surfaceMuted,
-                    borderRadius: 12,
-                    padding: 12,
-                    marginLeft: Math.min(Math.max((entry.level ?? 1) - 1, 0), 3) * 12,
-                  }}
-                >
-                  <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start" }}>
-                    <View style={{ flex: 1, gap: 2 }}>
-                      <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
-                        <Text style={{ color: colors.accent, fontSize: 14, fontWeight: "700" }}>
-                          {index + 1}
-                        </Text>
-                        <Text style={{ color: colors.text, fontSize: 14, fontWeight: "700", flex: 1 }}>
-                          {entry.title}
-                        </Text>
-                      </View>
-                      <Text style={{ color: colors.textMuted, fontSize: 12 }}>
-                        {entry.printedPage ? `Page ${entry.printedPage}` : `Reader page ${getTocEntryPage(entry)}`}
-                      </Text>
-                    </View>
-                  </View>
-                </Pressable>
-                </Link>
-              ))}
-            </View>
           </View>
         </ScrollView>
         )}
+
+        {!shouldShowInitialSkeleton ? (
+          <View
+            style={{
+              position: "absolute",
+              right: 16,
+              bottom: insets.bottom + 16,
+            }}
+          >
+            <OpenBookFab
+              size={56}
+              colors={colors}
+              href={`/reader/${readingBookId}/${resolvedLanguageId}/${resolvedVolumeId}/${resumePage}` as Href}
+            />
+          </View>
+        ) : null}
+
+        <Modal
+          visible={isTocSheetVisible}
+          transparent
+          animationType="slide"
+          onRequestClose={() => setIsTocSheetVisible(false)}
+        >
+          <Pressable
+            onPress={() => setIsTocSheetVisible(false)}
+            style={{ flex: 1, backgroundColor: colors.scrim, justifyContent: "flex-end" }}
+          >
+            <Pressable
+              onPress={() => {}}
+              style={{
+                maxHeight: "68%",
+                borderTopLeftRadius: 28,
+                borderTopRightRadius: 28,
+                backgroundColor: colors.surface,
+                paddingHorizontal: 20,
+                paddingTop: 12,
+                paddingBottom: 28,
+              }}
+            >
+              <View style={{ width: 36, height: 4, borderRadius: 2, alignSelf: "center", backgroundColor: colors.surfaceMuted }} />
+
+              <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginTop: 16 }}>
+                <View style={{ flex: 1, minWidth: 0 }}>
+                  <Text style={{ color: colors.text, fontSize: 21, fontWeight: "800" }}>
+                    Table of Contents
+                  </Text>
+                  <Text style={{ color: colors.textMuted, fontSize: 13, marginTop: 3 }} numberOfLines={1}>
+                    {tocEntries.length ? `${tocEntries.length} entries · tap to jump` : displayTitle}
+                  </Text>
+                </View>
+                <Pressable
+                  onPress={() => setIsTocSheetVisible(false)}
+                  hitSlop={8}
+                  style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1, padding: 6 })}
+                >
+                  <Ionicons name="close" size={23} color={colors.text} />
+                </Pressable>
+              </View>
+
+              {tocEntries.length ? (
+                <ScrollView
+                  showsVerticalScrollIndicator={false}
+                  contentContainerStyle={{ paddingTop: 14, paddingBottom: 8 }}
+                >
+                  {tocEntries.map((entry, index) => {
+                    const entryPage = getTocEntryPage(entry);
+                    const hasPage = typeof entry.printedPage === "number" || typeof entry.renderedPage === "number";
+
+                    return (
+                      <Pressable
+                        key={`${entry.title}-${index}`}
+                        onPress={() => {
+                          router.push(
+                            `/reader/${readingBookId}/${resolvedLanguageId}/${resolvedVolumeId}/${entryPage}` as Href,
+                          );
+                          setIsTocSheetVisible(false);
+                        }}
+                        style={({ pressed }) => ({
+                          flexDirection: "row",
+                          alignItems: "flex-start",
+                          flexWrap: "nowrap",
+                          paddingVertical: 12,
+                          paddingLeft: 4,
+                          paddingRight: 6,
+                          opacity: pressed ? 0.55 : 1,
+                        })}
+                      >
+                        <View style={{ flex: 1, minWidth: 0 }}>
+                          <Text
+                            style={{
+                              color: colors.text,
+                              fontSize: 14,
+                              fontWeight: "500",
+                              lineHeight: 21,
+                              textTransform: "capitalize",
+                            }}
+                          >
+                            {toTitleCase(entry.title)}
+                          </Text>
+                        </View>
+                        <View style={{ width: 50, paddingTop: 4, alignItems: "flex-end" }}>
+                          <Text
+                            style={{
+                              color: colors.textMuted,
+                              fontSize: 11.5,
+                              fontWeight: "500",
+                              textAlign: "right",
+                            }}
+                            numberOfLines={1}
+                          >
+                            {hasPage ? `p. ${entryPage}` : "—"}
+                          </Text>
+                        </View>
+                      </Pressable>
+                    );
+                  })}
+                </ScrollView>
+              ) : null}
+            </Pressable>
+          </Pressable>
+        </Modal>
       </SafeAreaView>
     </>
   );
