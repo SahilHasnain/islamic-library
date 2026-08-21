@@ -1,4 +1,5 @@
 import { Ionicons } from "@expo/vector-icons";
+import * as Brightness from "expo-brightness";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -10,6 +11,7 @@ import {
   Platform,
   Pressable,
   ScrollView,
+  StatusBar,
   Text,
   TextInput,
   useWindowDimensions,
@@ -71,6 +73,7 @@ function ReaderPageSurface({
   mutedTextColor,
   remoteState,
   isActivePage,
+  onPress,
   onZoomChange,
 }: {
   manifest: ReturnType<typeof useRemoteBookData>["manifest"];
@@ -82,6 +85,7 @@ function ReaderPageSurface({
   mutedTextColor: string;
   remoteState: string;
   isActivePage: boolean;
+  onPress?: () => void;
   onZoomChange: (isZoomed: boolean) => void;
 }) {
   const { asset } = useResolvedManifestPageAsset(manifest, pageNum);
@@ -97,6 +101,7 @@ function ReaderPageSurface({
         source={asset.source}
         width={screenWidth}
         height={Math.min(screenHeight, screenWidth / imageAspectRatio)}
+        onPress={onPress}
         onZoomChange={onZoomChange}
         onError={() => { }}
       />
@@ -183,6 +188,8 @@ export default function ReaderScreen() {
   const [isZoomed, setIsZoomed] = useState(false);
   const [isPageModalVisible, setIsPageModalVisible] = useState(false);
   const [isTocVisible, setIsTocVisible] = useState(false);
+  const [isFocusMode, setIsFocusMode] = useState(false);
+  const [brightness, setBrightness] = useState(0.5);
   const [showBookCompletionModal, setShowBookCompletionModal] = useState(false);
   const flatListRef = useRef<FlatList<number>>(null);
   const progressTrackRef = useRef<View>(null);
@@ -190,6 +197,8 @@ export default function ReaderScreen() {
   const activeTocIndexRef = useRef(0);
   const tocRowYOffsetsRef = useRef<number[]>([]);
   const [progressTrackWidth, setProgressTrackWidth] = useState(0);
+  const [brightnessTrackWidth, setBrightnessTrackWidth] = useState(0);
+  const originalBrightnessRef = useRef<number | null>(null);
   // Session duration is tracked locally in this screen (active app time while mounted)
   // and used for book completion stats.
   const sessionAccumulatedMs = useRef(0);
@@ -197,6 +206,35 @@ export default function ReaderScreen() {
   const sessionTimerRunning = useRef(true);
   const finalPagesEnteredAt = useRef<number | null>(null);
   const bookCompletionPromptSuppressedRef = useRef(false);
+
+  useEffect(() => {
+    if (Platform.OS === "web") {
+      return;
+    }
+
+    let isMounted = true;
+
+    void Brightness.getBrightnessAsync()
+      .then((currentBrightness) => {
+        if (isMounted) {
+          originalBrightnessRef.current = currentBrightness;
+          setBrightness(currentBrightness);
+        }
+      })
+      .catch(() => {
+        // Brightness access can be unavailable on some devices.
+      });
+
+    return () => {
+      isMounted = false;
+
+      if (originalBrightnessRef.current !== null) {
+        void Brightness.setBrightnessAsync(originalBrightnessRef.current).catch(() => {
+          // Keep leaving the reader resilient if brightness restoration fails.
+        });
+      }
+    };
+  }, []);
 
   const getSessionDurationMs = useCallback(() => {
     return (
@@ -459,6 +497,21 @@ export default function ReaderScreen() {
     [clampPage, moveToPage, progressTrackWidth, totalPages],
   );
 
+  const updateBrightnessFromGesture = useCallback(
+    (locationX: number) => {
+      if (brightnessTrackWidth <= 0 || Platform.OS === "web") {
+        return;
+      }
+
+      const nextBrightness = Math.min(Math.max(locationX / brightnessTrackWidth, 0.05), 1);
+      setBrightness(nextBrightness);
+      void Brightness.setBrightnessAsync(nextBrightness).catch(() => {
+        // Keep the reader usable if the platform rejects a brightness update.
+      });
+    },
+    [brightnessTrackWidth],
+  );
+
   const progressPanResponder = useMemo(
     () =>
       PanResponder.create({
@@ -474,6 +527,36 @@ export default function ReaderScreen() {
     [updatePageFromProgressGesture],
   );
 
+  const brightnessPanResponder = useMemo(
+    () =>
+      PanResponder.create({
+        onStartShouldSetPanResponder: () => true,
+        onMoveShouldSetPanResponder: () => true,
+        onPanResponderGrant: (event) => {
+          updateBrightnessFromGesture(event.nativeEvent.locationX);
+        },
+        onPanResponderMove: (event) => {
+          updateBrightnessFromGesture(event.nativeEvent.locationX);
+        },
+      }),
+    [updateBrightnessFromGesture],
+  );
+
+  const exitFocusMode = useCallback(() => {
+    setIsFocusMode(false);
+  }, []);
+
+  useEffect(() => {
+    if (Platform.OS === "web") {
+      return;
+    }
+
+    StatusBar.setHidden(isFocusMode, "fade");
+
+    return () => {
+      StatusBar.setHidden(false, "fade");
+    };
+  }, [isFocusMode]);
   const submitPageInput = useCallback(() => {
     const trimmedInput = pageInput.trim();
     const parsedPage = Number(pageInput.replace(/[^0-9]/g, ""));
@@ -525,12 +608,13 @@ export default function ReaderScreen() {
             mutedTextColor={mutedBodyColor}
             remoteState={remoteState}
             isActivePage={pageNum === currentPage}
+            onPress={isFocusMode ? exitFocusMode : undefined}
             onZoomChange={setIsZoomed}
           />
         </View>
       );
     },
-    [colors.background, colors.textStrong, currentPage, manifest, mutedBodyColor, remoteState, screenHeight, screenWidth],
+    [colors.background, colors.textStrong, currentPage, exitFocusMode, isFocusMode, manifest, mutedBodyColor, remoteState, screenHeight, screenWidth],
   );
 
   return (
@@ -561,87 +645,55 @@ export default function ReaderScreen() {
         </View>
       ) : (
         <FlatList
-          ref={flatListRef}
-          data={pages}
-          renderItem={renderPage}
-          keyExtractor={(item) => `${readingBookId}-${resolvedLanguageId}-${resolvedVolumeId}-${item}`}
-          horizontal
-          pagingEnabled
-          scrollEnabled={!isZoomed}
-          showsHorizontalScrollIndicator={false}
-          initialScrollIndex={initialPage - 1}
-          getItemLayout={(_, index) => ({
-            length: screenWidth,
-            offset: screenWidth * index,
-            index,
-          })}
-          onViewableItemsChanged={handleViewableItemsChanged}
-          viewabilityConfig={viewabilityConfig}
-          windowSize={3}
-          maxToRenderPerBatch={3}
-          initialNumToRender={3}
-          removeClippedSubviews
-          onScrollToIndexFailed={(info) => {
-            setTimeout(() => {
-              flatListRef.current?.scrollToIndex({
-                index: info.index,
-                animated: false,
-              });
-            }, 100);
-          }}
+            ref={flatListRef}
+            data={pages}
+            renderItem={renderPage}
+            keyExtractor={(item) => `${readingBookId}-${resolvedLanguageId}-${resolvedVolumeId}-${item}`}
+            horizontal
+            pagingEnabled
+            scrollEnabled={!isZoomed}
+            showsHorizontalScrollIndicator={false}
+            initialScrollIndex={initialPage - 1}
+            getItemLayout={(_, index) => ({
+              length: screenWidth,
+              offset: screenWidth * index,
+              index,
+            })}
+            onViewableItemsChanged={handleViewableItemsChanged}
+            viewabilityConfig={viewabilityConfig}
+            windowSize={3}
+            maxToRenderPerBatch={3}
+            initialNumToRender={3}
+            removeClippedSubviews
+            onScrollToIndexFailed={(info) => {
+              setTimeout(() => {
+                flatListRef.current?.scrollToIndex({
+                  index: info.index,
+                  animated: false,
+                });
+              }, 100);
+            }}
         />
       )}
 
+      {!isFocusMode && (
       <View
         style={{
           position: "absolute",
           top: 0,
           left: 0,
           right: 0,
-          backgroundColor: colors.overlay,
-          height: 102,
-          paddingTop: 50,
-          paddingHorizontal: 16,
-          flexDirection: "row",
-          alignItems: "center",
-          gap: 12,
-        }}
-      >
-        <Pressable
-          onPress={() => {
-            router.back();
-          }}
-          style={({ pressed }) => ({
-            width: 40,
-            height: 40,
-            borderRadius: 20,
-            backgroundColor: colors.overlayLight,
-            alignItems: "center",
-            justifyContent: "center",
-            opacity: pressed ? 0.7 : 1,
-          })}
-        >
-          <Ionicons name="chevron-back" size={24} color={colors.text} />
-        </Pressable>
-        <View style={{ flex: 1, minWidth: 0 }}>
-          <Text
-            style={{ color: colors.text, fontSize: 18, fontWeight: "800" }}
-            numberOfLines={1}
-          >
-            {bookTitle}
-          </Text>
-          <Text
-            style={{ color: colors.textMuted, fontSize: 15, fontWeight: "600" }}
-            numberOfLines={1}
-          >
-            {editionLine}
-          </Text>
-        </View>
-
-        {__DEV__ && (
+           backgroundColor: colors.overlay,
+           height: 142,
+           paddingTop: 50,
+           paddingHorizontal: 16,
+           gap: 6,
+         }}
+       >
+         <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
           <Pressable
             onPress={() => {
-              setShowBookCompletionModal(true);
+              router.back();
             }}
             style={({ pressed }) => ({
               width: 40,
@@ -653,11 +705,84 @@ export default function ReaderScreen() {
               opacity: pressed ? 0.7 : 1,
             })}
           >
-            <Ionicons name="ribbon" size={20} color={colors.text} />
+            <Ionicons name="chevron-back" size={24} color={colors.text} />
           </Pressable>
+          <View style={{ flex: 1, minWidth: 0 }}>
+            <Text
+              style={{ color: colors.text, fontSize: 18, fontWeight: "800" }}
+              numberOfLines={1}
+            >
+              {bookTitle}
+            </Text>
+            <Text
+              style={{ color: colors.textMuted, fontSize: 15, fontWeight: "600" }}
+              numberOfLines={1}
+            >
+              {editionLine}
+            </Text>
+          </View>
+
+          {__DEV__ && (
+            <Pressable
+              onPress={() => {
+                setShowBookCompletionModal(true);
+              }}
+              style={({ pressed }) => ({
+                width: 40,
+                height: 40,
+                borderRadius: 20,
+                backgroundColor: colors.overlayLight,
+                alignItems: "center",
+                justifyContent: "center",
+                opacity: pressed ? 0.7 : 1,
+              })}
+            >
+              <Ionicons name="ribbon" size={20} color={colors.text} />
+            </Pressable>
+          )}
+        </View>
+
+        {Platform.OS !== "web" && (
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+            <Ionicons name="sunny-outline" size={16} color={colors.text} />
+            <View
+              onLayout={(event) => setBrightnessTrackWidth(event.nativeEvent.layout.width)}
+              {...brightnessPanResponder.panHandlers}
+              style={{ flex: 1, paddingVertical: 10, justifyContent: "center" }}
+            >
+              <View style={{ height: 4, borderRadius: 2, backgroundColor: "rgba(255,255,255,0.22)" }}>
+                <View
+                  style={{
+                    position: "absolute",
+                    left: 0,
+                    top: 0,
+                    bottom: 0,
+                    width: `${brightness * 100}%`,
+                    backgroundColor: colors.text,
+                    opacity: 0.85,
+                    borderRadius: 2,
+                  }}
+                />
+                <View
+                  style={{
+                    position: "absolute",
+                    top: -5,
+                    left: `${brightness * 100}%`,
+                    width: 14,
+                    height: 14,
+                    marginLeft: -7,
+                    borderRadius: 7,
+                    backgroundColor: colors.text,
+                  }}
+                />
+              </View>
+            </View>
+          </View>
         )}
       </View>
+      )}
 
+      {!isFocusMode && (
       <SafeAreaView
         edges={["bottom"]}
         style={{
@@ -749,23 +874,45 @@ export default function ReaderScreen() {
               </View>
             </View>
 
-            <Pressable
-              onPress={() => setIsTocVisible(true)}
-              style={({ pressed }) => ({
-                width: 48,
-                height: 48,
-                borderRadius: 24,
-                backgroundColor: controlSurfaceColor,
-                alignItems: "center",
-                justifyContent: "center",
-                opacity: pressed ? 0.8 : 1,
-              })}
-            >
-              <Ionicons name="list-outline" size={22} color={colors.text} />
-            </Pressable>
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 16 }}>
+              {Platform.OS !== "web" && (
+                <Pressable
+                  onPress={() => setIsFocusMode(true)}
+                  hitSlop={8}
+                  style={({ pressed }) => ({
+                    width: 48,
+                    height: 48,
+                    borderRadius: 24,
+                    backgroundColor: controlSurfaceColor,
+                    alignItems: "center",
+                    justifyContent: "center",
+                    opacity: pressed ? 0.8 : 1,
+                  })}
+                >
+                  <Ionicons name="eye-off-outline" size={22} color={colors.text} />
+                </Pressable>
+              )}
+
+              <Pressable
+                onPress={() => setIsTocVisible(true)}
+                hitSlop={8}
+                style={({ pressed }) => ({
+                  width: 48,
+                  height: 48,
+                  borderRadius: 24,
+                  backgroundColor: controlSurfaceColor,
+                  alignItems: "center",
+                  justifyContent: "center",
+                  opacity: pressed ? 0.8 : 1,
+                })}
+              >
+                <Ionicons name="list-outline" size={22} color={colors.text} />
+              </Pressable>
+            </View>
           </View>
         </View>
       </SafeAreaView>
+      )}
 
       <Modal
         visible={isPageModalVisible}
