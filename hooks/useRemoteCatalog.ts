@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 import type { PublicCatalog } from "../data/types";
 import { loadJsonEntry, saveJsonEntry } from "../lib/library-data-cache";
 
-const DEFAULT_ENDPOINT = "http://35.200.174.46/v1";
+const DEFAULT_ENDPOINT = "https://api.bloomoralabs.org/v1";
 const DEFAULT_BUCKET_ID = "public_assets";
 const DEFAULT_CATALOG_FILE_ID = "catalog";
 const CATALOG_CACHE_KEY = "catalog";
@@ -14,14 +14,20 @@ function buildCatalogUrl(): string {
     return override;
   }
 
-  const endpoint = (process.env.EXPO_PUBLIC_APPWRITE_ENDPOINT || DEFAULT_ENDPOINT)
+  const endpoint = (
+    process.env.EXPO_PUBLIC_APPWRITE_ENDPOINT || DEFAULT_ENDPOINT
+  )
     .trim()
     .replace(/\/+$/, "");
   const projectId = process.env.EXPO_PUBLIC_APPWRITE_PROJECT_ID || "";
-  const bucketId = process.env.EXPO_PUBLIC_APPWRITE_PUBLIC_BUCKET_ID || DEFAULT_BUCKET_ID;
-  const fileId = process.env.EXPO_PUBLIC_APPWRITE_CATALOG_FILE_ID || DEFAULT_CATALOG_FILE_ID;
+  const bucketId =
+    process.env.EXPO_PUBLIC_APPWRITE_PUBLIC_BUCKET_ID || DEFAULT_BUCKET_ID;
+  const fileId =
+    process.env.EXPO_PUBLIC_APPWRITE_CATALOG_FILE_ID || DEFAULT_CATALOG_FILE_ID;
 
-  const projectQuery = projectId ? `?project=${encodeURIComponent(projectId)}` : "";
+  const projectQuery = projectId
+    ? `?project=${encodeURIComponent(projectId)}`
+    : "";
   return `${endpoint}/storage/buckets/${bucketId}/files/${fileId}/view${projectQuery}`;
 }
 
@@ -87,7 +93,11 @@ export function useRemoteCatalog() {
 
         if (!cachedEntry) {
           setCatalog(null);
-          setError(loadError instanceof Error ? loadError.message : "catalog-load-failed");
+          setError(
+            loadError instanceof Error
+              ? loadError.message
+              : "catalog-load-failed",
+          );
         }
         setIsLoading(false);
       }

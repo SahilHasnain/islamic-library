@@ -43,7 +43,7 @@
 
 # Appwrite Schema Scripts
 
-- Schema-of-record + provisioning for the self-hosted Appwrite at `http://35.200.174.46/v1` (set `APPWRITE_ENDPOINT`/`APPWRITE_PROJECT_ID`/`APPWRITE_API_KEY` in `admin-console/.env.local`):
+- Schema-of-record + provisioning for the self-hosted Appwrite at `https://api.bloomoralabs.org/v1` (set `APPWRITE_ENDPOINT`/`APPWRITE_PROJECT_ID`/`APPWRITE_API_KEY` in `admin-console/.env.local`):
   - `scripts/appwrite-schema.json` — declarative schema (database, collections + attributes, buckets incl. the public `public_assets` bucket with anonymous read).
   - Root `npm run appwrite:provision` → `./scripts/provision-appwrite.mjs` (idempotent, zero-dependency; dry-run: `npm run appwrite:provision:dry`).
 - Root script `npm run appwrite:add-attributes` runs `./scripts/add-missing-attributes.mjs` and expects Appwrite env values to be present in `admin-console/.env.local` (see `scripts/README.md`).

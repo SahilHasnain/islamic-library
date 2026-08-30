@@ -18,7 +18,7 @@
 - Old (Appwrite Cloud), used in `*.env.local` / `*.env.example`:
   `https://sgp.cloud.appwrite.io/v1`
 - New (self-hosted), to be used everywhere:
-  `http://35.200.174.46/v1`  (normalize: append `/v1` if the configured base omits it)
+  `https://api.bloomoralabs.org/v1` (normalize: append `/v1` if the configured base omits it)
 - `projectId` and `apiKey` (for the new server) to be supplied by the owner before running the provision script.
 - Only the **endpoint** changes in this pass; project/API-key keep the same meaning. Update these files:
   - `admin-console/.env.example` (lines: `APPWRITE_ENDPOINT`, `NEXT_PUBLIC_APPWRITE_ENDPOINT`)
@@ -31,7 +31,9 @@
 ## 2. New Appwrite schema + provisioning
 
 ### 2.1 `scripts/appwrite-schema.json`
+
 Single declarative source of truth for the self-hosted instance:
+
 - **database**: `library_ingestion`
 - **collections**: `books`, `ingestion_jobs`, `publish_events`, `ai_analysis_drafts` with full attribute definitions (string / integer / datetime / enum + size, required, min/max, enum elements, defaults).
 - **buckets**: `source_pdfs`, `generated_previews`, `worker_logs`, and the new **`public_assets`** bucket:
@@ -40,20 +42,22 @@ Single declarative source of truth for the self-hosted instance:
   {
     "id": "public_assets",
     "name": "Public Assets",
-    "permissions": ["read(\"any\")"],   // anonymous READ so the mobile app can fetch without auth
-    "fileSecurity": false,              // bucket-level permissions govern all files
+    "permissions": ["read(\"any\")"], // anonymous READ so the mobile app can fetch without auth
+    "fileSecurity": false, // bucket-level permissions govern all files
     "maximumFileSize": 60000000,
-    "allowedFileExtensions": [],        // allow all
+    "allowedFileExtensions": [], // allow all
     "compression": "none",
     "encryption": false,
-    "antivirus": false
+    "antivirus": false,
   }
   ```
 
   > Note: the owner of `public_assets` write access is the **worker's server API key**, not the anonymous reader.
 
 ### 2.2 `scripts/provision-appwrite.mjs`
+
 Idempotent, zero-dependency (`fetch` + a tiny `.env.local` parser, mirroring `worker-service/src/appwrite.mjs`):
+
 - Loads `appwrite-schema.json` from the same dir.
 - Resolves env from (first found): `admin-console/.env.local` → root `.env.local` → `worker-service/.env.local`.
 - Explores `APPWRITE_ENDPOINT` → normalizes to `/v1` suffix.
@@ -69,6 +73,7 @@ Purpose: lets anyone with the two server credentials re-create / repair the sche
 ## 3. Implementation steps
 
 ### Step 1 — Appwrite infra (per §1.1 + §2)
+
 1. `scripts/appwrite-config.mjs`: add `publicBucketId: "public_assets"`.
 2. `admin-console/src/lib/appwrite.ts`: add `publicAssetsBucketId` to `APPWRITE_IDS`.
 3. Commit `scripts/appwrite-schema.json` + `scripts/provision-appwrite.mjs`; run provision against the new endpoint once credentials are provided.
@@ -77,6 +82,7 @@ Purpose: lets anyone with the two server credentials re-create / repair the sche
    resolves with no auth (this is the URL shape the app + downloadable images depend on; same as SDK `Storage.getFileViewURL`).
 
 ### Phase 2 — Worker publish: GitHub → bucket upload
+
 - New `worker-service/src/upload.mjs` supersedes `publish.mjs`'s git half.
   - Zero-dep multipart `POST /storage/buckets/{bucket}/files` + `DELETE` for overwrite (delete+create), hand-held `X-Appwrite-Key` auth.
   - Deterministic ≤32‑char file IDs (`md5(slug|lang|volume|page)`), human-readable `name`, overwrite = delete+create.
@@ -89,21 +95,25 @@ Purpose: lets anyone with the two server credentials re-create / repair the sche
 - `server.mjs`: consume new return fields; keep `pushStatus="succeeded"` semantics so the existing jobs board doesn't break; drop `handleRetryPush` + the `retry-push` route.
 
 ### Phase 3 — Admin console (leaf cleanup)
+
 - Remove `retry-push` route, button, and push-failure banners.
 - Simplify monitoring counters to published/unpublished.
 - `assets/json` proxy passes Appwrite URLs through unchanged (already identity for non-jsDelivr URLs).
 
 ### Phase 4 — Mobile app
+
 - Root `.env` (+ `.env.example`): `EXPO_PUBLIC_APPWRITE_ENDPOINT`, `EXPO_PUBLIC_APPWRITE_PROJECT_ID`, `EXPO_PUBLIC_APPWRITE_PUBLIC_BUCKET_ID`, `EXPO_PUBLIC_APPWRITE_CATALOG_FILE_ID` (`catalog`).
 - `hooks/useRemoteCatalog.ts`: build the catalog view URL from envs (env-with-fallback).
 - `hooks/useRemoteBookData.ts`: remove the jsDelivr→rawGitHub normalizer (URLs pass through).
 - Reader, prefetch, offline download, covers (`expo-image`) unchanged — manifests keep `pages[].url` / `baseUrl`.
 
 ### Phase 5 — Backfill existing content
+
 - `scripts/backfill-appwrite-public.mjs`: mirrors the local `D:/Projects/islamic-library-assets` clone into `public_assets` using the same ID/name scheme + upload helpers. Idempotent; logs per-file counts and totals.
 - Run (after provisioning): `npm run appwrite:backfill` (dry-run: `npm run appwrite:backfill:dry`). Uses the same env resolution as `appwrite:provision` (admin-console → root → worker-service `.env.local`) and also requires `APPWRITE_PUBLIC_BUCKET_ID`. Rewrites legacy jsDelivr/rawGitHub URLs in covers, `manifest.json`, `metadata.json`, and `catalog.json` to Appwrite view URLs; volume `manifestUrl`s are rewritten to point at the backfilled manifest files.
 
 ### Phase 6 — Verification
+
 - `npm run worker` mock ingest → assert files present in `public_assets`, anonymous view URLs resolve, JSON parses, covers/pages load.
 - `npm --prefix admin-console run lint` + `build`; root `npm run typecheck` + `lint`.
 - Confirm no surviving references to `cdn.jsdelivr.net` / `raw.githubusercontent.com` in runtime code.
@@ -118,6 +128,7 @@ Purpose: lets anyone with the two server credentials re-create / repair the sche
 - The bucket has **anonymous READ**: do not store anything sensitive there; the existing `source_pdfs` bucket stays private.
 
 ## 5. Non-goals
+
 - No change to source-PDF ingestion (`source_pdfs`), AI analysis, job bookkeeping.
 - No change to mobile reading/progress state (AsyncStorage).
 - No deletion of the GitHub assets repo.
