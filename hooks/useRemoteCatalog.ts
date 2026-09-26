@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 import type { PublicCatalog } from "../data/types";
 import { loadJsonEntry, saveJsonEntry } from "../lib/library-data-cache";
 
-const DEFAULT_ENDPOINT = "https://api.bloomoralabs.org/v1";
+const DEFAULT_ENDPOINT = "https://sgp.cloud.appwrite.io/v1";
 const DEFAULT_BUCKET_ID = "public_assets";
 const DEFAULT_CATALOG_FILE_ID = "catalog";
 const CATALOG_CACHE_KEY = "catalog";

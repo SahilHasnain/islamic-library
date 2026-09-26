@@ -1,10 +1,12 @@
 import fs from "node:fs";
 
-const endpoint = "https://sgp.cloud.appwrite.io/v1";
-const projectId = "69a129d40030295223ed";
-const apiKey =
-  process.env.APPWRITE_API_KEY ||
-  "standard_3e7b7e4ceea2821f00336687555c238f6f053e0ffe62898d2d114b6342c0fd618693ae0680241736143fb1bfeb492157ccb223bee3848fff8868b0d6f5da0efaf9ce5fbbdd505a6d98809d446c9e654d203dd75d8608031d937442f2a332d52b893b0cfb21a50355e1a2c907f0440a647fdd04822b16f28531ca8d3b2bf47979";
+const endpoint = process.env.APPWRITE_ENDPOINT || "https://sgp.cloud.appwrite.io/v1";
+const projectId = process.env.APPWRITE_PROJECT_ID || "69a129d40030295223ed";
+const apiKey = process.env.APPWRITE_API_KEY;
+
+if (!apiKey) {
+  throw new Error("Missing required environment variable: APPWRITE_API_KEY");
+}
 
 const now = Date.now();
 const slug = `mock-pipeline-test-${now}`;

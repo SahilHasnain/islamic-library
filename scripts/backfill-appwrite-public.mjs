@@ -109,6 +109,42 @@ function publicFileViewUrl(bucketId, fileId) {
 // Appwrite REST helpers (zero-dependency multipart upload)
 // ---------------------------------------------------------------------------
 
+const RETRYABLE_STATUS = new Set([408, 425, 429, 500, 502, 503, 504]);
+const MAX_UPLOAD_ATTEMPTS = 6;
+
+function delay(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function fetchWithRetry(url, init, attempts = MAX_UPLOAD_ATTEMPTS) {
+  let lastError = new Error(`Request to ${url} failed`);
+
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    try {
+      const response = await fetch(url, init);
+      if (!RETRYABLE_STATUS.has(response.status)) {
+        return response;
+      }
+
+      lastError = new Error(`HTTP ${response.status}`);
+      if (attempt === attempts) {
+        return response;
+      }
+
+      await response.arrayBuffer();
+    } catch (error) {
+      lastError = error instanceof Error ? error : new Error(String(error));
+      if (attempt === attempts) {
+        throw lastError;
+      }
+    }
+
+    await delay(Math.min(500 * 2 ** (attempt - 1), 8000));
+  }
+
+  throw lastError;
+}
+
 async function uploadBucketFile({ bucketId, fileId, fileBuffer, fileName, contentType }) {
   const boundary = `----islamicLibraryBackfillBoundary${Date.now().toString(36)}`;
   const encoder = new TextEncoder();
@@ -133,7 +169,7 @@ async function uploadBucketFile({ bucketId, fileId, fileBuffer, fileName, conten
 
   const body = Buffer.concat(chunks.map((chunk) => Buffer.from(chunk)));
 
-  const response = await fetch(`${endpoint}/storage/buckets/${bucketId}/files`, {
+  const response = await fetchWithRetry(`${endpoint}/storage/buckets/${bucketId}/files`, {
     method: "POST",
     headers: {
       "Content-Type": `multipart/form-data; boundary=${boundary}`,
@@ -151,8 +187,27 @@ async function uploadBucketFile({ bucketId, fileId, fileBuffer, fileName, conten
   return response.json();
 }
 
+async function getBucketFile(bucketId, fileId) {
+  const response = await fetchWithRetry(
+    `${endpoint}/storage/buckets/${bucketId}/files/${fileId}`,
+    {
+      headers: {
+        "X-Appwrite-Project": projectId,
+        "X-Appwrite-Key": apiKey,
+      },
+    },
+    3,
+  );
+
+  if (!response.ok) {
+    return null;
+  }
+
+  return response.json();
+}
+
 async function deleteBucketFile(bucketId, fileId) {
-  const response = await fetch(
+  const response = await fetchWithRetry(
     `${endpoint}/storage/buckets/${bucketId}/files/${fileId}`,
     {
       method: "DELETE",
@@ -176,6 +231,7 @@ async function deleteBucketFile(bucketId, fileId) {
 // ---------------------------------------------------------------------------
 
 const isDryRun = process.argv.includes("--dry-run");
+const shouldResume = process.argv.includes("--resume");
 
 function resolveAssetsPath() {
   const assetsArgIndex = process.argv.indexOf("--assets");
@@ -198,26 +254,39 @@ function ensureAssetsPath(assetsPath) {
   }
 }
 
-async function uploadTextFile(fileId, text, fileName) {
+async function uploadBinaryBuffer(fileId, fileBuffer, fileName, contentType, counts) {
+  if (shouldResume) {
+    const existing = await getBucketFile(publicBucketId, fileId);
+    if (existing && existing.sizeOriginal === fileBuffer.length) {
+      if (counts) {
+        counts.skipped += 1;
+      }
+      return;
+    }
+  }
+
   await deleteBucketFile(publicBucketId, fileId);
   await uploadBucketFile({
     bucketId: publicBucketId,
     fileId,
-    fileBuffer: Buffer.from(text, "utf8"),
+    fileBuffer,
     fileName,
-    contentType: "application/json",
+    contentType,
   });
 }
 
-async function uploadBinaryFile(fileId, filePath, fileName) {
-  await deleteBucketFile(publicBucketId, fileId);
-  await uploadBucketFile({
-    bucketId: publicBucketId,
+async function uploadTextFile(fileId, text, fileName, counts) {
+  await uploadBinaryBuffer(
     fileId,
-    fileBuffer: fs.readFileSync(filePath),
+    Buffer.from(text, "utf8"),
     fileName,
-    contentType: contentTypeFor(fileName),
-  });
+    "application/json",
+    counts,
+  );
+}
+
+async function uploadBinaryFile(fileId, filePath, fileName, counts) {
+  await uploadBinaryBuffer(fileId, fs.readFileSync(filePath), fileName, contentTypeFor(fileName), counts);
 }
 
 async function backfillBook(bookSlug, assetsPath, counts, originalEntry) {
@@ -238,7 +307,7 @@ async function backfillBook(bookSlug, assetsPath, counts, originalEntry) {
     const coverFileId = fileIdFor(`${bookSlug}:cover:${coverFileName}`);
     counts.covers += 1;
     if (!isDryRun) {
-      await uploadBinaryFile(coverFileId, coverPath, coverFileName);
+      await uploadBinaryFile(coverFileId, coverPath, coverFileName, counts);
     }
   }
 
@@ -271,7 +340,10 @@ async function backfillBook(bookSlug, assetsPath, counts, originalEntry) {
         const pageFileId = fileIdFor(`${volumeSeed}:page:${page.fileName}`);
         counts.pages += 1;
         if (!isDryRun) {
-          await uploadBinaryFile(pageFileId, pagePath, page.fileName);
+          await uploadBinaryFile(pageFileId, pagePath, page.fileName, counts);
+        }
+        if (counts.pages % 250 === 0) {
+          console.log(`  pages uploaded: ${counts.pages}`);
         }
         pageCopies.push({ ...page, url: publicFileViewUrl(publicBucketId, pageFileId) });
       }
@@ -290,6 +362,7 @@ async function backfillBook(bookSlug, assetsPath, counts, originalEntry) {
           manifestFileId,
           JSON.stringify(publishedManifest, null, 2),
           "manifest.json",
+          counts,
         );
       }
 
@@ -315,6 +388,7 @@ async function backfillBook(bookSlug, assetsPath, counts, originalEntry) {
       metadataFileId,
       JSON.stringify(publishedMetadata, null, 2),
       "metadata.json",
+      counts,
     );
   }
 
@@ -352,8 +426,11 @@ async function main() {
   if (isDryRun) {
     console.log("DRY RUN - no files will be written.\n");
   }
+  if (shouldResume) {
+    console.log("RESUME - files already present with matching size are skipped.\n");
+  }
 
-  const counts = { covers: 0, pages: 0, manifests: 0, metadata: 0, catalog: 0 };
+  const counts = { covers: 0, pages: 0, manifests: 0, metadata: 0, catalog: 0, skipped: 0 };
 
   const catalog = JSON.parse(fs.readFileSync(path.join(assetsPath, "catalog.json"), "utf8"));
 
@@ -372,7 +449,7 @@ async function main() {
 
   counts.catalog += 1;
   if (!isDryRun) {
-    await uploadTextFile(catalogFileId, JSON.stringify(nextCatalog, null, 2), "catalog.json");
+    await uploadTextFile(catalogFileId, JSON.stringify(nextCatalog, null, 2), "catalog.json", counts);
   }
 
   console.log("\nBackfill complete.");
@@ -381,6 +458,7 @@ async function main() {
   console.log(`  manifests: ${counts.manifests}`);
   console.log(`  metadata: ${counts.metadata}`);
   console.log(`  catalog: ${counts.catalog}`);
+  console.log(`  skipped (already uploaded): ${counts.skipped}`);
 }
 
 main().then(
