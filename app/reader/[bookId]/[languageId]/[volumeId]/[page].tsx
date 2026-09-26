@@ -16,6 +16,7 @@ import {
   TextInput,
   useWindowDimensions,
   View,
+  type ViewStyle,
   type ViewToken,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -33,6 +34,46 @@ import type { PublicBookTocEntry } from "../../../../../data/types";
 
 const BOOK_COMPLETION_FINAL_PAGE_WINDOW = 3;
 const BOOK_COMPLETION_FINAL_PAGE_MS = 120000;
+
+const IS_WEB = Platform.OS === "web";
+
+type ReaderChromeMetrics = {
+  topBarHeight: number;
+  topBarPaddingTop: number;
+  pageTopOffset: number;
+  pageBottomInset: number;
+  pageGutter: number;
+  pageMaxWidth: number;
+  pageRadius: number;
+  sidebarWidth: number;
+  sidebarMinViewportWidth: number;
+  pageShadow?: ViewStyle;
+};
+
+const READER_CHROME: ReaderChromeMetrics = IS_WEB
+  ? {
+      topBarHeight: 64,
+      topBarPaddingTop: 12,
+      pageTopOffset: 64,
+      pageBottomInset: 80,
+      pageGutter: 24,
+      pageMaxWidth: 900,
+      pageRadius: 4,
+      sidebarWidth: 260,
+      sidebarMinViewportWidth: 900,
+      pageShadow: { boxShadow: "0 12px 32px rgba(0, 0, 0, 0.35)" },
+    }
+  : {
+      topBarHeight: 142,
+      topBarPaddingTop: 50,
+      pageTopOffset: 70,
+      pageBottomInset: 0,
+      pageGutter: 0,
+      pageMaxWidth: Number.POSITIVE_INFINITY,
+      pageRadius: 0,
+      sidebarWidth: 0,
+      sidebarMinViewportWidth: 0,
+    };
 
 function getPrintedPageStartPage(value?: number) {
   return typeof value === "number" && Number.isFinite(value) && value > 1
@@ -66,8 +107,8 @@ function toTitleCase(value: string) {
 function ReaderPageSurface({
   manifest,
   pageNum,
-  screenWidth,
-  screenHeight,
+  pageBoxWidth,
+  pageBoxHeight,
   backgroundColor,
   textColor,
   mutedTextColor,
@@ -78,8 +119,8 @@ function ReaderPageSurface({
 }: {
   manifest: ReturnType<typeof useRemoteBookData>["manifest"];
   pageNum: number;
-  screenWidth: number;
-  screenHeight: number;
+  pageBoxWidth: number;
+  pageBoxHeight: number;
   backgroundColor: string;
   textColor: string;
   mutedTextColor: string;
@@ -94,25 +135,37 @@ function ReaderPageSurface({
     manifestPage?.width && manifestPage?.height
       ? manifestPage.width / manifestPage.height
       : 0.707;
+  const pageWidth = Math.min(pageBoxWidth, pageBoxHeight * imageAspectRatio);
+  const pageHeight = pageWidth / imageAspectRatio;
 
   if (asset?.source && asset.kind !== "missing") {
     return (
-      <ZoomableReaderImage
-        source={asset.source}
-        width={screenWidth}
-        height={Math.min(screenHeight, screenWidth / imageAspectRatio)}
-        onPress={onPress}
-        onZoomChange={onZoomChange}
-        onError={() => { }}
-      />
+      <View
+        style={{
+          width: pageWidth,
+          height: pageHeight,
+          borderRadius: READER_CHROME.pageRadius,
+          overflow: "hidden",
+          ...READER_CHROME.pageShadow,
+        }}
+      >
+        <ZoomableReaderImage
+          source={asset.source}
+          width={pageWidth}
+          height={pageHeight}
+          onPress={onPress}
+          onZoomChange={onZoomChange}
+          onError={() => { }}
+        />
+      </View>
     );
   }
 
   return (
     <View
       style={{
-        width: screenWidth,
-        height: screenHeight,
+        width: pageWidth,
+        height: pageHeight,
         alignItems: "center",
         justifyContent: "center",
         paddingHorizontal: 32,
@@ -246,6 +299,30 @@ export default function ReaderScreen() {
     () => Array.from({ length: totalPages }, (_, index) => index + 1),
     [totalPages],
   );
+  const isSidebarLayout = IS_WEB && screenWidth >= READER_CHROME.sidebarMinViewportWidth;
+  const pageInsets = useMemo(
+    () => ({
+      top: isSidebarLayout ? 0 : READER_CHROME.pageTopOffset,
+      bottom: isSidebarLayout ? 0 : READER_CHROME.pageBottomInset,
+      left: isSidebarLayout ? READER_CHROME.sidebarWidth : 0,
+    }),
+    [isSidebarLayout],
+  );
+  const pageBox = useMemo(() => {
+    return {
+      width: Math.max(
+        240,
+        Math.min(
+          screenWidth - pageInsets.left - READER_CHROME.pageGutter * 2,
+          READER_CHROME.pageMaxWidth,
+        ),
+      ),
+      height: Math.max(
+        240,
+        screenHeight - pageInsets.top - pageInsets.bottom,
+      ),
+    };
+  }, [pageInsets, screenHeight, screenWidth]);
   const tocEntries = getOrderedTocEntries(selectedVolume?.tocEntries ?? []);
   const printedPageStartPage = getPrintedPageStartPage(selectedVolume?.printedPageStartPage);
   const manifestPages = useMemo(() => manifest?.pages ?? [], [manifest?.pages]);
@@ -484,6 +561,17 @@ export default function ReaderScreen() {
     [clampPage],
   );
 
+  const canGoToPreviousPage = currentPage > 1;
+  const canGoToNextPage = currentPage < totalPages;
+
+  const goToPreviousPage = useCallback(() => {
+    moveToPage(currentPage - 1);
+  }, [currentPage, moveToPage]);
+
+  const goToNextPage = useCallback(() => {
+    moveToPage(currentPage + 1);
+  }, [currentPage, moveToPage]);
+
   const updatePageFromProgressGesture = useCallback(
     (locationX: number) => {
       if (progressTrackWidth <= 0) {
@@ -595,14 +683,16 @@ export default function ReaderScreen() {
             backgroundColor: colors.background,
             alignItems: "center",
             justifyContent: "center",
-            paddingTop: 70,
+            paddingTop: pageInsets.top,
+            paddingBottom: pageInsets.bottom,
+            paddingLeft: pageInsets.left,
           }}
         >
           <ReaderPageSurface
             manifest={manifest}
             pageNum={pageNum}
-            screenWidth={screenWidth}
-            screenHeight={screenHeight}
+            pageBoxWidth={pageBox.width}
+            pageBoxHeight={pageBox.height}
             backgroundColor={colors.background}
             textColor={colors.textStrong}
             mutedTextColor={mutedBodyColor}
@@ -614,69 +704,340 @@ export default function ReaderScreen() {
         </View>
       );
     },
-    [colors.background, colors.textStrong, currentPage, exitFocusMode, isFocusMode, manifest, mutedBodyColor, remoteState, screenHeight, screenWidth],
+    [colors.background, colors.textStrong, currentPage, exitFocusMode, isFocusMode, manifest, mutedBodyColor, pageBox, pageInsets, remoteState, screenHeight, screenWidth],
   );
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.background }}>
-      {Platform.OS === "web" ? (
+      <FlatList
+        ref={flatListRef}
+        data={pages}
+        renderItem={renderPage}
+        keyExtractor={(item) => `${readingBookId}-${resolvedLanguageId}-${resolvedVolumeId}-${item}`}
+        horizontal
+        pagingEnabled
+        scrollEnabled={!isZoomed}
+        showsHorizontalScrollIndicator={false}
+        initialScrollIndex={initialPage - 1}
+        getItemLayout={(_, index) => ({
+          length: screenWidth,
+          offset: screenWidth * index,
+          index,
+        })}
+        onViewableItemsChanged={handleViewableItemsChanged}
+        viewabilityConfig={viewabilityConfig}
+        windowSize={3}
+        maxToRenderPerBatch={3}
+        initialNumToRender={3}
+        removeClippedSubviews
+        onScrollToIndexFailed={(info) => {
+          setTimeout(() => {
+            flatListRef.current?.scrollToIndex({
+              index: info.index,
+              animated: false,
+            });
+          }, 100);
+        }}
+      />
+
+      {isSidebarLayout && !isFocusMode && (
         <View
           style={{
-            flex: 1,
-            alignItems: "center",
-            justifyContent: "center",
-            paddingHorizontal: 24,
-            gap: 12,
+            position: "absolute",
+            top: 0,
+            bottom: 0,
+            left: 0,
+            width: READER_CHROME.sidebarWidth,
+            backgroundColor: colors.overlay,
+            borderRightWidth: 1,
+            borderRightColor: colors.overlayMuted,
+            paddingHorizontal: 20,
+            paddingTop: 20,
+            paddingBottom: 24,
+            gap: 16,
           }}
         >
-          <Text style={{ color: colors.textStrong, fontSize: 28, fontWeight: "800" }}>
-            Image-based reader is ready
-          </Text>
-            <Text
-              style={{
-                color: mutedBodyColor,
-                fontSize: 16,
-                lineHeight: 24,
-                textAlign: "center",
+          <View
+            style={{
+              flexDirection: "row",
+              alignItems: "center",
+              justifyContent: "space-between",
+              gap: 12,
             }}
           >
-            This reader is designed first for Android and iOS.
-          </Text>
-        </View>
-      ) : (
-        <FlatList
-            ref={flatListRef}
-            data={pages}
-            renderItem={renderPage}
-            keyExtractor={(item) => `${readingBookId}-${resolvedLanguageId}-${resolvedVolumeId}-${item}`}
-            horizontal
-            pagingEnabled
-            scrollEnabled={!isZoomed}
-            showsHorizontalScrollIndicator={false}
-            initialScrollIndex={initialPage - 1}
-            getItemLayout={(_, index) => ({
-              length: screenWidth,
-              offset: screenWidth * index,
-              index,
-            })}
-            onViewableItemsChanged={handleViewableItemsChanged}
-            viewabilityConfig={viewabilityConfig}
-            windowSize={3}
-            maxToRenderPerBatch={3}
-            initialNumToRender={3}
-            removeClippedSubviews
-            onScrollToIndexFailed={(info) => {
-              setTimeout(() => {
-                flatListRef.current?.scrollToIndex({
-                  index: info.index,
-                  animated: false,
-                });
-              }, 100);
+            <Pressable
+              accessibilityLabel="Go back"
+              onPress={() => {
+                router.back();
+              }}
+              style={({ pressed }) => ({
+                width: 40,
+                height: 40,
+                borderRadius: 20,
+                backgroundColor: colors.overlayLight,
+                alignItems: "center",
+                justifyContent: "center",
+                opacity: pressed ? 0.7 : 1,
+              })}
+            >
+              <Ionicons name="chevron-back" size={24} color={colors.text} />
+            </Pressable>
+
+            {__DEV__ && (
+              <Pressable
+                accessibilityLabel="Book completion"
+                onPress={() => {
+                  setShowBookCompletionModal(true);
+                }}
+                style={({ pressed }) => ({
+                  width: 40,
+                  height: 40,
+                  borderRadius: 20,
+                  backgroundColor: colors.overlayLight,
+                  alignItems: "center",
+                  justifyContent: "center",
+                  opacity: pressed ? 0.7 : 1,
+                })}
+              >
+                <Ionicons name="ribbon" size={20} color={colors.text} />
+              </Pressable>
+            )}
+          </View>
+
+          <View style={{ gap: 4 }}>
+            <Text
+              numberOfLines={2}
+              style={{ color: colors.text, fontSize: 18, fontWeight: "800" }}
+            >
+              {bookTitle}
+            </Text>
+            <Text
+              numberOfLines={2}
+              style={{ color: colors.textMuted, fontSize: 14, fontWeight: "600" }}
+            >
+              {editionLine}
+            </Text>
+          </View>
+          <View
+            style={{
+              flexDirection: "row",
+              alignItems: "center",
+              justifyContent: "space-between",
             }}
-        />
+          >
+            <Pressable
+              accessibilityLabel="Previous page"
+              disabled={!canGoToPreviousPage}
+              onPress={goToPreviousPage}
+              style={({ pressed }) => ({
+                width: 48,
+                height: 48,
+                borderRadius: 24,
+                backgroundColor: colors.overlayLight,
+                alignItems: "center",
+                justifyContent: "center",
+                opacity: !canGoToPreviousPage ? 0.35 : pressed ? 0.7 : 1,
+              })}
+            >
+              <Ionicons name="chevron-back" size={26} color={colors.text} />
+            </Pressable>
+
+            <Pressable
+              accessibilityLabel="Next page"
+              disabled={!canGoToNextPage}
+              onPress={goToNextPage}
+              style={({ pressed }) => ({
+                width: 48,
+                height: 48,
+                borderRadius: 24,
+                backgroundColor: colors.overlayLight,
+                alignItems: "center",
+                justifyContent: "center",
+                opacity: !canGoToNextPage ? 0.35 : pressed ? 0.7 : 1,
+              })}
+            >
+              <Ionicons name="chevron-forward" size={26} color={colors.text} />
+            </Pressable>
+          </View>
+
+          <Text
+            numberOfLines={1}
+            style={{
+              color: colors.text,
+              fontSize: 15,
+              fontWeight: "800",
+              textAlign: "center",
+            }}
+          >
+            {footerPageLabel}
+          </Text>
+
+          <View style={{ flex: 1 }} />
+
+          <View
+            ref={progressTrackRef}
+            onLayout={(event) => {
+              const { width } = event.nativeEvent.layout;
+              if (width !== progressTrackWidth) {
+                setProgressTrackWidth(width);
+              }
+            }}
+            {...progressPanResponder.panHandlers}
+            style={{ paddingVertical: 10, justifyContent: "center" }}
+          >
+            <View
+              style={{
+                height: 6,
+                backgroundColor: colors.overlayMuted,
+                borderRadius: 3,
+                overflow: "visible",
+              }}
+            >
+              <View
+                style={{
+                  position: "absolute",
+                  left: 0,
+                  top: 0,
+                  bottom: 0,
+                  width: `${progressPercent}%`,
+                  backgroundColor: colors.accent,
+                  borderRadius: 3,
+                }}
+              />
+              <View
+                style={{
+                  position: "absolute",
+                  top: -5,
+                  left: `${progressPercent}%`,
+                  width: 16,
+                  height: 16,
+                  borderRadius: 8,
+                  backgroundColor: colors.accent,
+                  borderWidth: 2,
+                  borderColor: colors.text,
+                  marginLeft: -8,
+                }}
+              />
+            </View>
+          </View>
+
+          <View style={{ flexDirection: "row", justifyContent: "center" }}>
+            <Pressable
+              onPress={() => setIsPageModalVisible(true)}
+              style={({ pressed }) => ({
+                minWidth: 72,
+                height: 48,
+                borderRadius: 24,
+                paddingHorizontal: 18,
+                backgroundColor: controlSurfaceColor,
+                alignItems: "center",
+                justifyContent: "center",
+                opacity: pressed ? 0.8 : 1,
+              })}
+            >
+              <Text style={{ color: colors.text, fontSize: 14, fontWeight: "800" }}>Go</Text>
+            </Pressable>
+          </View>
+
+          <View
+            style={{
+              flexDirection: "row",
+              alignItems: "center",
+              justifyContent: "center",
+              gap: 16,
+            }}
+          >
+            <Pressable
+              accessibilityLabel="Enter focus mode"
+              onPress={() => setIsFocusMode(true)}
+              style={({ pressed }) => ({
+                width: 48,
+                height: 48,
+                borderRadius: 24,
+                backgroundColor: controlSurfaceColor,
+                alignItems: "center",
+                justifyContent: "center",
+                opacity: pressed ? 0.8 : 1,
+              })}
+            >
+              <Ionicons name="eye-off-outline" size={22} color={colors.text} />
+            </Pressable>
+
+            <Pressable
+              accessibilityLabel="Table of contents"
+              onPress={() => setIsTocVisible(true)}
+              style={({ pressed }) => ({
+                width: 48,
+                height: 48,
+                borderRadius: 24,
+                backgroundColor: controlSurfaceColor,
+                alignItems: "center",
+                justifyContent: "center",
+                opacity: pressed ? 0.8 : 1,
+              })}
+            >
+              <Ionicons name="list-outline" size={22} color={colors.text} />
+            </Pressable>
+          </View>
+        </View>
       )}
 
-      {!isFocusMode && (
+      {IS_WEB && !isSidebarLayout && !isFocusMode && (
+        <View
+          pointerEvents="box-none"
+          style={{
+            position: "absolute",
+            top: READER_CHROME.pageTopOffset,
+            bottom: READER_CHROME.pageBottomInset,
+            left: 0,
+            right: 0,
+            flexDirection: "row",
+            alignItems: "center",
+            justifyContent: "space-between",
+            paddingHorizontal: 16,
+          }}
+        >
+          <Pressable
+            accessibilityLabel="Previous page"
+            disabled={!canGoToPreviousPage}
+            onPress={goToPreviousPage}
+            style={({ pressed }) => ({
+              width: 48,
+              height: 48,
+              borderRadius: 24,
+              backgroundColor: colors.overlay,
+              borderWidth: 1,
+              borderColor: colors.overlayMuted,
+              alignItems: "center",
+              justifyContent: "center",
+              opacity: !canGoToPreviousPage ? 0.35 : pressed ? 0.7 : 1,
+            })}
+          >
+            <Ionicons name="chevron-back" size={26} color={colors.text} />
+          </Pressable>
+
+          <Pressable
+            accessibilityLabel="Next page"
+            disabled={!canGoToNextPage}
+            onPress={goToNextPage}
+            style={({ pressed }) => ({
+              width: 48,
+              height: 48,
+              borderRadius: 24,
+              backgroundColor: colors.overlay,
+              borderWidth: 1,
+              borderColor: colors.overlayMuted,
+              alignItems: "center",
+              justifyContent: "center",
+              opacity: !canGoToNextPage ? 0.35 : pressed ? 0.7 : 1,
+            })}
+          >
+            <Ionicons name="chevron-forward" size={26} color={colors.text} />
+          </Pressable>
+        </View>
+      )}
+
+      {!isFocusMode && !isSidebarLayout && (
       <View
         style={{
           position: "absolute",
@@ -684,8 +1045,8 @@ export default function ReaderScreen() {
           left: 0,
           right: 0,
            backgroundColor: colors.overlay,
-           height: 142,
-           paddingTop: 50,
+           height: READER_CHROME.topBarHeight,
+           paddingTop: READER_CHROME.topBarPaddingTop,
            paddingHorizontal: 16,
            gap: 6,
          }}
@@ -782,7 +1143,7 @@ export default function ReaderScreen() {
       </View>
       )}
 
-      {!isFocusMode && (
+      {!isFocusMode && !isSidebarLayout && (
       <SafeAreaView
         edges={["bottom"]}
         style={{

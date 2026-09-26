@@ -2,7 +2,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { Image } from "expo-image";
 import { Link, useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Animated, FlatList, Pressable, ScrollView, Text, TextInput, View, useWindowDimensions } from "react-native";
+import { Animated, FlatList, Platform, Pressable, ScrollView, Text, TextInput, View, useWindowDimensions } from "react-native";
 
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import {
@@ -70,6 +70,17 @@ const librarySortOptions: LibrarySortMode[] = ["forYou", "recent", "alpha"];
 const REFINE_FAB_SIZE = 56;
 const REFINE_FAB_MARGIN = 16;
 const TAB_BAR_HEIGHT = 56;
+
+const IS_WEB = Platform.OS === "web";
+
+const LIBRARY_LAYOUT = {
+  contentMaxWidth: 760,
+  gridContentMaxWidth: 1240,
+  wideMinViewportWidth: 1024,
+  extraColumnMinWidth: 190,
+  gutter: 24,
+  searchBarMaxWidth: 620,
+} as const;
 
 // "For You" ranking model.
 // Each signal below is normalized to a 0..1 magnitude before being scaled by its
@@ -960,6 +971,29 @@ export default function LibraryScreen() {
   } = useRemoteCatalog();
   const insets = useSafeAreaInsets();
   const { height: windowHeight, width: windowWidth } = useWindowDimensions();
+  const isWideLayout = IS_WEB && windowWidth >= LIBRARY_LAYOUT.wideMinViewportWidth;
+  const contentMaxWidth = isWideLayout
+    ? LIBRARY_LAYOUT.gridContentMaxWidth
+    : LIBRARY_LAYOUT.contentMaxWidth;
+  const contentGutter = IS_WEB ? LIBRARY_LAYOUT.gutter : spacing.page;
+  const pageContentContainer = {
+    width: "100%",
+    maxWidth: contentMaxWidth,
+    alignSelf: "center",
+    gap: spacing.gap3xl,
+    paddingHorizontal: contentGutter,
+  } as const;
+  const gridColumns = isWideLayout
+    ? Math.max(
+        3,
+        Math.min(
+          6,
+          Math.floor(
+            (Math.min(windowWidth, contentMaxWidth) - contentGutter * 2) / LIBRARY_LAYOUT.extraColumnMinWidth,
+          ),
+        ),
+      )
+    : 2;
 
   const [menuAnchor, setMenuAnchor] = useState<{ bottom: number; right: number; maxHeight: number } | null>(null);
   const showRefineMenu = menuAnchor !== null;
@@ -1307,26 +1341,35 @@ export default function LibraryScreen() {
     <Screen>
       {isSearchVisible ? (
         <View
+          pointerEvents="box-none"
           style={{
             position: "absolute",
             top: insets.top + 8,
-            left: 12,
-            right: 12,
+            left: 0,
+            right: 0,
             zIndex: 5000,
-            backgroundColor: colors.surface,
-            borderRadius: radii.lg,
-            paddingHorizontal: 16,
-            paddingVertical: 14,
-            flexDirection: "row",
+            paddingHorizontal: 12,
             alignItems: "center",
-            gap: 12,
-            shadowColor: "#000",
-            shadowOffset: { width: 0, height: 6 },
-            shadowOpacity: 0.12,
-            shadowRadius: 14,
-            elevation: 10,
           }}
         >
+          <View
+            style={{
+              width: "100%",
+              maxWidth: LIBRARY_LAYOUT.searchBarMaxWidth,
+              backgroundColor: colors.surface,
+              borderRadius: radii.lg,
+              paddingHorizontal: 16,
+              paddingVertical: 14,
+              flexDirection: "row",
+              alignItems: "center",
+              gap: 12,
+              shadowColor: "#000",
+              shadowOffset: { width: 0, height: 6 },
+              shadowOpacity: 0.12,
+              shadowRadius: 14,
+              elevation: 10,
+            }}
+          >
           <Text style={{ color: colors.textMuted, fontSize: 18 }}>🔍</Text>
           <TextInput
             ref={searchInputRef}
@@ -1350,13 +1393,13 @@ export default function LibraryScreen() {
           >
             <Text style={{ color: colors.textMuted, fontSize: typography.body }}>✕</Text>
           </Pressable>
+          </View>
         </View>
       ) : null}
       <ScrollView
         contentContainerStyle={{
+          ...pageContentContainer,
           paddingTop: insets.top + 5,
-          paddingHorizontal: spacing.page,
-          gap: spacing.gap3xl,
           paddingBottom: 40,
         }}
         showsVerticalScrollIndicator={false}
@@ -1541,14 +1584,15 @@ export default function LibraryScreen() {
         {!shouldShowLibrarySkeleton ? (
           <View style={{ gap: spacing.gapXl }}>
             <FlatList
+              key={`library-grid-${gridColumns}`}
               data={filteredAndSortedBooks}
               showsVerticalScrollIndicator={false}
               keyExtractor={(book: PublicCatalogBook) => book.id}
-              numColumns={2}
+              numColumns={gridColumns}
               scrollEnabled={false}
               columnWrapperStyle={{
                 gap: 12,
-                paddingHorizontal: spacing.page,
+                paddingHorizontal: isWideLayout ? 0 : spacing.page,
               }}
               contentContainerStyle={{
                 gap: 12,

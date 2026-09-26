@@ -1,7 +1,7 @@
 import { Image } from "expo-image";
 import { Link, Stack, useLocalSearchParams, useRouter, type Href } from "expo-router";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Alert, Modal, Pressable, ScrollView, Text, View } from "react-native";
+import { Alert, Modal, Platform, Pressable, ScrollView, Text, View, useWindowDimensions } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { Ionicons } from "@expo/vector-icons";
@@ -17,6 +17,18 @@ import {
   loadLibraryLanguagePreference,
   type LibraryLanguagePreference,
 } from "../../../lib/library-language-preference";
+
+const IS_WEB = Platform.OS === "web";
+
+const BOOK_PAGE_LAYOUT = {
+  contentMaxWidth: 760,
+  wideContentMaxWidth: 900,
+  wideMinViewportWidth: 1024,
+  gutter: 24,
+  coverWidth: 132,
+  coverHeight: 190,
+  relatedCardWidth: 248,
+};
 
 function SkeletonBlock({
   width,
@@ -400,6 +412,71 @@ export default function BookHomeScreen() {
   };
   const insets = useSafeAreaInsets();
   const router = useRouter();
+  const { width: viewportWidth } = useWindowDimensions();
+  const isWideLayout = IS_WEB && viewportWidth >= BOOK_PAGE_LAYOUT.wideMinViewportWidth;
+  const contentMaxWidth = isWideLayout ? BOOK_PAGE_LAYOUT.wideContentMaxWidth : BOOK_PAGE_LAYOUT.contentMaxWidth;
+  const contentGutter = IS_WEB ? BOOK_PAGE_LAYOUT.gutter : 20;
+  const pageContentContainer = {
+    width: "100%",
+    maxWidth: contentMaxWidth,
+    alignSelf: "center",
+    gap: 20,
+    paddingHorizontal: contentGutter,
+  } as const;
+  const relatedBookCard = ({ book }: { book: PublicCatalogBook }) => (
+    <Link key={book.id} href={`/book/${book.id}` as const} asChild>
+      <Pressable
+        style={{
+          width: isWideLayout ? BOOK_PAGE_LAYOUT.relatedCardWidth : 210,
+          backgroundColor: colors.surfaceMuted,
+          borderRadius: 16,
+          padding: 12,
+          flexDirection: "row",
+          gap: 10,
+        }}
+      >
+        {book.coverImage ? (
+          <Image
+            source={{ uri: book.coverImage }}
+            contentFit="cover"
+            transition={120}
+            style={{
+              width: 52,
+              height: 72,
+              borderRadius: 8,
+              backgroundColor: colors.surface,
+            }}
+          />
+        ) : (
+          <View
+            style={{
+              width: 52,
+              height: 72,
+              borderRadius: 8,
+              backgroundColor: colors.accentStrong,
+            }}
+          />
+        )}
+        <View style={{ flex: 1, gap: 8 }}>
+          <Text style={{ color: colors.text, fontSize: 14, fontWeight: "800" }} numberOfLines={2}>
+            {book.title}
+          </Text>
+          {book.author ? (
+            <Text style={{ color: colors.textMuted, fontSize: 12, fontWeight: "600" }} numberOfLines={1}>
+              {book.author}
+            </Text>
+          ) : null}
+          <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6 }}>
+            {book.category ? (
+              <Text style={{ color: colors.accent, fontSize: 11, fontWeight: "700" }} numberOfLines={1}>
+                {book.category}
+              </Text>
+            ) : null}
+          </View>
+        </View>
+      </Pressable>
+    </Link>
+  );
 
   return (
     <>
@@ -415,7 +492,7 @@ export default function BookHomeScreen() {
         {shouldShowInitialSkeleton ? (
           <ScrollView
             showsVerticalScrollIndicator={false}
-            contentContainerStyle={{ paddingTop: insets.top + 16, paddingHorizontal: 20, gap: 20, paddingBottom: 40 }}
+            contentContainerStyle={{ ...pageContentContainer, paddingTop: insets.top + 16, paddingBottom: 40 }}
           >
             <View
               style={{
@@ -540,7 +617,11 @@ export default function BookHomeScreen() {
         ) : (
         <ScrollView
           showsVerticalScrollIndicator={false}
-          contentContainerStyle={{ paddingTop: insets.top + 16, paddingHorizontal: 20, gap: 20, paddingBottom: insets.bottom + 96 }}
+          contentContainerStyle={{
+            ...pageContentContainer,
+            paddingTop: insets.top + 16,
+            paddingBottom: insets.bottom + 96,
+          }}
         >
           {!isBookDataLoading && (metadataError || manifestError) ? (
             <ErrorCard
@@ -558,6 +639,50 @@ export default function BookHomeScreen() {
               title="Edition unavailable"
               message="This reading edition is incomplete right now."
             />
+          ) : null}
+
+          {IS_WEB && catalogBook ? (
+            <View style={{ flexDirection: "row", gap: 20, alignItems: "flex-start" }}>
+              {catalogBook?.coverImage ? (
+                <Image
+                  source={{ uri: catalogBook.coverImage }}
+                  contentFit="cover"
+                  transition={120}
+                  style={{
+                    width: BOOK_PAGE_LAYOUT.coverWidth,
+                    height: BOOK_PAGE_LAYOUT.coverHeight,
+                    borderRadius: 16,
+                    backgroundColor: colors.surfaceMuted,
+                  }}
+                />
+              ) : (
+                <View
+                  style={{
+                    width: BOOK_PAGE_LAYOUT.coverWidth,
+                    height: BOOK_PAGE_LAYOUT.coverHeight,
+                    borderRadius: 16,
+                    backgroundColor: colors.surfaceMuted,
+                  }}
+                />
+              )}
+              <View style={{ flex: 1, gap: 6 }}>
+                <Text style={{ color: colors.text, fontSize: 26, fontWeight: "800" }}>{displayTitle}</Text>
+                {displayAuthor ? (
+                  <Text style={{ color: colors.textMuted, fontSize: 15, fontWeight: "600" }}>{displayAuthor}</Text>
+                ) : null}
+                <Text
+                  style={{
+                    color: colors.accent,
+                    fontSize: 12,
+                    fontWeight: "700",
+                    textTransform: "uppercase",
+                    letterSpacing: 0.4,
+                  }}
+                >
+                  {displayCategory}
+                </Text>
+              </View>
+            </View>
           ) : null}
 
           {/* Language & Volume Selection - TOP */}
@@ -735,7 +860,7 @@ export default function BookHomeScreen() {
                   </Text>
                 </Pressable>
               </Link>
-              {canDownload ? (
+              {canDownload && !IS_WEB ? (
                 <Pressable
                   onPress={() => {
                     if (isDownloading) {
@@ -834,15 +959,21 @@ export default function BookHomeScreen() {
             </View>
 
             {displayDescription ? (
-              <ScrollView
-                nestedScrollEnabled
-                style={{ maxHeight: 180 }}
-                showsVerticalScrollIndicator={false}
-              >
+              IS_WEB ? (
                 <Text style={{ color: colors.textMuted, fontSize: 14, lineHeight: 22 }}>
                   {displayDescription}
                 </Text>
-              </ScrollView>
+              ) : (
+                <ScrollView
+                  nestedScrollEnabled
+                  style={{ maxHeight: 180 }}
+                  showsVerticalScrollIndicator={false}
+                >
+                  <Text style={{ color: colors.textMuted, fontSize: 14, lineHeight: 22 }}>
+                    {displayDescription}
+                  </Text>
+                </ScrollView>
+              )
             ) : null}
 
             {/* Metadata - Compact Grid */}
@@ -912,62 +1043,15 @@ export default function BookHomeScreen() {
                 </Text>
               </View>
 
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 10 }}>
-                {relatedBooks.map(({ book }) => (
-                  <Link key={book.id} href={`/book/${book.id}` as const} asChild>
-                    <Pressable
-                      style={{
-                        width: 210,
-                        backgroundColor: colors.surfaceMuted,
-                        borderRadius: 16,
-                        padding: 12,
-                        flexDirection: "row",
-                        gap: 10,
-                      }}
-                    >
-                      {book.coverImage ? (
-                        <Image
-                          source={{ uri: book.coverImage }}
-                          contentFit="cover"
-                          transition={120}
-                          style={{
-                            width: 52,
-                            height: 72,
-                            borderRadius: 8,
-                            backgroundColor: colors.surface,
-                          }}
-                        />
-                      ) : (
-                        <View
-                          style={{
-                            width: 52,
-                            height: 72,
-                            borderRadius: 8,
-                            backgroundColor: colors.accentStrong,
-                          }}
-                        />
-                      )}
-                      <View style={{ flex: 1, gap: 8 }}>
-                        <Text style={{ color: colors.text, fontSize: 14, fontWeight: "800" }} numberOfLines={2}>
-                          {book.title}
-                        </Text>
-                        {book.author ? (
-                          <Text style={{ color: colors.textMuted, fontSize: 12, fontWeight: "600" }} numberOfLines={1}>
-                            {book.author}
-                          </Text>
-                        ) : null}
-                        <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6 }}>
-                          {book.category ? (
-                            <Text style={{ color: colors.accent, fontSize: 11, fontWeight: "700" }} numberOfLines={1}>
-                              {book.category}
-                            </Text>
-                          ) : null}
-                        </View>
-                      </View>
-                    </Pressable>
-                  </Link>
-                ))}
-              </ScrollView>
+              {isWideLayout ? (
+                <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10 }}>
+                  {relatedBooks.map(({ book }) => relatedBookCard({ book }))}
+                </View>
+              ) : (
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 10 }}>
+                  {relatedBooks.map(({ book }) => relatedBookCard({ book }))}
+                </ScrollView>
+              )}
             </View>
           ) : null}
 
