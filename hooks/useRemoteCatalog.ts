@@ -19,7 +19,8 @@ function buildCatalogUrl(): string {
   )
     .trim()
     .replace(/\/+$/, "");
-  const projectId = process.env.EXPO_PUBLIC_APPWRITE_PROJECT_ID || "";
+  const projectId =
+    process.env.EXPO_PUBLIC_APPWRITE_PROJECT_ID || "69a129d40030295223ed";
   const bucketId =
     process.env.EXPO_PUBLIC_APPWRITE_PUBLIC_BUCKET_ID || DEFAULT_BUCKET_ID;
   const fileId =
