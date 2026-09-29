@@ -33,6 +33,8 @@ admin.log
 
 # env files (can opt-in for committing if needed)
 .env*
+# ...but keep the documented template (worker-service tracks its .env.example too).
+!.env.example
 
 # vercel
 .vercel

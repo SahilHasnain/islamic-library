@@ -4,6 +4,14 @@ import { APPWRITE_IDS, appwriteDatabases } from "@/lib/appwrite";
 import type { JobRecord } from "@/lib/ingestion";
 import { Query } from "node-appwrite";
 
+import {
+  describeWorkerFailure,
+  postIngestJob,
+  recordUnreachableDispatchFailure,
+  resolveDispatchToken,
+  WorkerUnreachableError,
+} from "@/lib/worker-client";
+
 /**
  * Job Queue Manager
  * 
@@ -18,18 +26,36 @@ type QueueStatus = {
   processingStartedAt?: string;
 };
 
-// In-memory queue status (could be moved to Redis for multi-instance deployments)
-const queueStatus: QueueStatus = {
-  isProcessing: false,
-  queuedCount: 0,
+const QUEUE_SUCCESS_DELAY_MS = 2_000;
+const QUEUE_RETRY_BASE_DELAY_MS = 15_000;
+const QUEUE_RETRY_MAX_DELAY_MS = 5 * 60_000;
+
+/**
+ * Keep the flag on globalThis rather than in module scope. Next.js can load this module
+ * into more than one instance per server process (separate route bundles, dev HMR), and
+ * each copy would otherwise run its own processor against the same Appwrite collection.
+ */
+const queueGlobals = globalThis as typeof globalThis & {
+  __ingestionQueueStatus?: QueueStatus;
 };
 
-function requireWorkerEnv(name: "WORKER_API_URL" | "WORKER_API_TOKEN") {
-  const value = process.env[name];
-  if (!value) {
-    throw new Error(`Missing required worker environment variable: ${name}`);
-  }
-  return value;
+const queueStatus: QueueStatus = (queueGlobals.__ingestionQueueStatus ??= {
+  isProcessing: false,
+  queuedCount: 0,
+});
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * Exponential backoff between attempts. The previous fixed 2s delay, combined with
+ * resetting failed jobs back to "queued", retried a broken job in a tight loop and
+ * exhausted the Appwrite connection pool.
+ */
+function retryDelayForAttempt(attempt: number): number {
+  const exponent = Math.max(0, Math.min(attempt - 1, 8));
+  return Math.min(QUEUE_RETRY_BASE_DELAY_MS * 2 ** exponent, QUEUE_RETRY_MAX_DELAY_MS);
 }
 
 /**
@@ -60,9 +86,6 @@ async function getQueuedJobs(): Promise<JobRecord[]> {
  * Dispatch a single job to the worker
  */
 async function dispatchSingleJob(job: JobRecord): Promise<void> {
-  const workerApiUrl = requireWorkerEnv("WORKER_API_URL");
-  const workerApiToken = requireWorkerEnv("WORKER_API_TOKEN");
-
   // Get book details
   const booksResponse = await appwriteDatabases.listDocuments(
     APPWRITE_IDS.databaseId,
@@ -77,7 +100,7 @@ async function dispatchSingleJob(job: JobRecord): Promise<void> {
 
   const now = new Date().toISOString();
 
-  const dispatchToken = `dispatch_${Date.now()}_${Math.random().toString(16).slice(2)}`;
+  const dispatchToken = resolveDispatchToken(job);
 
   // Update job status to processing
   await appwriteDatabases.updateDocument(
@@ -110,37 +133,28 @@ async function dispatchSingleJob(job: JobRecord): Promise<void> {
     printedPageStartPage: job.printedPageStartPage,
     sourceFileId: job.sourceFileId,
     requestedBy: book.createdBy,
-    publishMode: "public",
-    dispatchToken,
+    publishMode: "public" as const,
   };
 
-  const response = await fetch(`${workerApiUrl.replace(/\/$/, "")}/jobs/ingest`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${workerApiToken}`,
-    },
-    body: JSON.stringify(payload),
-  });
+  const dispatchStartedAt = Date.now();
+  let result;
+  try {
+    result = await postIngestJob(payload, dispatchToken);
+  } catch (error) {
+    if (error instanceof WorkerUnreachableError) {
+      await recordUnreachableDispatchFailure(job, error, { dispatchStartedAt });
+    }
+    throw error;
+  }
 
-  if (!response.ok) {
-    const message = await response.text();
-
-    await appwriteDatabases.updateDocument(
-      APPWRITE_IDS.databaseId,
-      APPWRITE_IDS.jobsCollectionId,
-      job.$id,
-      {
-        status: "queued",
-        updatedAt: new Date().toISOString(),
-        errorCode: "WORKER_DISPATCH_FAILED",
-        errorMessage: message.slice(0, 5000),
-      },
-    );
-
-    throw new Error(`Worker dispatch failed: ${message}`);
+  if (!result.ok) {
+    // The worker already recorded the authoritative status/attempt on its own document
+    // before responding. Writing "queued" here re-armed this job and made the queue
+    // re-dispatch it forever, which is what exhausted the Appwrite connection pool.
+    throw new Error(`Worker dispatch failed: ${describeWorkerFailure(result)}`);
   }
 }
+
 
 /**
  * Process the job queue sequentially
@@ -171,17 +185,20 @@ async function processQueue(): Promise<void> {
         `Processing job ${nextJob.jobId} (${queuedJobs.length} remaining in queue)`,
       );
 
+      let failed = false;
       try {
         await dispatchSingleJob(nextJob);
         console.log(`Job ${nextJob.jobId} dispatched successfully`);
       } catch (error) {
+        failed = true;
         const message = error instanceof Error ? error.message : "Unknown error";
         console.error(`Job ${nextJob.jobId} failed:`, message);
         // Continue to next job even if this one failed
       }
 
-      // Small delay between jobs to prevent overwhelming the worker
-      await new Promise((resolve) => setTimeout(resolve, 2000));
+      // Small delay between jobs to prevent overwhelming the worker. Failures back off
+      // exponentially so an unreachable worker cannot spin this loop.
+      await sleep(failed ? retryDelayForAttempt(Number(nextJob.attempt || 0) + 1) : QUEUE_SUCCESS_DELAY_MS);
     }
   } finally {
     queueStatus.isProcessing = false;

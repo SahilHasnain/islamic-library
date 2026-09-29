@@ -3,6 +3,14 @@ import "server-only";
 import { Query } from "node-appwrite";
 
 import { APPWRITE_IDS, appwriteDatabases } from "@/lib/appwrite";
+import {
+  describeWorkerFailure,
+  postIngestJob,
+  recordUnreachableDispatchFailure,
+  resolveDispatchToken,
+  WorkerUnreachableError,
+  type WorkerIngestResult,
+} from "@/lib/worker-client";
 
 export type JobStatus =
   | "draft"
@@ -55,6 +63,7 @@ export type JobRecord = {
   printedPageStartPage?: number;
   status: JobStatus;
   attempt: number;
+  workerDispatchToken?: string;
   workerId?: string;
   workerVersion?: string;
   errorCode?: string;
@@ -124,14 +133,6 @@ export type MonitoringSnapshot = {
 };
 
 export type RecoveryAction = "requeue" | "reset-stuck";
-
-function requireWorkerEnv(name: "WORKER_API_URL" | "WORKER_API_TOKEN") {
-  const value = process.env[name];
-  if (!value) {
-    throw new Error(`Missing required worker environment variable: ${name}`);
-  }
-  return value;
-}
 
 export async function listRecentJobs(limit = 10) {
   const jobsResponse = await appwriteDatabases.listDocuments(
@@ -275,6 +276,9 @@ export async function recoverJob(jobId: string, action: RecoveryAction) {
         errorMessage: "",
         workerId: "",
         workerVersion: "",
+        // An explicit operator requeue is a deliberate new attempt. Without this reset a
+        // job that exhausted its attempts can never be recovered after a transient outage.
+        attempt: 0,
       },
     );
 
@@ -308,6 +312,7 @@ export async function recoverJob(jobId: string, action: RecoveryAction) {
       errorMessage: "Job was reset to queued by an operator after getting stuck.",
       workerId: "",
       workerVersion: "",
+      attempt: 0,
     },
   );
 
@@ -325,14 +330,12 @@ export async function recoverJob(jobId: string, action: RecoveryAction) {
 }
 
 export async function dispatchJobToWorker(jobId: string) {
-  const workerApiUrl = requireWorkerEnv("WORKER_API_URL");
-  const workerApiToken = requireWorkerEnv("WORKER_API_TOKEN");
   const { job, payload } = await getDispatchPayload(jobId);
   const now = new Date().toISOString();
 
-  // Prevent accidental double-dispatch (queue + manual, or multiple requests).
-  // The worker will enforce this token as an idempotency lock.
-  const dispatchToken = `dispatch_${Date.now()}_${Math.random().toString(16).slice(2)}`;
+  // Reuse the job's existing token so retries are accepted by the worker's idempotency
+  // lock. Minting a new one per attempt keeps the 409 guard unreachable.
+  const dispatchToken = resolveDispatchToken(job);
 
   await appwriteDatabases.updateDocument(
     APPWRITE_IDS.databaseId,
@@ -350,36 +353,34 @@ export async function dispatchJobToWorker(jobId: string) {
     },
   );
 
-  const response = await fetch(`${workerApiUrl.replace(/\/$/, "")}/jobs/ingest`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${workerApiToken}`,
-    },
-    body: JSON.stringify({ ...payload, dispatchToken }),
-  });
+  const dispatchStartedAt = Date.now();
+  let result: WorkerIngestResult;
+  try {
+    result = await postIngestJob(payload, dispatchToken);
+  } catch (error) {
+    if (error instanceof WorkerUnreachableError) {
+      await recordUnreachableDispatchFailure(job, error, { dispatchStartedAt });
+    }
+    throw error;
+  }
 
-  if (!response.ok) {
-    const message = await response.text();
-
-    await appwriteDatabases.updateDocument(
-      APPWRITE_IDS.databaseId,
-      APPWRITE_IDS.jobsCollectionId,
-      job.$id,
-      {
-        status: "queued",
-        updatedAt: new Date().toISOString(),
-        errorCode: "WORKER_DISPATCH_FAILED",
-        errorMessage: message.slice(0, 5000),
-      },
-    );
-
-    throw new Error(`Worker dispatch failed: ${message}`);
+  if (!result.ok) {
+    // The worker already wrote the authoritative status/attempt before responding.
+    // Overwriting it here (e.g. forcing "queued") is what caused unbounded retry loops.
+    throw new Error(`Worker dispatch failed: ${describeWorkerFailure(result)}`);
   }
 
   return {
     dispatched: true,
     payload,
-    workerResponse: await response.json().catch(() => ({})),
+    workerResponse: result.error ?? safeParseJson(result.rawBody) ?? {},
   };
+}
+
+function safeParseJson(raw: string): unknown {
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
 }

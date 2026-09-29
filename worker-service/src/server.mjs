@@ -36,6 +36,18 @@ const renderDpi = Number(requireEnv("RENDER_DPI", "144"));
 const maxRetryAttempts = Number(requireEnv("MAX_RETRY_ATTEMPTS", "3"));
 const mockRenderEnabled = requireEnv("MOCK_RENDER_ENABLED", "false") === "true";
 const aiAnalysisJobs = new Map();
+// Job ids currently being ingested in this process. The document lock in Appwrite is the
+// source of truth, but this also stops a duplicate dispatch from starting a second render
+// before the first has written its claim.
+const activeIngests = new Set();
+// Because the worker acknowledges immediately, the console is no longer throttled by the
+// render itself and can dispatch a whole backlog in a tight loop. Without a cap here that
+// becomes N concurrent PyMuPDF renders, which exhausts memory/CPU and the Appwrite
+// connection pool all at once. Excess dispatches are parked in memory and started as slots
+// free up; their 202 already told the console they were accepted, so this is invisible
+// apart from /health reporting how many are running vs waiting.
+const maxConcurrentIngests = Math.max(1, Number(requireEnv("MAX_CONCURRENT_INGESTS", "1")));
+const ingestQueue = [];
 
 if (!workerApiToken) {
   throw new Error("Missing required environment variable: WORKER_API_TOKEN");
@@ -88,6 +100,12 @@ async function handleHealth(_, response) {
     aiProvider: process.env.AI_PROVIDER || "",
     aiModel: process.env.AI_MODEL || process.env.OPENAI_MODEL || "",
     aiQuickStrategy: process.env.AI_QUICK_ANALYSIS_STRATEGY || "toc-first",
+    // Lets a caller distinguish "the connection dropped but rendering continues" from
+    // "the worker never got the job".
+    activeIngests: activeIngests.size,
+    activeJobIds: [...activeIngests],
+    queuedIngests: ingestQueue.length,
+    maxConcurrentIngests,
   });
 }
 
@@ -154,6 +172,8 @@ async function handleIngest(request, response) {
 
   const now = new Date().toISOString();
 
+  // Everything up to the claim is fast (a few Appwrite reads/writes) and must stay on the
+  // request so the caller gets a real status code. Only the render+publish is slow.
   try {
     // Idempotency lock: only proceed if dispatchToken matches the job document.
     // This prevents double dispatch (queue + manual, retries, multi-instance).
@@ -170,12 +190,111 @@ async function handleIngest(request, response) {
       return;
     }
 
-    // Ensure the token is stored even if caller didn't persist it.
+    if (activeIngests.has(jobId) || ingestQueue.some((task) => task.jobId === jobId)) {
+      sendJson(response, 409, {
+        error: "Job is already queued or being ingested by this worker.",
+        status: jobDocument.status,
+      });
+      return;
+    }
+
+    // Ensure the token is stored even if caller didn't persist it. This is what makes a
+    // repeat dispatch carrying the SAME token safe rather than a duplicate render.
     await updateJobDocument(jobDocument.$id, {
       workerDispatchToken: dispatchToken,
       updatedAt: now,
     }).catch(() => {});
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Unknown error";
+    sendJson(response, 500, { error: message });
+    return;
+  }
 
+  // Acknowledge now and render in the background. Holding the request open for the whole
+  // render is what made long books fail: proxies and load balancers drop idle-ish
+  // connections, and the caller then cannot tell "still working" from "broke", so it
+  // either retries a running job or books a phantom failure over a finished one.
+  //
+  // The claim write happens inside runIngest, i.e. when a concurrency slot actually opens.
+  // Claiming here would leave a job parked behind the cap reported as `processing`, which
+  // is indistinguishable from a hung render and would hand it to stuck-job recovery.
+  activeIngests.add(jobId);
+  sendJson(response, 202, {
+    ok: true,
+    jobId,
+    status: "accepted",
+    phase: "accepted",
+    activeIngests: activeIngests.size,
+    maxConcurrentIngests,
+    bookSlug,
+    workerId,
+    workerVersion,
+    startedAt: now,
+  });
+
+  ingestQueue.push({
+    jobDocument,
+    bookDocument,
+    payload,
+    jobId,
+    bookSlug,
+    sourceFileId,
+    languageId: normalizedLanguageId,
+    volumeId,
+    now,
+  });
+  pumpIngestQueue();
+}
+
+/**
+ * Start as many queued ingests as the concurrency cap allows, one at a time per slot.
+ */
+function pumpIngestQueue() {
+  while (ingestQueue.length > 0 && activeIngests.size < maxConcurrentIngests) {
+    const task = ingestQueue.shift();
+    if (!task) {
+      break;
+    }
+
+    setImmediate(() => {
+      runIngest(task)
+        .catch((error) => {
+          console.error(`Ingest background task crashed for ${task.jobId}:`, error);
+        })
+        .finally(() => {
+          activeIngests.delete(task.jobId);
+          pumpIngestQueue();
+        });
+    });
+  }
+}
+
+async function runIngest({
+  jobDocument,
+  bookDocument,
+  payload,
+  jobId,
+  bookSlug,
+  sourceFileId,
+  languageId: normalizedLanguageId,
+  volumeId,
+  now,
+}) {
+  const {
+    title,
+    subtitle,
+    author,
+    description,
+    category,
+    nextRecommendedBookId,
+    printedPageStartPage,
+    requestedBy,
+    publishMode,
+  } = payload || {};
+
+  try {
+    // Claim now that a concurrency slot is actually ours. The 202 was already sent, so a
+    // failure here lands in the catch below and is recorded on the job document.
     await updateJobDocument(jobDocument.$id, {
       status: "processing",
       workerId,
@@ -337,28 +456,12 @@ async function handleIngest(request, response) {
       updatedAt: new Date().toISOString(),
     });
 
-    sendJson(response, 200, {
-      jobId,
-      status: "published",
-      phase: "published",
-      bookSlug,
-      workerId,
-      workerVersion,
-      workspaceDir: workspace.workspaceDir,
-      sourcePdfPath: path.basename(workspace.sourcePdfPath),
-      coverImagePath: path.basename(workspace.coverImagePath),
-      metadataPath: path.basename(workspace.metadataPath),
-      manifestPath: path.basename(workspace.manifestPath),
-      summaryPath: path.basename(workspace.summaryPath),
-      sourcePdfSize: pdfBuffer.byteLength,
-      totalPages: renderResult.totalPages,
-      outputVersion: version,
-      catalogPath: publishResult.catalogPath,
-      metadataPath: publishResult.metadataPath,
-      manifestPath: publishResult.manifestPath,
-      assetBasePath: publishResult.assetBasePath,
-      mockedRender: mockRenderEnabled,
-    });
+    // No HTTP response here: the 202 was already sent. The job document is the only
+    // channel the caller (and the console UI) has, so the terminal `published` write
+    // above is the completion signal.
+    console.log(
+      `Ingest ${jobId} published ${renderResult.totalPages} pages for ${bookSlug} (version ${version}).`,
+    );
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown error";
     const failedAt = new Date().toISOString();
@@ -379,14 +482,9 @@ async function handleIngest(request, response) {
       updatedAt: failedAt,
     }).catch(() => {});
 
-    sendJson(response, 500, {
-      jobId,
-      status: retryable ? "retrying" : "failed",
-      errorCode: "RENDER_OR_VALIDATION_FAILED",
-      errorMessage: message,
-      retryable,
-      nextAttempt,
-    });
+    console.error(
+      `Ingest ${jobId} failed for ${bookSlug} (attempt ${nextAttempt}/${maxRetryAttempts}): ${message}`,
+    );
   }
 }
 
@@ -657,6 +755,15 @@ if (request.method === "POST" && request.url === "/ai/analyze") {
     sendJson(response, 500, { error: message });
   }
 });
+
+// Requests are now short: /jobs/ingest acknowledges with 202 before rendering, so no
+// request stays open for the length of a book. Node's defaults (300s requestTimeout,
+// 5s keepAliveTimeout) are still worth stating explicitly — the 5s keep-alive in
+// particular races a client that reuses a pooled connection right after a response.
+server.requestTimeout = Number(requireEnv("SERVER_REQUEST_TIMEOUT_MS", "60000"));
+server.headersTimeout = Number(requireEnv("SERVER_HEADERS_TIMEOUT_MS", "30000"));
+server.keepAliveTimeout = Number(requireEnv("SERVER_KEEP_ALIVE_TIMEOUT_MS", "15000"));
+server.setTimeout(0);
 
 server.listen(port, () => {
   console.log(

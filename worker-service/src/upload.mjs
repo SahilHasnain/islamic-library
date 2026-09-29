@@ -13,6 +13,34 @@ import {
 const publicBucketId = appwriteConfig.APPWRITE_PUBLIC_BUCKET_ID;
 const catalogFileId = "catalog";
 
+// Appwrite Cloud runs behind Fastly, which drops connections once its concurrency
+// ceiling is hit. Uploading a volume previously fired delete+upload for every page at
+// once, so a few-hundred-page book opened hundreds of simultaneous connections and came
+// back as 499 "Client Closed Request". Publishing stays sequential and in order; this
+// only bounds how many pages are in flight.
+const UPLOAD_CONCURRENCY = Number(process.env.APPWRITE_UPLOAD_CONCURRENCY || 4);
+
+async function mapWithConcurrency(items, limit, worker) {
+  const results = new Array(items.length);
+  let cursor = 0;
+
+  async function run() {
+    while (cursor < items.length) {
+      const index = cursor;
+      cursor += 1;
+      results[index] = await worker(items[index], index);
+    }
+  }
+
+  const runners = Array.from(
+    { length: Math.max(1, Math.min(limit, items.length)) },
+    () => run(),
+  );
+  await Promise.all(runners);
+
+  return results;
+}
+
 function normalizeLanguageId(value) {
   return String(value || "")
     .toLowerCase()
@@ -97,8 +125,10 @@ export async function publishWorkspace({
   await uploadFile(coverFileId, coverBuffer, coverFileName);
 
   // Pages
-  const pageCopies = await Promise.all(
-    manifest.pages.map(async (page) => {
+  const pageCopies = await mapWithConcurrency(
+    manifest.pages,
+    UPLOAD_CONCURRENCY,
+    async (page) => {
       const sourcePath = path.join(workspace.pagesDir, page.fileName);
       const fileBuffer = await fs.readFile(sourcePath);
       const fileId = fileIdFor(`${volumeSeed}:page:${page.fileName}`);
@@ -107,7 +137,7 @@ export async function publishWorkspace({
         ...page,
         url: publicFileViewUrl(publicBucketId, fileId),
       };
-    }),
+    },
   );
 
   const publishedManifest = {
