@@ -5,6 +5,9 @@ import { Query } from "node-appwrite";
 import { APPWRITE_IDS, appwriteDatabases } from "@/lib/appwrite";
 import {
   describeWorkerFailure,
+  startAiTocAnalysis,
+  startAiMetadataAnalysis,
+  postMetadataRepublish,
   postIngestJob,
   recordUnreachableDispatchFailure,
   resolveDispatchToken,
@@ -34,14 +37,22 @@ export type BookStatus =
 export type BookRecord = {
   $id: string;
   slug: string;
+  canonicalBookSlug?: string;
   title: string;
   subtitle?: string;
   author?: string;
   description?: string;
   category?: string;
+  publishedVersion?: string;
   metadataUrl?: string;
   manifestUrl?: string;
   nextRecommendedBookId?: string;
+  recommendations?: Array<{
+    bookId: string;
+    reason?: string;
+    type?: string;
+    score?: number;
+  }>;
   languageId: string;
   volumeId: string;
   defaultLanguageId?: string;
@@ -129,7 +140,30 @@ export type MonitoringSummary = {
 export type MonitoringSnapshot = {
   jobs: JobListItem[];
   events: PublishEventRecord[];
+  books: BookRecord[];
   summary: MonitoringSummary;
+};
+
+export type MetadataEditInput = {
+  title: string;
+  author: string;
+  category: string;
+  nextRecommendedBookId: string;
+  defaultLanguageId: string;
+  recommendations: Array<{
+    bookId: string;
+    reason: string;
+    type: string;
+    score: number;
+  }>;
+  tocLanguageId: string;
+  tocVolumeId: string;
+  tocEntries: Array<{
+    title: string;
+    printedPage?: number;
+    renderedPage?: number;
+    level?: number;
+  }>;
 };
 
 export type RecoveryAction = "requeue" | "reset-stuck";
@@ -189,6 +223,7 @@ export async function getMonitoringSnapshot(limit = 12): Promise<MonitoringSnaps
   return {
     jobs,
     events,
+    books: allBooks,
     summary: {
       totalJobs: allJobs.length,
       queuedJobs: allJobs.filter((job) => job.status === "queued" || job.status === "retrying")
@@ -205,6 +240,276 @@ export async function getMonitoringSnapshot(limit = 12): Promise<MonitoringSnaps
       latestPublishedAt,
     },
   };
+}
+
+export async function updateBookMetadata(bookId: string, input: MetadataEditInput) {
+  const book = (await appwriteDatabases.getDocument(
+    APPWRITE_IDS.databaseId,
+    APPWRITE_IDS.booksCollectionId,
+    bookId,
+  )) as unknown as BookRecord;
+
+  if (!book.slug || !book.metadataUrl) {
+    throw new Error("Only books that have been published can be edited.");
+  }
+
+  // A book can have several edition records (language/volume combinations), but the
+  // public catalog has one shared top-level metadata record per slug. Resolve all sibling
+  // records now so the Appwrite book documents cannot drift after a bulk metadata edit.
+  const siblingBooksResponse = await appwriteDatabases.listDocuments(
+    APPWRITE_IDS.databaseId,
+    APPWRITE_IDS.booksCollectionId,
+    [Query.limit(5000)],
+  );
+  const logicalBookKey = book.canonicalBookSlug || book.slug;
+  const siblingBooks = (siblingBooksResponse.documents as unknown as BookRecord[]).filter(
+    (siblingBook) => (siblingBook.canonicalBookSlug || siblingBook.slug) === logicalBookKey,
+  );
+
+  const title = input.title.trim();
+  if (!title) {
+    throw new Error("Title is required.");
+  }
+
+  if (title.length > 255 || input.author.length > 255) {
+    throw new Error("Title and author must be 255 characters or fewer.");
+  }
+
+  if (input.category.length > 120) {
+    throw new Error("Category must be 120 characters or fewer.");
+  }
+
+  if (input.nextRecommendedBookId.length > 128) {
+    throw new Error("Recommended book ID must be 128 characters or fewer.");
+  }
+
+  if (!input.tocLanguageId || !input.tocVolumeId) {
+    throw new Error("A TOC language and volume are required.");
+  }
+
+  if (input.tocEntries.length > 1000) {
+    throw new Error("A table of contents cannot contain more than 1000 entries.");
+  }
+
+  for (const entry of input.tocEntries) {
+    if (!entry.title.trim() || entry.title.length > 255) {
+      throw new Error("Each TOC entry needs a title of 255 characters or fewer.");
+    }
+  }
+
+  const metadataResponse = await fetch(book.metadataUrl, { cache: "no-store" });
+  if (!metadataResponse.ok) {
+    throw new Error(`Could not load current public metadata (${metadataResponse.status}).`);
+  }
+
+  const currentMetadata = (await metadataResponse.json()) as {
+    languages?: Array<{
+      id: string;
+      summary?: string;
+      order?: number;
+      defaultVolumeId?: string;
+      volumes?: Array<{
+        id: string;
+        title?: string;
+        subtitle?: string;
+        manifestUrl?: string;
+        order?: number;
+        printedPageStartPage?: number;
+        introNote?: string;
+        todayTarget?: string;
+        tocEntries?: MetadataEditInput["tocEntries"];
+      }>;
+    }>;
+  };
+
+  const targetLanguageId = input.tocLanguageId.trim().toLowerCase();
+  const targetVolumeId = input.tocVolumeId.trim();
+  const languages = (currentMetadata.languages || []).map((language) => ({
+    languageId: language.id,
+    summary: language.summary,
+    order: language.order,
+    defaultVolumeId: language.defaultVolumeId,
+    volumes: (language.volumes || []).map((volume) => ({
+      id: volume.id,
+      title: volume.title,
+      subtitle: volume.subtitle,
+      manifestUrl: volume.manifestUrl,
+      order: volume.order,
+      printedPageStartPage: volume.printedPageStartPage,
+      introNote: volume.introNote,
+      todayTarget: volume.todayTarget,
+      tocEntries:
+        language.id.toLowerCase() === targetLanguageId && volume.id === targetVolumeId
+          ? input.tocEntries
+          : volume.tocEntries,
+    })),
+  }));
+
+  const targetLanguage = languages.find((language) => language.languageId.toLowerCase() === targetLanguageId);
+  if (!targetLanguage || !targetLanguage.volumes.some((volume) => volume.id === targetVolumeId)) {
+    throw new Error("The selected TOC language and volume were not found in public metadata.");
+  }
+
+  const result = await postMetadataRepublish({
+    bookSlug: book.slug,
+    title,
+    subtitle: book.subtitle || "",
+    author: input.author.trim(),
+    description: book.description || "",
+    category: input.category.trim(),
+    nextRecommendedBookId: input.nextRecommendedBookId.trim(),
+    recommendations: input.recommendations,
+    defaultLanguageId: input.defaultLanguageId.trim(),
+    languageId: book.languageId,
+    volumeId: book.volumeId,
+    requestedBy: "admin-console",
+    languages,
+  });
+
+  const updatedAt = new Date().toISOString();
+  await Promise.all(
+    siblingBooks.map((siblingBook) =>
+      appwriteDatabases.updateDocument(
+        APPWRITE_IDS.databaseId,
+        APPWRITE_IDS.booksCollectionId,
+        siblingBook.$id,
+        {
+          title,
+          subtitle: siblingBook.subtitle || "",
+          author: input.author.trim(),
+          description: siblingBook.description || "",
+          category: input.category.trim(),
+          nextRecommendedBookId: input.nextRecommendedBookId.trim(),
+          recommendations: input.recommendations,
+          defaultLanguageId: input.defaultLanguageId.trim() || siblingBook.defaultLanguageId || "",
+          metadataUrl: result.metadataUrl || siblingBook.metadataUrl,
+          manifestUrl: result.manifestUrl || siblingBook.manifestUrl,
+          publishedVersion: result.outputVersion || siblingBook.publishedVersion,
+          updatedAt,
+        },
+      ),
+    ),
+  );
+
+  return {
+    ...book,
+    title,
+    author: input.author.trim(),
+    category: input.category.trim(),
+    nextRecommendedBookId: input.nextRecommendedBookId.trim(),
+    recommendations: input.recommendations,
+    defaultLanguageId: input.defaultLanguageId.trim(),
+    metadataUrl: result.metadataUrl || book.metadataUrl,
+    manifestUrl: result.manifestUrl || book.manifestUrl,
+    publishedVersion: result.outputVersion || book.publishedVersion,
+    updatedAt,
+  } satisfies BookRecord;
+}
+
+export async function startBookTocAnalysis(
+  bookId: string,
+  languageId: string,
+  volumeId: string,
+) {
+  const book = (await appwriteDatabases.getDocument(
+    APPWRITE_IDS.databaseId,
+    APPWRITE_IDS.booksCollectionId,
+    bookId,
+  )) as unknown as BookRecord;
+
+  const siblingBooksResponse = await appwriteDatabases.listDocuments(
+    APPWRITE_IDS.databaseId,
+    APPWRITE_IDS.booksCollectionId,
+    [Query.limit(5000)],
+  );
+  const logicalBookKey = book.canonicalBookSlug || book.slug;
+  const edition = (siblingBooksResponse.documents as unknown as BookRecord[]).find(
+    (candidate) =>
+      (candidate.canonicalBookSlug || candidate.slug) === logicalBookKey &&
+      candidate.languageId.toLowerCase() === languageId.toLowerCase() &&
+      candidate.volumeId === volumeId,
+  );
+
+  // Edition source files are normally owned by ingestion_jobs rather than duplicated
+  // onto every books document. Prefer the latest matching ingestion job, then fall back
+  // to the legacy book-level sourceFileId field.
+  const jobsResponse = await appwriteDatabases.listDocuments(
+    APPWRITE_IDS.databaseId,
+    APPWRITE_IDS.jobsCollectionId,
+    [Query.limit(5000)],
+  );
+  const job = (jobsResponse.documents as unknown as JobRecord[])
+    .filter(
+      (candidate) =>
+        (candidate.bookSlug === book.slug || candidate.bookSlug === logicalBookKey) &&
+        candidate.languageId.toLowerCase() === languageId.toLowerCase() &&
+        candidate.volumeId === volumeId &&
+        candidate.sourceFileId,
+    )
+    .sort((left, right) => right.createdAt.localeCompare(left.createdAt))[0];
+  const sourceFileId = job?.sourceFileId || edition?.sourceFileId || book.sourceFileId;
+
+  if (!sourceFileId) {
+    throw new Error("No source PDF was found for the selected language and volume.");
+  }
+
+  return startAiTocAnalysis({
+    sourceFileId,
+    context: {
+      title: book.title,
+      languageId,
+      volumeId,
+      bookSlug: book.slug,
+    },
+  });
+}
+
+export async function startBookMetadataAnalysis(bookId: string) {
+  const book = (await appwriteDatabases.getDocument(
+    APPWRITE_IDS.databaseId,
+    APPWRITE_IDS.booksCollectionId,
+    bookId,
+  )) as unknown as BookRecord;
+  const booksResponse = await appwriteDatabases.listDocuments(
+    APPWRITE_IDS.databaseId,
+    APPWRITE_IDS.booksCollectionId,
+    [Query.limit(5000)],
+  );
+  const jobsResponse = await appwriteDatabases.listDocuments(
+    APPWRITE_IDS.databaseId,
+    APPWRITE_IDS.jobsCollectionId,
+    [Query.limit(5000)],
+  );
+  const logicalBookKey = book.canonicalBookSlug || book.slug;
+  const sourceJob = (jobsResponse.documents as unknown as JobRecord[])
+    .filter((candidate) => candidate.bookSlug === book.slug && candidate.sourceFileId)
+    .sort((left, right) => right.createdAt.localeCompare(left.createdAt))[0];
+  const sourceFileId = sourceJob?.sourceFileId || book.sourceFileId;
+  if (!sourceFileId) {
+    throw new Error("No source PDF was found for this book.");
+  }
+
+  const candidateBooks = (booksResponse.documents as unknown as BookRecord[])
+    .filter((candidate) => (candidate.canonicalBookSlug || candidate.slug) !== logicalBookKey)
+    .slice(0, 50)
+    .map((candidate) => ({
+      bookId: candidate.slug,
+      title: candidate.title,
+      author: candidate.author || "",
+      category: candidate.category || "",
+      description: candidate.description || "",
+    }));
+
+  return startAiMetadataAnalysis({
+    sourceFileId,
+    context: {
+      title: book.title,
+      languageId: book.languageId,
+      volumeId: book.volumeId,
+      bookSlug: book.slug,
+      candidateBooks,
+    },
+  });
 }
 
 export async function getDispatchPayload(jobId: string) {

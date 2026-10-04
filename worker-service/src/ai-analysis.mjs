@@ -3,7 +3,11 @@ import os from "node:os";
 import path from "node:path";
 import { spawn } from "node:child_process";
 
-import { downloadSourcePdf } from "./appwrite.mjs";
+import {
+  downloadSourcePdf,
+  listExtractionCache,
+  saveExtractionCacheChunk,
+} from "./appwrite.mjs";
 
 const allowedCategories = [
   "Aqaid",
@@ -357,12 +361,17 @@ PDF stats:
 PDF sample:
 ${sampledText}
 
+Candidate books for recommendations:
+${JSON.stringify(context.candidateBooks || [], null, 2).slice(0, getMergePromptCharLimit())}
+
 Return shape:
 {
   "title": string | null,
   "subtitle": string | null,
   "author": string | null,
   "category": ${allowedCategories.map((category) => JSON.stringify(category)).join(" | ")} | null,
+  "nextRecommendedBookId": string | null,
+  "recommendations": [{"bookId": string, "reason": string, "type": string, "score": number}],
   "description": string | null,
   "summary": string | null,
   "languageId": string | null,
@@ -544,6 +553,10 @@ Rules:
 ${buildLanguageRules(context)}
 - Preserve good fields from base draft.
 - category must be exactly one item from: ${allowedCategories.join(", ")}.
+- Choose nextRecommendedBookId and recommendations only from the provided candidate books.
+- Never invent or alter a candidate bookId. Use null and [] when no recommendation is appropriate.
+- Return 3 to 5 recommendations when enough candidates are available.
+- Make nextRecommendedBookId the strongest next-reading recommendation when one exists.
 - Merge duplicates and overlapping section candidates.
 - Target around ${targetSections} major sections and do not exceed ${maxSections} sections.
 - Prefer TOC/main chapter sections over every subheading.
@@ -1214,18 +1227,124 @@ function buildExtractedTextPreview(extracted) {
   }));
 }
 
-export async function analyzeSourcePdf({ sourceFileId, context, maxPages, analysisMode = "draft" }) {
-  const pdfBuffer = await downloadSourcePdf(sourceFileId);
-  const tempPdfPath = path.join(os.tmpdir(), `ai-analysis-${sourceFileId}-${Date.now()}.pdf`);
-  await fs.writeFile(tempPdfPath, pdfBuffer);
+function normalizeMetadataDraft(draft, context) {
+  if (!draft) return draft;
+
+  const candidates = Array.isArray(context.candidateBooks) ? context.candidateBooks : [];
+  const allowedIds = new Set(candidates.map((candidate) => String(candidate.bookId || "").trim()).filter(Boolean));
+  const recommendations = Array.isArray(draft.recommendations)
+    ? draft.recommendations
+        .map((recommendation) => {
+          const bookId = String(recommendation?.bookId || "").trim();
+          if (!allowedIds.has(bookId)) return null;
+          return {
+            bookId,
+            reason: String(recommendation?.reason || "").trim(),
+            type: String(recommendation?.type || "same-topic").trim(),
+            score: Math.max(1, Math.min(100, Math.floor(Number(recommendation?.score) || 1))),
+          };
+        })
+        .filter(Boolean)
+        .slice(0, 5)
+    : [];
+  const nextRecommendedBookId = allowedIds.has(String(draft.nextRecommendedBookId || "").trim())
+    ? String(draft.nextRecommendedBookId).trim()
+    : recommendations[0]?.bookId || null;
+
+  return { ...draft, recommendations, nextRecommendedBookId };
+}
+
+async function cacheExtractedPages(sourceFileId, extractorVersion, extracted) {
+  const chunkPageLimit = Math.max(1, Number(process.env.AI_EXTRACTION_CHUNK_PAGES || 10));
+  const pages = Array.isArray(extracted.pages) ? extracted.pages : [];
+
+  for (let start = 0; start < pages.length; start += chunkPageLimit) {
+    const chunk = pages.slice(start, start + chunkPageLimit);
+    try {
+      await saveExtractionCacheChunk({
+        sourceFileId,
+        extractorVersion,
+        pageStart: chunk[0]?.page || start + 1,
+        pageEnd: chunk[chunk.length - 1]?.page || start + chunk.length,
+        pageCount: extracted.pageCount || pages.length,
+        pages: chunk,
+      });
+    } catch (error) {
+      // Cache writes are an optimization. A schema, size, or transient Appwrite error
+      // must not turn a valid PDF analysis into a failed analysis.
+      console.warn(
+        `Extraction cache write skipped for ${sourceFileId} pages ${chunk[0]?.page}-${chunk[chunk.length - 1]?.page}:`,
+        error,
+      );
+    }
+  }
+}
+
+export async function analyzeSourcePdf({ sourceFileId, context, maxPages, analysisMode = "draft", onPhase }) {
+  const resolvedMaxPages = Number.isFinite(Number(maxPages))
+    ? Number(maxPages)
+    : Number(process.env.AI_ANALYSIS_MAX_PAGES || 40);
+  const extractorVersion = process.env.AI_EXTRACTOR_VERSION || "v1";
+  let extracted;
+  let tempPdfPath;
+  let extractionCached = false;
 
   try {
-    const scriptPath = path.join(process.cwd(), "scripts", "extract-pdf-text.py");
-    const resolvedMaxPages = Number.isFinite(Number(maxPages))
-      ? Number(maxPages)
-      : Number(process.env.AI_ANALYSIS_MAX_PAGES || 40);
-    const output = await runPython(scriptPath, [tempPdfPath, String(resolvedMaxPages)]);
-    const extracted = JSON.parse(output);
+    onPhase?.("checking-cache", "Checking cached extracted text.");
+    try {
+      const cached = await listExtractionCache(sourceFileId, extractorVersion);
+      const cachedDocuments = (cached.documents || []).sort((left, right) => left.pageStart - right.pageStart);
+      if (cachedDocuments.length > 0) {
+        const pages = cachedDocuments.flatMap((document) => {
+          try {
+            return JSON.parse(document.text || "[]");
+          } catch {
+            return [];
+          }
+        });
+        const pageCount = Number(cachedDocuments[0].pageCount || 0);
+        const expectedPages = pages.filter((page) => Number.isFinite(Number(page.page))).sort((left, right) => left.page - right.page);
+        const requiredPages = resolvedMaxPages > 0
+          ? Math.min(resolvedMaxPages, pageCount)
+          : pageCount;
+        const complete = pageCount > 0 && expectedPages.length >= requiredPages &&
+          expectedPages.slice(0, requiredPages).every((page, index) => page.page === index + 1);
+        if (complete) {
+          extracted = { pageCount, pages: expectedPages };
+          extractionCached = true;
+        }
+      }
+    } catch (error) {
+      console.warn(`Extraction cache read skipped for ${sourceFileId}:`, error);
+    }
+
+    if (!extracted) {
+      onPhase?.("extracting", "Extracting source PDF text and storing cache chunks.");
+      const pdfBuffer = await downloadSourcePdf(sourceFileId);
+      tempPdfPath = path.join(os.tmpdir(), `ai-analysis-${sourceFileId}-${Date.now()}.pdf`);
+      await fs.writeFile(tempPdfPath, pdfBuffer);
+      const scriptPath = path.join(process.cwd(), "scripts", "extract-pdf-text.py");
+      // TOC analysis only needs the front matter. Full extraction remains available for
+      // other analysis modes, but must not delay the bounded TOC request or its cache.
+      const extractionPageLimit = analysisMode === "toc-only" && resolvedMaxPages > 0
+        ? resolvedMaxPages
+        : 0;
+      const output = await runPython(scriptPath, [tempPdfPath, String(extractionPageLimit)]);
+      extracted = JSON.parse(output);
+      await cacheExtractedPages(sourceFileId, extractorVersion, extracted);
+    }
+
+    onPhase?.(
+      "analyzing",
+      extractionCached
+        ? "Using cached extracted text and sending the bounded analysis window to AI."
+        : "Text extraction is ready; sending the bounded analysis window to AI.",
+    );
+
+    const pagesForAnalysis = resolvedMaxPages <= 0
+      ? extracted.pages
+      : extracted.pages.slice(0, resolvedMaxPages);
+    extracted = { ...extracted, pages: pagesForAnalysis };
     const isFullAnalysis = resolvedMaxPages <= 0;
     if (analysisMode === "toc-only") {
       const deterministicTocResult = parseDeterministicTocEntries(extracted);
@@ -1250,10 +1369,10 @@ export async function analyzeSourcePdf({ sourceFileId, context, maxPages, analys
     }
 
     if (analysisMode === "metadata-only") {
-      const aiDraft = normalizeDraft(
+      const aiDraft = normalizeMetadataDraft(normalizeDraft(
         await callAiProviderPrompt(buildMetadataOnlyPrompt({ extracted, context })),
         extracted.pageCount,
-      );
+      ), context);
       return {
         pageCount: extracted.pageCount,
         analyzedPages: extracted.pages.length,
@@ -1288,6 +1407,8 @@ export async function analyzeSourcePdf({ sourceFileId, context, maxPages, analys
       aiEnabled: Boolean(isFullAnalysis ? aiDraft : quickResult.aiEnabled),
     };
   } finally {
-    await fs.rm(tempPdfPath, { force: true });
+    if (tempPdfPath) {
+      await fs.rm(tempPdfPath, { force: true });
+    }
   }
 }

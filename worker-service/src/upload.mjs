@@ -353,7 +353,8 @@ export async function republishBookMetadata({
               printedPageStartPage: volume.printedPageStartPage,
               introNote: volume.introNote,
               todayTarget: volume.todayTarget,
-              tocEntries: volume.tocEntries?.length ? volume.tocEntries : existingVolume?.tocEntries,
+              // An explicit empty array is meaningful: the editor can clear a TOC.
+              tocEntries: Array.isArray(volume.tocEntries) ? volume.tocEntries : existingVolume?.tocEntries,
             };
           }),
         };

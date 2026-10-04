@@ -5,6 +5,8 @@ import { FormEvent, useMemo, useState } from "react";
 import { uploadPdfWithProgress } from "@/lib/appwrite-client";
 import type {
   JobListItem,
+  BookRecord,
+  MetadataEditInput,
   MonitoringSnapshot,
   MonitoringSummary,
   PublishEventRecord,
@@ -34,6 +36,18 @@ type SubmissionState = {
   jobId?: string;
   slug?: string;
   uploadProgress?: number;
+};
+
+type TocVolumeOption = {
+  id: string;
+  title?: string;
+  tocEntries?: MetadataEditInput["tocEntries"];
+};
+
+type TocLanguageOption = {
+  id: string;
+  title?: string;
+  volumes: TocVolumeOption[];
 };
 
 function formatDate(value?: string) {
@@ -99,14 +113,26 @@ export function AdminConsole({ initialSnapshot }: { initialSnapshot: MonitoringS
   const [jobs, setJobs] = useState<JobListItem[]>(initialSnapshot.jobs);
   const [summary, setSummary] = useState<MonitoringSummary>(initialSnapshot.summary);
   const [events, setEvents] = useState<PublishEventRecord[]>(initialSnapshot.events);
+  const [books, setBooks] = useState<BookRecord[]>(initialSnapshot.books);
   const [jobsError, setJobsError] = useState<string>();
   const [isLoadingJobs, setIsLoadingJobs] = useState(false);
   const [dispatchingJobId, setDispatchingJobId] = useState<string>();
   const [recoveringJobId, setRecoveringJobId] = useState<string>();
   const [jobFilter, setJobFilter] = useState<(typeof jobFilters)[number]["value"]>("all");
   const [searchQuery, setSearchQuery] = useState("");
-  const [activeWorkspace, setActiveWorkspace] = useState<"upload" | "jobs" | "events">("upload");
+  const [activeWorkspace, setActiveWorkspace] = useState<"upload" | "jobs" | "metadata" | "events">("upload");
   const [titleValue, setTitleValue] = useState("");
+  const [metadataBookId, setMetadataBookId] = useState("");
+  const [metadataDraft, setMetadataDraft] = useState<MetadataEditInput | null>(null);
+  const [metadataSearch, setMetadataSearch] = useState("");
+  const [metadataState, setMetadataState] = useState<{ error?: string; message?: string }>({});
+  const [isSavingMetadata, setIsSavingMetadata] = useState(false);
+  const [tocLanguages, setTocLanguages] = useState<TocLanguageOption[]>([]);
+  const [isLoadingToc, setIsLoadingToc] = useState(false);
+  const [tocAnalysisId, setTocAnalysisId] = useState<string>();
+  const [tocAnalysisStatus, setTocAnalysisStatus] = useState<string>();
+  const [metadataAnalysisId, setMetadataAnalysisId] = useState<string>();
+  const [metadataAnalysisStatus, setMetadataAnalysisStatus] = useState<string>();
 
   const autoSlug = useMemo(() => slugifyTitle(titleValue), [titleValue]);
 
@@ -161,6 +187,48 @@ export function AdminConsole({ initialSnapshot }: { initialSnapshot: MonitoringS
     });
   }, [jobFilter, jobs, searchQuery]);
 
+  const bookGroups = useMemo(() => {
+    const groups = new Map<string, { key: string; book: BookRecord; editions: BookRecord[] }>();
+
+    for (const book of books) {
+      const key = book.canonicalBookSlug || book.slug;
+      const current = groups.get(key);
+      if (current) {
+        current.editions.push(book);
+        if (!current.book.metadataUrl && book.metadataUrl) {
+          current.book = book;
+        }
+      } else {
+        groups.set(key, { key, book, editions: [book] });
+      }
+    }
+
+    return [...groups.values()];
+  }, [books]);
+
+  const filteredBookGroups = useMemo(() => {
+    const normalizedQuery = metadataSearch.trim().toLowerCase();
+    return bookGroups.filter(({ book, editions }) => {
+      if (!normalizedQuery) {
+        return true;
+      }
+
+      return [
+        book.title,
+        book.slug,
+        book.author,
+        book.category,
+        ...editions.flatMap((edition) => [edition.languageId, edition.volumeId]),
+      ]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase()
+        .includes(normalizedQuery);
+    });
+  }, [bookGroups, metadataSearch]);
+
+  const selectedMetadataBook = books.find((book) => book.$id === metadataBookId);
+
   async function fetchJobs() {
     try {
       const response = await fetch("/api/jobs");
@@ -174,10 +242,245 @@ export function AdminConsole({ initialSnapshot }: { initialSnapshot: MonitoringS
       setJobs(payload.jobs || []);
       setSummary(payload.summary);
       setEvents(payload.events || []);
+      setBooks(payload.books || []);
     } catch {
       setJobsError("Could not load jobs.");
     } finally {
       setIsLoadingJobs(false);
+    }
+  }
+
+  async function selectBookForMetadata(book: BookRecord) {
+    setMetadataBookId(book.$id);
+    setMetadataDraft({
+      title: book.title || "",
+      author: book.author || "",
+      category: book.category || "",
+      nextRecommendedBookId: book.nextRecommendedBookId || "",
+      defaultLanguageId: book.defaultLanguageId || book.languageId || "",
+      recommendations: (book.recommendations || []).map((recommendation) => ({
+        bookId: recommendation.bookId,
+        reason: recommendation.reason || "",
+        type: recommendation.type || "same-topic",
+        score: recommendation.score || 1,
+      })),
+      tocLanguageId: "",
+      tocVolumeId: "",
+      tocEntries: [],
+    });
+    setMetadataState({});
+    setTocAnalysisId(undefined);
+    setTocAnalysisStatus(undefined);
+    setMetadataAnalysisId(undefined);
+    setMetadataAnalysisStatus(undefined);
+
+    if (!book.metadataUrl) {
+      setTocLanguages([]);
+      return;
+    }
+
+    setIsLoadingToc(true);
+    try {
+      const response = await fetch(`/api/assets/json?url=${encodeURIComponent(book.metadataUrl)}`);
+      if (!response.ok) {
+        throw new Error("Could not load the current table of contents.");
+      }
+
+      const metadata = (await response.json()) as {
+        languages?: Array<{
+          id: string;
+          title?: string;
+          volumes?: Array<{
+            id: string;
+            title?: string;
+            tocEntries?: MetadataEditInput["tocEntries"];
+          }>;
+        }>;
+      };
+      const languages = (metadata.languages || []).map((language) => ({
+        id: language.id,
+        title: language.title,
+        volumes: (language.volumes || []).map((volume) => ({
+          id: volume.id,
+          title: volume.title,
+          tocEntries: Array.isArray(volume.tocEntries) ? volume.tocEntries : [],
+        })),
+      }));
+      setTocLanguages(languages);
+
+      const selectedLanguage =
+        languages.find((language) => language.id === (book.defaultLanguageId || book.languageId)) || languages[0];
+      const selectedVolume =
+        selectedLanguage?.volumes.find((volume) => volume.id === (book.defaultVolumeId || book.volumeId)) ||
+        selectedLanguage?.volumes[0];
+
+      setMetadataDraft((current) => current ? {
+        ...current,
+        tocLanguageId: selectedLanguage?.id || "",
+        tocVolumeId: selectedVolume?.id || "",
+        tocEntries: selectedVolume?.tocEntries || [],
+      } : current);
+    } catch (error) {
+      setMetadataState({
+        error: error instanceof Error ? error.message : "Could not load the current table of contents.",
+      });
+      setTocLanguages([]);
+    } finally {
+      setIsLoadingToc(false);
+    }
+  }
+
+  function selectTocLocation(languageId: string, volumeId: string) {
+    const language = tocLanguages.find((candidate) => candidate.id === languageId);
+    const volume = language?.volumes.find((candidate) => candidate.id === volumeId);
+    setMetadataDraft((current) => current ? {
+      ...current,
+      tocLanguageId: languageId,
+      tocVolumeId: volumeId,
+      tocEntries: volume?.tocEntries || [],
+    } : current);
+  }
+
+  async function handleGenerateToc() {
+    if (!metadataBookId || !metadataDraft?.tocLanguageId || !metadataDraft.tocVolumeId) return;
+
+    setTocAnalysisStatus("starting");
+    setMetadataState({});
+    try {
+      const startResponse = await fetch(`/api/books/${metadataBookId}/toc/start`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          languageId: metadataDraft.tocLanguageId,
+          volumeId: metadataDraft.tocVolumeId,
+        }),
+      });
+      const startPayload = (await startResponse.json()) as { analysisId?: string; error?: string };
+      if (!startResponse.ok || !startPayload.analysisId) {
+        throw new Error(startPayload.error || "Could not start AI TOC analysis.");
+      }
+
+      setTocAnalysisId(startPayload.analysisId);
+      // Gemini may retry a slow provider request; keep polling longer than the
+      // provider's retry budget without treating a still-running analysis as failed.
+      for (let attempt = 0; attempt < 450; attempt += 1) {
+        await new Promise((resolve) => setTimeout(resolve, 2000));
+        const statusResponse = await fetch(
+          `/api/books/${metadataBookId}/toc/status?analysisId=${encodeURIComponent(startPayload.analysisId)}`,
+        );
+        const statusPayload = (await statusResponse.json()) as {
+          status?: string;
+          phase?: string;
+          error?: string;
+          result?: { tocEntries?: MetadataEditInput["tocEntries"] };
+        };
+        if (!statusResponse.ok) throw new Error(statusPayload.error || "Could not read AI TOC status.");
+        setTocAnalysisStatus(statusPayload.phase || statusPayload.status || "processing");
+
+        if (statusPayload.status === "completed") {
+          const tocEntries = statusPayload.result?.tocEntries || [];
+          setMetadataDraft((current) => current ? { ...current, tocEntries } : current);
+          setMetadataState({ message: `AI generated ${tocEntries.length} TOC entries. Review the draft, then save and publish.` });
+          return;
+        }
+        if (statusPayload.status === "failed") {
+          throw new Error(statusPayload.error || "AI TOC analysis failed.");
+        }
+      }
+      throw new Error("AI TOC analysis timed out.");
+    } catch (error) {
+      setTocAnalysisStatus("failed");
+      setMetadataState({ error: error instanceof Error ? error.message : "AI TOC analysis failed." });
+    }
+  }
+
+  async function handleGenerateMetadata() {
+    if (!metadataBookId) return;
+    setMetadataAnalysisStatus("starting");
+    setMetadataState({});
+
+    try {
+      const startResponse = await fetch(`/api/books/${metadataBookId}/metadata/ai`, { method: "POST" });
+      const startPayload = (await startResponse.json()) as { analysisId?: string; error?: string };
+      if (!startResponse.ok || !startPayload.analysisId) {
+        throw new Error(startPayload.error || "Could not start AI metadata analysis.");
+      }
+
+      setMetadataAnalysisId(startPayload.analysisId);
+      for (let attempt = 0; attempt < 450; attempt += 1) {
+        await new Promise((resolve) => setTimeout(resolve, 2000));
+        const response = await fetch(
+          `/api/books/${metadataBookId}/toc/status?analysisId=${encodeURIComponent(startPayload.analysisId)}`,
+        );
+        const payload = (await response.json()) as {
+          status?: string;
+          phase?: string;
+          error?: string;
+          result?: {
+            draft?: {
+              author?: string;
+              category?: string;
+              nextRecommendedBookId?: string;
+              recommendations?: MetadataEditInput["recommendations"];
+            };
+          };
+        };
+        if (!response.ok) throw new Error(payload.error || "Could not read AI metadata status.");
+        setMetadataAnalysisStatus(payload.phase || payload.status || "processing");
+
+        if (payload.status === "completed") {
+          const draft = payload.result?.draft;
+          if (!draft) throw new Error("AI returned an empty metadata draft.");
+          setMetadataDraft((current) => current ? {
+            ...current,
+            author: draft.author || current.author,
+            category: draft.category || current.category,
+            nextRecommendedBookId: draft.nextRecommendedBookId || current.nextRecommendedBookId,
+            recommendations: draft.recommendations || current.recommendations,
+          } : current);
+          setMetadataState({ message: "AI metadata draft ready. Review it, then save and publish." });
+          return;
+        }
+        if (payload.status === "failed") throw new Error(payload.error || "AI metadata analysis failed.");
+      }
+      throw new Error("AI metadata analysis timed out.");
+    } catch (error) {
+      setMetadataAnalysisStatus("failed");
+      setMetadataState({ error: error instanceof Error ? error.message : "AI metadata analysis failed." });
+    }
+  }
+
+  async function handleMetadataSave(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!metadataBookId || !metadataDraft) {
+      return;
+    }
+
+    setIsSavingMetadata(true);
+    setMetadataState({});
+
+    try {
+      const response = await fetch(`/api/books/${metadataBookId}/metadata`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(metadataDraft),
+      });
+      const payload = (await response.json()) as { error?: string; book?: BookRecord };
+
+      if (!response.ok || !payload.book) {
+        setMetadataState({ error: payload.error || "Could not publish metadata." });
+        return;
+      }
+
+      setBooks((current) => current.map((book) => (book.$id === payload.book?.$id ? payload.book : book)));
+      setMetadataState({ message: "Metadata saved and published to the public catalog." });
+      await loadJobs();
+    } catch (error) {
+      setMetadataState({
+        error: error instanceof Error ? error.message : "Could not publish metadata.",
+      });
+    } finally {
+      setIsSavingMetadata(false);
     }
   }
 
@@ -333,6 +636,7 @@ export function AdminConsole({ initialSnapshot }: { initialSnapshot: MonitoringS
           {[
             { id: "upload", label: "Upload PDF" },
             { id: "jobs", label: "Jobs" },
+            { id: "metadata", label: "Metadata" },
             { id: "events", label: "Publish Events" },
           ].map((tab) => (
             <button
@@ -617,6 +921,246 @@ export function AdminConsole({ initialSnapshot }: { initialSnapshot: MonitoringS
           )}
         </section>
         </>
+        ) : null}
+
+        {activeWorkspace === "metadata" ? (
+          <section className="grid gap-8 xl:grid-cols-[0.8fr_1.2fr]">
+            <div className="rounded-3xl border border-stone-800 bg-stone-900/70 p-6">
+              <p className="text-xs uppercase tracking-[0.24em] text-stone-400">Published Books</p>
+              <h2 className="mt-2 text-2xl font-semibold text-stone-50">Choose a book</h2>
+              <p className="mt-2 text-sm leading-6 text-stone-300">
+                Choose a logical book once. Metadata changes apply to all of its language and volume editions without rerendering PDFs.
+              </p>
+              <input
+                value={metadataSearch}
+                onChange={(event) => setMetadataSearch(event.target.value)}
+                placeholder="Search title, slug, author..."
+                className="mt-5 w-full rounded-2xl border border-stone-700 bg-stone-950 px-4 py-3 text-sm text-stone-100 outline-none transition placeholder:text-stone-500 focus:border-amber-300"
+              />
+              <div className="mt-5 space-y-2">
+                {filteredBookGroups.length === 0 ? (
+                  <p className="rounded-2xl border border-stone-800 bg-stone-950/60 p-4 text-sm text-stone-400">
+                    No books match this search.
+                  </p>
+                ) : (
+                  filteredBookGroups.map(({ key, book, editions }) => (
+                    <button
+                      key={key}
+                      type="button"
+                      onClick={() => selectBookForMetadata(book)}
+                      className={`w-full rounded-2xl border p-4 text-left transition ${metadataBookId === book.$id
+                        ? "border-amber-300 bg-amber-950/30"
+                        : "border-stone-800 bg-stone-950/60 hover:border-amber-300/60"
+                      }`}
+                    >
+                      <p className="font-medium text-stone-50">{book.title}</p>
+                      <p className="mt-1 text-xs text-stone-400">{book.slug}</p>
+                      <p className="mt-2 text-xs text-stone-500">
+                        {editions.length} {editions.length === 1 ? "edition" : "editions"} · {editions
+                          .map((edition) => `${edition.languageId}/${edition.volumeId}`)
+                          .join(", ")}
+                      </p>
+                    </button>
+                  ))
+                )}
+              </div>
+            </div>
+
+            <div className="rounded-3xl border border-stone-800 bg-stone-900/70 p-6">
+              <p className="text-xs uppercase tracking-[0.24em] text-stone-400">Metadata Editor</p>
+              <h2 className="mt-2 text-2xl font-semibold text-stone-50">
+                {selectedMetadataBook?.title || "Select a book"}
+              </h2>
+
+              {!metadataDraft ? (
+                <p className="mt-5 rounded-2xl border border-stone-800 bg-stone-950/60 p-5 text-sm leading-6 text-stone-400">
+                  Select a book to edit its shared metadata. Saving updates every edition record and republishes `metadata.json` plus the public catalog.
+                </p>
+              ) : (
+                <form className="mt-5 space-y-5" onSubmit={handleMetadataSave}>
+                  <div className="flex flex-col gap-3 rounded-2xl border border-amber-900/40 bg-amber-950/20 p-4 sm:flex-row sm:items-center sm:justify-between">
+                    <div>
+                      <p className="text-sm font-medium text-amber-200">AI metadata assistant</p>
+                      <p className="mt-1 text-xs leading-5 text-amber-200/70">
+                        Suggest author, category, next reading, and related books from the PDF and existing catalog.
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      disabled={metadataAnalysisStatus === "starting" || metadataAnalysisStatus === "processing"}
+                      onClick={() => void handleGenerateMetadata()}
+                      className="shrink-0 rounded-full bg-amber-300 px-4 py-2 text-xs font-medium text-stone-950 transition hover:bg-amber-200 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      {metadataAnalysisStatus === "starting" || metadataAnalysisStatus === "processing" ? "Generating..." : "Generate with AI"}
+                    </button>
+                  </div>
+                  <div className="grid gap-5 md:grid-cols-2">
+                    <label className="space-y-2">
+                      <span className="text-sm text-stone-200">Title <span className="text-rose-300">*</span></span>
+                      <input
+                        required
+                        maxLength={255}
+                        value={metadataDraft.title}
+                        onChange={(event) => setMetadataDraft({ ...metadataDraft, title: event.target.value })}
+                        className="w-full rounded-2xl border border-stone-700 bg-stone-950 px-4 py-3 text-sm outline-none transition focus:border-amber-300"
+                      />
+                    </label>
+                    <label className="space-y-2">
+                      <span className="text-sm text-stone-200">Author</span>
+                      <input
+                        maxLength={255}
+                        value={metadataDraft.author}
+                        onChange={(event) => setMetadataDraft({ ...metadataDraft, author: event.target.value })}
+                        className="w-full rounded-2xl border border-stone-700 bg-stone-950 px-4 py-3 text-sm outline-none transition focus:border-amber-300"
+                      />
+                    </label>
+                    <label className="space-y-2">
+                      <span className="text-sm text-stone-200">Category</span>
+                      <input
+                        maxLength={120}
+                        value={metadataDraft.category}
+                        onChange={(event) => setMetadataDraft({ ...metadataDraft, category: event.target.value })}
+                        className="w-full rounded-2xl border border-stone-700 bg-stone-950 px-4 py-3 text-sm outline-none transition focus:border-amber-300"
+                      />
+                    </label>
+                    <label className="space-y-2">
+                      <span className="text-sm text-stone-200">Default language ID</span>
+                      <input
+                        maxLength={64}
+                        value={metadataDraft.defaultLanguageId}
+                        onChange={(event) => setMetadataDraft({ ...metadataDraft, defaultLanguageId: event.target.value })}
+                        className="w-full rounded-2xl border border-stone-700 bg-stone-950 px-4 py-3 text-sm outline-none transition focus:border-amber-300"
+                      />
+                    </label>
+                    <label className="space-y-2">
+                      <span className="text-sm text-stone-200">Next recommended book ID</span>
+                      <input
+                        maxLength={128}
+                        value={metadataDraft.nextRecommendedBookId}
+                        onChange={(event) => setMetadataDraft({ ...metadataDraft, nextRecommendedBookId: event.target.value })}
+                        className="w-full rounded-2xl border border-stone-700 bg-stone-950 px-4 py-3 text-sm outline-none transition focus:border-amber-300"
+                        placeholder="Optional book slug"
+                      />
+                    </label>
+                  </div>
+
+                  {metadataDraft.recommendations.length > 0 ? (
+                    <div className="rounded-2xl border border-stone-800 bg-stone-950/60 p-4">
+                      <p className="text-xs uppercase tracking-[0.24em] text-stone-400">AI recommendations</p>
+                      <p className="mt-2 text-sm text-stone-300">
+                        Next reading: <span className="text-amber-200">{metadataDraft.nextRecommendedBookId || "Not selected"}</span>
+                      </p>
+                      <ul className="mt-3 space-y-2 text-sm text-stone-400">
+                        {metadataDraft.recommendations.map((recommendation) => (
+                          <li key={recommendation.bookId} className="flex justify-between gap-4 rounded-xl border border-stone-800 px-3 py-2">
+                            <span>{recommendation.bookId}</span>
+                            <span className="text-xs text-stone-500">{recommendation.reason}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  ) : null}
+
+                  {metadataAnalysisId ? <p className="text-xs text-stone-500">Metadata analysis: {metadataAnalysisId} · {metadataAnalysisStatus || "ready"}</p> : null}
+
+                  <div className="rounded-2xl border border-stone-800 bg-stone-950/60 p-4">
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+                      <div>
+                        <p className="text-xs uppercase tracking-[0.24em] text-stone-400">AI table of contents</p>
+                        <p className="mt-2 text-sm leading-6 text-stone-400">
+                          Generate a TOC from the selected edition&apos;s source PDF, review the draft, then approve it with the metadata publish.
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        disabled={isLoadingToc || tocAnalysisStatus === "starting" || tocAnalysisStatus === "processing" || !metadataDraft.tocLanguageId || !metadataDraft.tocVolumeId}
+                        onClick={() => void handleGenerateToc()}
+                        className="rounded-full border border-amber-300/70 px-4 py-2 text-xs font-medium text-amber-200 transition hover:bg-amber-300 hover:text-stone-950 disabled:cursor-not-allowed disabled:border-stone-800 disabled:text-stone-600"
+                      >
+                        {tocAnalysisStatus === "starting" || tocAnalysisStatus === "processing" ? "Generating..." : "Generate with AI"}
+                      </button>
+                    </div>
+
+                    {isLoadingToc ? (
+                      <p className="mt-4 text-sm text-stone-400">Loading edition metadata...</p>
+                    ) : tocLanguages.length === 0 ? (
+                      <p className="mt-4 text-sm text-stone-400">No published language or volume metadata was found.</p>
+                    ) : (
+                      <>
+                        <div className="mt-4 grid gap-4 md:grid-cols-2">
+                          <label className="space-y-2">
+                            <span className="text-sm text-stone-200">Language</span>
+                            <select
+                              value={metadataDraft.tocLanguageId}
+                              onChange={(event) => {
+                                const language = tocLanguages.find((candidate) => candidate.id === event.target.value);
+                                selectTocLocation(event.target.value, language?.volumes[0]?.id || "");
+                              }}
+                              className="w-full rounded-2xl border border-stone-700 bg-stone-950 px-4 py-3 text-sm outline-none focus:border-amber-300"
+                            >
+                              {tocLanguages.map((language) => <option key={language.id} value={language.id}>{language.title || language.id}</option>)}
+                            </select>
+                          </label>
+                          <label className="space-y-2">
+                            <span className="text-sm text-stone-200">Volume</span>
+                            <select
+                              value={metadataDraft.tocVolumeId}
+                              onChange={(event) => selectTocLocation(metadataDraft.tocLanguageId, event.target.value)}
+                              className="w-full rounded-2xl border border-stone-700 bg-stone-950 px-4 py-3 text-sm outline-none focus:border-amber-300"
+                            >
+                              {(tocLanguages.find((language) => language.id === metadataDraft.tocLanguageId)?.volumes || []).map((volume) => <option key={volume.id} value={volume.id}>{volume.title || volume.id}</option>)}
+                            </select>
+                          </label>
+                        </div>
+                        <div className="mt-4 rounded-2xl border border-stone-800 bg-stone-900/70 p-4">
+                          <p className="text-sm text-stone-300">
+                            {metadataDraft.tocEntries.length
+                              ? `${metadataDraft.tocEntries.length} AI-generated entries ready for review.`
+                              : "No TOC draft yet. Generate one with AI."}
+                          </p>
+                          {metadataDraft.tocEntries.length > 0 ? (
+                            <ol className="mt-3 max-h-72 space-y-2 overflow-y-auto text-sm text-stone-300">
+                              {metadataDraft.tocEntries.map((entry, index) => (
+                                <li key={`${index}-${entry.title}`} className="flex gap-3 rounded-xl border border-stone-800 px-3 py-2">
+                                  <span className="w-6 shrink-0 text-stone-500">{index + 1}.</span>
+                                  <span className="flex-1">{entry.title}</span>
+                                  <span className="text-xs text-stone-500">p. {entry.renderedPage ?? "-"}</span>
+                                </li>
+                              ))}
+                            </ol>
+                          ) : null}
+                          {tocAnalysisId ? <p className="mt-3 text-xs text-stone-500">Analysis: {tocAnalysisId} · {tocAnalysisStatus || "ready"}</p> : null}
+                        </div>
+                      </>
+                    )}
+                  </div>
+
+                  {metadataState.error ? (
+                    <p className="rounded-2xl border border-rose-900/60 bg-rose-950/40 p-4 text-sm leading-6 text-rose-200">
+                      {metadataState.error}
+                    </p>
+                  ) : metadataState.message ? (
+                    <p className="rounded-2xl border border-emerald-900/60 bg-emerald-950/40 p-4 text-sm leading-6 text-emerald-200">
+                      {metadataState.message}
+                    </p>
+                  ) : null}
+
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                    <p className="text-xs leading-5 text-stone-500">
+                      This republishes metadata only. PDF pages and manifests are not rerendered.
+                    </p>
+                    <button
+                      type="submit"
+                      disabled={isSavingMetadata}
+                      className="rounded-full bg-amber-300 px-6 py-3 text-sm font-medium text-stone-950 transition hover:bg-amber-200 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      {isSavingMetadata ? "Publishing metadata..." : "Save and publish"}
+                    </button>
+                  </div>
+                </form>
+              )}
+            </div>
+          </section>
         ) : null}
 
         {activeWorkspace === "events" ? (

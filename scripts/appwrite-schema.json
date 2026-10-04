@@ -414,6 +414,68 @@
           "required": true
         }
       ]
+    },
+    {
+      "id": "ai_extraction_cache",
+      "name": "AI Extraction Cache",
+      "documentSecurity": false,
+      "attributes": [
+        {
+          "key": "chunkKey",
+          "type": "string",
+          "size": 256,
+          "required": true
+        },
+        {
+          "key": "sourceFileId",
+          "type": "string",
+          "size": 128,
+          "required": true
+        },
+        {
+          "key": "extractorVersion",
+          "type": "string",
+          "size": 64,
+          "required": true
+        },
+        {
+          "key": "pageStart",
+          "type": "integer",
+          "min": 1,
+          "max": 100000,
+          "required": true
+        },
+        {
+          "key": "pageEnd",
+          "type": "integer",
+          "min": 1,
+          "max": 100000,
+          "required": true
+        },
+        {
+          "key": "pageCount",
+          "type": "integer",
+          "min": 1,
+          "max": 100000,
+          "required": true
+        },
+        {
+          "key": "text",
+          "type": "string",
+          "size": 100000,
+          "required": true
+        },
+        {
+          "key": "createdAt",
+          "type": "datetime",
+          "required": true
+        },
+        {
+          "key": "updatedAt",
+          "type": "datetime",
+          "required": true
+        }
+      ]
     }
   ],
   "buckets": [

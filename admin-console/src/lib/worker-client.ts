@@ -67,6 +67,77 @@ export type WorkerIngestResult = {
   accepted: boolean;
 };
 
+export type MetadataRepublishPayload = {
+  bookSlug: string;
+  title: string;
+  subtitle?: string;
+  author?: string;
+  description?: string;
+  category?: string;
+  nextRecommendedBookId?: string;
+  recommendations?: Array<{
+    bookId: string;
+    reason?: string;
+    type?: string;
+    score?: number;
+  }>;
+  defaultLanguageId?: string;
+  languageId: string;
+  volumeId: string;
+  requestedBy: string;
+  languages?: Array<{
+    languageId: string;
+    summary?: string;
+    order?: number;
+    defaultVolumeId?: string;
+    volumes: Array<{
+      id: string;
+      title?: string;
+      subtitle?: string;
+      manifestUrl?: string;
+      order?: number;
+      printedPageStartPage?: number;
+      introNote?: string;
+      todayTarget?: string;
+      tocEntries?: Array<{
+        title: string;
+        printedPage?: number;
+        renderedPage?: number;
+        level?: number;
+      }>;
+    }>;
+  }>;
+};
+
+export type MetadataRepublishResult = {
+  ok: boolean;
+  status: number;
+  rawBody: string;
+  error?: string;
+  metadataUrl?: string;
+  manifestUrl?: string;
+  outputVersion?: string;
+};
+
+export type AiTocStartResult = {
+  analysisId: string;
+  status: string;
+};
+
+export type AiTocStatusResult = {
+  status: "queued" | "processing" | "completed" | "failed";
+  phase?: string;
+  error?: string;
+  result?: {
+    tocEntries?: Array<{
+      title: string;
+      printedPage?: number;
+      renderedPage?: number;
+      level?: number;
+    }>;
+  };
+};
+
 /**
  * Reuse the job's existing dispatch token so retries are accepted by the worker's
  * idempotency lock. Minting a fresh token per attempt writes a new value to the document
@@ -126,6 +197,110 @@ export async function postIngestJob(
   const accepted = response.status === 202 || response.status === 200;
 
   return { ok: response.ok, status: response.status, rawBody, error, accepted };
+}
+
+export async function postMetadataRepublish(
+  payload: MetadataRepublishPayload,
+): Promise<MetadataRepublishResult> {
+  const baseUrl = requireWorkerEnv("WORKER_API_URL").replace(/\/$/, "");
+  const workerApiToken = requireWorkerEnv("WORKER_API_TOKEN");
+
+  let response: Response;
+  try {
+    response = await fetch(`${baseUrl}/books/republish-metadata`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${workerApiToken}`,
+      },
+      body: JSON.stringify(payload),
+      signal: AbortSignal.timeout(60_000),
+    });
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : "Unknown error";
+    throw new Error(`Metadata publish request failed: ${detail}`);
+  }
+
+  const rawBody = await response.text().catch(() => "");
+  let parsed: Record<string, unknown> = {};
+  try {
+    parsed = JSON.parse(rawBody) as Record<string, unknown>;
+  } catch {
+    // Preserve the raw response for the caller below.
+  }
+
+  if (!response.ok) {
+    throw new Error(
+      typeof parsed.error === "string"
+        ? parsed.error
+        : `Metadata publish failed with status ${response.status}.`,
+    );
+  }
+
+  return {
+    ok: true,
+    status: response.status,
+    rawBody,
+    metadataUrl: typeof parsed.metadataUrl === "string" ? parsed.metadataUrl : undefined,
+    manifestUrl: typeof parsed.manifestUrl === "string" ? parsed.manifestUrl : undefined,
+    outputVersion: typeof parsed.outputVersion === "string" ? parsed.outputVersion : undefined,
+  };
+}
+
+async function workerFetch(path: string, init: RequestInit = {}) {
+  const baseUrl = requireWorkerEnv("WORKER_API_URL").replace(/\/$/, "");
+  const workerApiToken = requireWorkerEnv("WORKER_API_TOKEN");
+  return fetch(`${baseUrl}${path}`, {
+    ...init,
+    headers: {
+      Authorization: `Bearer ${workerApiToken}`,
+      ...init.headers,
+    },
+    signal: AbortSignal.timeout(60_000),
+  });
+}
+
+export async function startAiTocAnalysis(payload: {
+  sourceFileId: string;
+  context: Record<string, unknown>;
+}) {
+  const response = await workerFetch("/ai/analyze/start", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    // Contents pages are normally in the front matter. Keep the first pass bounded;
+    // a later fallback scan can be added without sending the entire PDF to the model.
+    body: JSON.stringify({ ...payload, analysisMode: "toc-only", maxPages: 40 }),
+  });
+  const result = (await response.json()) as Partial<AiTocStartResult> & { error?: string };
+  if (!response.ok || !result.analysisId) {
+    throw new Error(result.error || "Could not start AI TOC analysis.");
+  }
+  return result as AiTocStartResult;
+}
+
+export async function startAiMetadataAnalysis(payload: {
+  sourceFileId: string;
+  context: Record<string, unknown>;
+}) {
+  const response = await workerFetch("/ai/analyze/start", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ ...payload, analysisMode: "metadata-only", maxPages: 40 }),
+  });
+  const result = (await response.json()) as Partial<AiTocStartResult> & { error?: string };
+  if (!response.ok || !result.analysisId) {
+    throw new Error(result.error || "Could not start AI metadata analysis.");
+  }
+  return result as AiTocStartResult;
+}
+
+export async function getAiTocAnalysisStatus(analysisId: string) {
+  const response = await workerFetch(`/ai/analyze/status?id=${encodeURIComponent(analysisId)}`);
+  const result = (await response.json()) as AiTocStatusResult & { error?: string };
+  if (!response.ok) {
+    throw new Error(result.error || "Could not read AI TOC analysis status.");
+  }
+  return result;
 }
 
 /**

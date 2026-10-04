@@ -218,7 +218,6 @@ async function handleIngest(request, response) {
   // The claim write happens inside runIngest, i.e. when a concurrency slot actually opens.
   // Claiming here would leave a job parked behind the cap reported as `processing`, which
   // is indistinguishable from a hung render and would hand it to stuck-job recovery.
-  activeIngests.add(jobId);
   sendJson(response, 202, {
     ok: true,
     jobId,
@@ -256,6 +255,7 @@ function pumpIngestQueue() {
       break;
     }
 
+    activeIngests.add(task.jobId);
     setImmediate(() => {
       runIngest(task)
         .catch((error) => {
@@ -662,8 +662,14 @@ async function handleAiAnalyzeStart(request, response) {
     );
 
     try {
-      appendAiJobLog(analysisId, "extracting", "Downloading source PDF and extracting text.");
-      const result = await analyzeSourcePdf({ sourceFileId, context, maxPages, analysisMode });
+      appendAiJobLog(analysisId, "checking-cache", "Checking cached extracted text.");
+      const result = await analyzeSourcePdf({
+        sourceFileId,
+        context,
+        maxPages,
+        analysisMode,
+        onPhase: (phase, message) => appendAiJobLog(analysisId, phase, message),
+      });
       appendAiJobLog(
         analysisId,
         "completed",

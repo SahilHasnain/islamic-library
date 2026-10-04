@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import crypto from "node:crypto";
 
 const envPath = path.resolve(process.cwd(), ".env.local");
 
@@ -46,6 +47,8 @@ function requireEnv(name) {
 export const appwriteConfig = Object.fromEntries(
   requiredNames.map((name) => [name, requireEnv(name)]),
 );
+appwriteConfig.APPWRITE_EXTRACTION_CACHE_COLLECTION_ID =
+  process.env.APPWRITE_EXTRACTION_CACHE_COLLECTION_ID || "ai_extraction_cache";
 
 // Appwrite Cloud sits behind Fastly, which resets connections when it hits its
 // concurrency ceiling (surfaces as 499 "Client Closed Request" or a bare
@@ -165,6 +168,65 @@ async function appwriteListDocuments(collectionId, queries) {
   }
 
   return response.json();
+}
+
+function equalQuery(key, value) {
+  return `equal("${key}",[${JSON.stringify(value)}])`;
+}
+
+function extractionChunkDocumentId(chunkKey) {
+  return crypto.createHash("sha256").update(chunkKey).digest("hex").slice(0, 32);
+}
+
+export async function listExtractionCache(sourceFileId, extractorVersion) {
+  return appwriteListDocuments(appwriteConfig.APPWRITE_EXTRACTION_CACHE_COLLECTION_ID, [
+    equalQuery("sourceFileId", sourceFileId),
+    equalQuery("extractorVersion", extractorVersion),
+    "limit(5000)",
+  ]);
+}
+
+export async function saveExtractionCacheChunk({
+  sourceFileId,
+  extractorVersion,
+  pageStart,
+  pageEnd,
+  pageCount,
+  pages,
+}) {
+  const chunkKey = `${sourceFileId}:${extractorVersion}:${pageStart}-${pageEnd}`;
+  const now = new Date().toISOString();
+  const data = {
+    chunkKey,
+    sourceFileId,
+    extractorVersion,
+    pageStart,
+    pageEnd,
+    pageCount,
+    // Store page boundaries inside the chunk so cached text can be reconstructed exactly.
+    text: JSON.stringify(pages),
+    createdAt: now,
+    updatedAt: now,
+  };
+
+  try {
+    return await appwriteJson(
+      "POST",
+      `/databases/${appwriteConfig.APPWRITE_DATABASE_ID}/collections/${appwriteConfig.APPWRITE_EXTRACTION_CACHE_COLLECTION_ID}/documents`,
+      {
+        documentId: extractionChunkDocumentId(chunkKey),
+        data,
+      },
+    );
+  } catch (error) {
+    // Deterministic IDs make retries and concurrent analyses safe. An existing chunk
+    // already contains the same source/version/page range, so a 409 is success for the
+    // cache writer rather than an analysis warning.
+    if (error instanceof Error && error.message.includes("(409)")) {
+      return null;
+    }
+    throw error;
+  }
 }
 
 export async function downloadSourcePdf(sourceFileId) {
