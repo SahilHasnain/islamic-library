@@ -554,6 +554,7 @@ ${buildLanguageRules(context)}
 - Preserve good fields from base draft.
 - category must be exactly one item from: ${allowedCategories.join(", ")}.
 - Choose nextRecommendedBookId and recommendations only from the provided candidate books.
+- Generate a concise public-facing About text in the book's language/script for description.
 - Never invent or alter a candidate bookId. Use null and [] when no recommendation is appropriate.
 - Return 3 to 5 recommendations when enough candidates are available.
 - Make nextRecommendedBookId the strongest next-reading recommendation when one exists.

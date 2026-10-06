@@ -476,6 +476,104 @@
           "required": true
         }
       ]
+    },
+    {
+      "id": "book_languages",
+      "name": "Book Languages",
+      "permissions": ["read(\"any\")"],
+      "documentSecurity": false,
+      "attributes": [
+        { "key": "bookSlug", "type": "string", "size": 128, "required": true },
+        { "key": "languageId", "type": "string", "size": 64, "required": true },
+        { "key": "title", "type": "string", "size": 120, "required": true },
+        { "key": "nativeTitle", "type": "string", "size": 255, "required": false },
+        { "key": "summary", "type": "string", "size": 2000, "required": false },
+        { "key": "order", "type": "integer", "min": 0, "max": 10000, "required": false },
+        { "key": "defaultVolumeId", "type": "string", "size": 64, "required": false },
+        { "key": "createdAt", "type": "datetime", "required": true },
+        { "key": "updatedAt", "type": "datetime", "required": true }
+      ]
+    },
+    {
+      "id": "logical_books",
+      "name": "Logical Books",
+      "permissions": ["read(\"any\")"],
+      "documentSecurity": false,
+      "attributes": [
+        { "key": "slug", "type": "string", "size": 128, "required": true },
+        { "key": "title", "type": "string", "size": 255, "required": true },
+        { "key": "subtitle", "type": "string", "size": 255, "required": false },
+        { "key": "author", "type": "string", "size": 255, "required": false },
+        { "key": "description", "type": "string", "size": 5000, "required": false },
+        { "key": "category", "type": "string", "size": 120, "required": false },
+        { "key": "categoryLabel", "type": "string", "size": 120, "required": false },
+        { "key": "coverImage", "type": "string", "size": 2048, "required": false },
+        { "key": "defaultLanguageId", "type": "string", "size": 64, "required": false },
+        { "key": "nextRecommendedBookId", "type": "string", "size": 128, "required": false },
+        { "key": "status", "type": "enum", "elements": ["draft", "published", "archived"], "required": false, "default": "published" },
+        { "key": "sourceVersion", "type": "string", "size": 128, "required": false },
+        { "key": "createdAt", "type": "datetime", "required": true },
+        { "key": "updatedAt", "type": "datetime", "required": true }
+      ]
+    },
+    {
+      "id": "book_editions",
+      "name": "Book Editions",
+      "permissions": ["read(\"any\")"],
+      "documentSecurity": false,
+      "attributes": [
+        { "key": "bookSlug", "type": "string", "size": 128, "required": true },
+        { "key": "languageId", "type": "string", "size": 64, "required": true },
+        { "key": "languageTitle", "type": "string", "size": 120, "required": false },
+        { "key": "volumeId", "type": "string", "size": 64, "required": true },
+        { "key": "volumeTitle", "type": "string", "size": 255, "required": false },
+        { "key": "order", "type": "integer", "min": 0, "max": 10000, "required": false },
+        { "key": "subtitle", "type": "string", "size": 500, "required": false },
+        { "key": "manifestUrl", "type": "string", "size": 2048, "required": false },
+        { "key": "printedPageStartPage", "type": "integer", "min": 1, "max": 100000, "required": false },
+        { "key": "introNote", "type": "string", "size": 2000, "required": false },
+        { "key": "todayTarget", "type": "string", "size": 1000, "required": false },
+        { "key": "status", "type": "enum", "elements": ["draft", "published", "archived"], "required": false, "default": "published" },
+        { "key": "sourceVersion", "type": "string", "size": 128, "required": false },
+        { "key": "createdAt", "type": "datetime", "required": true },
+        { "key": "updatedAt", "type": "datetime", "required": true }
+      ]
+    },
+    {
+      "id": "book_toc_entries",
+      "name": "Book TOC Entries",
+      "permissions": ["read(\"any\")"],
+      "documentSecurity": false,
+      "attributes": [
+        { "key": "bookSlug", "type": "string", "size": 128, "required": true },
+        { "key": "languageId", "type": "string", "size": 64, "required": true },
+        { "key": "volumeId", "type": "string", "size": 64, "required": true },
+        { "key": "entryId", "type": "string", "size": 128, "required": true },
+        { "key": "title", "type": "string", "size": 255, "required": true },
+        { "key": "subtitle", "type": "string", "size": 500, "required": false },
+        { "key": "printedPage", "type": "integer", "min": 1, "max": 100000, "required": false },
+        { "key": "renderedPage", "type": "integer", "min": 1, "max": 100000, "required": false },
+        { "key": "level", "type": "integer", "min": 0, "max": 20, "required": false },
+        { "key": "position", "type": "integer", "min": 0, "max": 100000, "required": true },
+        { "key": "createdAt", "type": "datetime", "required": true },
+        { "key": "updatedAt", "type": "datetime", "required": true }
+      ]
+    },
+    {
+      "id": "book_recommendations",
+      "name": "Book Recommendations",
+      "permissions": ["read(\"any\")"],
+      "documentSecurity": false,
+      "attributes": [
+        { "key": "bookSlug", "type": "string", "size": 128, "required": true },
+        { "key": "recommendedBookId", "type": "string", "size": 128, "required": true },
+        { "key": "reason", "type": "string", "size": 1000, "required": false },
+        { "key": "type", "type": "enum", "elements": ["same-author", "same-topic", "same-category", "next-reading", "foundational", "advanced"], "required": false },
+        { "key": "score", "type": "integer", "min": 0, "max": 100, "required": false },
+        { "key": "position", "type": "integer", "min": 0, "max": 100, "required": true },
+        { "key": "createdAt", "type": "datetime", "required": true },
+        { "key": "updatedAt", "type": "datetime", "required": true }
+      ]
     }
   ],
   "buckets": [

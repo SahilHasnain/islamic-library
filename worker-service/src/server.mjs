@@ -91,6 +91,11 @@ function normalizeLanguageId(value) {
     .replace(/^-+|-+$/g, "");
 }
 
+function normalizeCategory(value) {
+  const category = String(value || "").trim();
+  return category.toLowerCase() === "seerah" ? "Seerat" : category;
+}
+
 async function handleHealth(_, response) {
   sendJson(response, 200, {
     ok: true,
@@ -161,6 +166,7 @@ async function handleIngest(request, response) {
   }
 
   const normalizedLanguageId = normalizeLanguageId(languageId);
+  const normalizedCategory = normalizeCategory(category);
 
   const jobDocument = await findJobDocument(jobId);
   const bookDocument = await findBookBySlug(bookSlug);
@@ -342,7 +348,7 @@ async function runIngest({
       subtitle,
       author,
       description,
-      category,
+      category: normalizedCategory,
       nextRecommendedBookId,
       languageId: normalizedLanguageId,
       volumeId,
@@ -382,7 +388,7 @@ async function runIngest({
       subtitle: subtitle || null,
       author: author || null,
       description: description || null,
-      category: category || null,
+       category: normalizedCategory || null,
       nextRecommendedBookId: nextRecommendedBookId || null,
       languageId: normalizedLanguageId,
       volumeId,

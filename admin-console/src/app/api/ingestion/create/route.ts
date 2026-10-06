@@ -25,6 +25,10 @@ function normalizeLanguageId(input: string) {
     .replace(/^-+|-+$/g, "");
 }
 
+function normalizeCategory(input: string) {
+  return input.toLowerCase() === "seerah" ? "Seerat" : input;
+}
+
 function isoNow() {
   return new Date().toISOString();
 }
@@ -49,7 +53,7 @@ export async function POST(request: Request) {
     const subtitle = String(payload.subtitle || "").trim();
     const author = String(payload.author || "").trim();
     const description = String(payload.description || "").trim();
-    const category = String(payload.category || "").trim();
+    const category = normalizeCategory(String(payload.category || "").trim());
     const languageId = normalizeLanguageId(String(payload.languageId || ""));
     const volumeId = String(payload.volumeId || "").trim();
     const printedPageStartPage = Number(payload.printedPageStartPage || 0);

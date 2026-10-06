@@ -49,6 +49,16 @@ export const appwriteConfig = Object.fromEntries(
 );
 appwriteConfig.APPWRITE_EXTRACTION_CACHE_COLLECTION_ID =
   process.env.APPWRITE_EXTRACTION_CACHE_COLLECTION_ID || "ai_extraction_cache";
+appwriteConfig.APPWRITE_LOGICAL_BOOKS_COLLECTION_ID =
+  process.env.APPWRITE_LOGICAL_BOOKS_COLLECTION_ID || "logical_books";
+appwriteConfig.APPWRITE_BOOK_LANGUAGES_COLLECTION_ID =
+  process.env.APPWRITE_BOOK_LANGUAGES_COLLECTION_ID || "book_languages";
+appwriteConfig.APPWRITE_BOOK_EDITIONS_COLLECTION_ID =
+  process.env.APPWRITE_BOOK_EDITIONS_COLLECTION_ID || "book_editions";
+appwriteConfig.APPWRITE_BOOK_TOC_COLLECTION_ID =
+  process.env.APPWRITE_BOOK_TOC_COLLECTION_ID || "book_toc_entries";
+appwriteConfig.APPWRITE_BOOK_RECOMMENDATIONS_COLLECTION_ID =
+  process.env.APPWRITE_BOOK_RECOMMENDATIONS_COLLECTION_ID || "book_recommendations";
 
 // Appwrite Cloud sits behind Fastly, which resets connections when it hits its
 // concurrency ceiling (surfaces as 499 "Client Closed Request" or a bare
@@ -270,6 +280,26 @@ export async function updateBookDocument(documentId, data) {
     `/databases/${appwriteConfig.APPWRITE_DATABASE_ID}/collections/${appwriteConfig.APPWRITE_BOOKS_COLLECTION_ID}/documents/${documentId}`,
     { data },
   );
+}
+
+export async function upsertNormalizedDocument(collectionId, documentId, data) {
+  try {
+    return await appwriteJson(
+      "POST",
+      `/databases/${appwriteConfig.APPWRITE_DATABASE_ID}/collections/${collectionId}/documents`,
+      { documentId, data },
+    );
+  } catch (error) {
+    if (!(error instanceof Error) || !error.message.includes("(409)")) {
+      throw error;
+    }
+
+    return appwriteJson(
+      "PATCH",
+      `/databases/${appwriteConfig.APPWRITE_DATABASE_ID}/collections/${collectionId}/documents/${documentId}`,
+      { data },
+    );
+  }
 }
 
 export async function createPublishEvent(data) {

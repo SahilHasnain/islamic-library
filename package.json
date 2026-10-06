@@ -31,7 +31,11 @@
     "appwrite:add-attributes": "node ./scripts/add-missing-attributes.mjs",
     "appwrite:add-printed-page-start": "node ./scripts/add-printed-page-start-attribute.mjs",
     "appwrite:backfill": "node ./scripts/backfill-appwrite-public.mjs",
-    "appwrite:backfill:dry": "node ./scripts/backfill-appwrite-public.mjs --dry-run"
+    "appwrite:backfill:dry": "node ./scripts/backfill-appwrite-public.mjs --dry-run",
+    "appwrite:migrate-catalog": "node ./scripts/migrate-catalog-to-appwrite.mjs",
+    "appwrite:migrate-catalog:dry": "node ./scripts/migrate-catalog-to-appwrite.mjs --dry-run",
+    "appwrite:project-catalog": "node ./scripts/project-catalog-from-appwrite.mjs --apply",
+    "appwrite:project-catalog:dry": "node ./scripts/project-catalog-from-appwrite.mjs"
   },
   "dependencies": {
     "@expo/vector-icons": "^15.0.3",

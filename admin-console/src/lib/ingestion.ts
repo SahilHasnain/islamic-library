@@ -146,6 +146,7 @@ export type MonitoringSnapshot = {
 
 export type MetadataEditInput = {
   title: string;
+  description: string;
   author: string;
   category: string;
   nextRecommendedBookId: string;
@@ -249,10 +250,6 @@ export async function updateBookMetadata(bookId: string, input: MetadataEditInpu
     bookId,
   )) as unknown as BookRecord;
 
-  if (!book.slug || !book.metadataUrl) {
-    throw new Error("Only books that have been published can be edited.");
-  }
-
   // A book can have several edition records (language/volume combinations), but the
   // public catalog has one shared top-level metadata record per slug. Resolve all sibling
   // records now so the Appwrite book documents cannot drift after a bulk metadata edit.
@@ -265,6 +262,10 @@ export async function updateBookMetadata(bookId: string, input: MetadataEditInpu
   const siblingBooks = (siblingBooksResponse.documents as unknown as BookRecord[]).filter(
     (siblingBook) => (siblingBook.canonicalBookSlug || siblingBook.slug) === logicalBookKey,
   );
+  const canonicalBook = siblingBooks.find((siblingBook) => siblingBook.slug === logicalBookKey) || book;
+  if (!canonicalBook.slug || !canonicalBook.metadataUrl) {
+    throw new Error("Only books that have been published can be edited.");
+  }
 
   const title = input.title.trim();
   if (!title) {
@@ -273,6 +274,10 @@ export async function updateBookMetadata(bookId: string, input: MetadataEditInpu
 
   if (title.length > 255 || input.author.length > 255) {
     throw new Error("Title and author must be 255 characters or fewer.");
+  }
+
+  if (input.description.length > 5000) {
+    throw new Error("About text must be 5000 characters or fewer.");
   }
 
   if (input.category.length > 120) {
@@ -297,7 +302,7 @@ export async function updateBookMetadata(bookId: string, input: MetadataEditInpu
     }
   }
 
-  const metadataResponse = await fetch(book.metadataUrl, { cache: "no-store" });
+  const metadataResponse = await fetch(canonicalBook.metadataUrl, { cache: "no-store" });
   if (!metadataResponse.ok) {
     throw new Error(`Could not load current public metadata (${metadataResponse.status}).`);
   }
@@ -351,17 +356,17 @@ export async function updateBookMetadata(bookId: string, input: MetadataEditInpu
   }
 
   const result = await postMetadataRepublish({
-    bookSlug: book.slug,
+    bookSlug: canonicalBook.slug,
     title,
-    subtitle: book.subtitle || "",
+    subtitle: canonicalBook.subtitle || "",
     author: input.author.trim(),
-    description: book.description || "",
+    description: input.description.trim(),
     category: input.category.trim(),
     nextRecommendedBookId: input.nextRecommendedBookId.trim(),
     recommendations: input.recommendations,
     defaultLanguageId: input.defaultLanguageId.trim(),
-    languageId: book.languageId,
-    volumeId: book.volumeId,
+    languageId: canonicalBook.languageId,
+    volumeId: canonicalBook.volumeId,
     requestedBy: "admin-console",
     languages,
   });
@@ -377,7 +382,7 @@ export async function updateBookMetadata(bookId: string, input: MetadataEditInpu
           title,
           subtitle: siblingBook.subtitle || "",
           author: input.author.trim(),
-          description: siblingBook.description || "",
+          description: input.description.trim(),
           category: input.category.trim(),
           nextRecommendedBookId: input.nextRecommendedBookId.trim(),
           recommendations: input.recommendations,
@@ -394,6 +399,7 @@ export async function updateBookMetadata(bookId: string, input: MetadataEditInpu
   return {
     ...book,
     title,
+    description: input.description.trim(),
     author: input.author.trim(),
     category: input.category.trim(),
     nextRecommendedBookId: input.nextRecommendedBookId.trim(),

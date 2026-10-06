@@ -39,7 +39,11 @@ function getContinueLine(page?: number) {
 
 function normalizeCategoryLabel(category?: string) {
   const trimmed = category?.trim();
-  return trimmed && trimmed.length > 0 ? trimmed : "Uncategorized";
+  if (!trimmed) {
+    return "Uncategorized";
+  }
+
+  return trimmed.toLowerCase() === "seerah" ? "Seerat" : trimmed;
 }
 
 function getCategoryDisplayLabel({
@@ -1009,6 +1013,7 @@ export default function LibraryScreen() {
   const [searchQuery, setSearchQuery] = useState<string>("");
   const [isSearchVisible, setIsSearchVisible] = useState<boolean>(false);
   const [bookMetadataMap, setBookMetadataMap] = useState<Record<string, { languages: LibraryLanguageOption[] }>>({});
+  const [isBookMetadataLoading, setIsBookMetadataLoading] = useState(false);
   const [resumeIndex, setResumeIndex] = useState(0);
   const hasLoadedLanguagePreferenceRef = useRef(false);
   const searchInputRef = useRef<TextInput>(null);
@@ -1017,7 +1022,7 @@ export default function LibraryScreen() {
     colors,
   });
   const refineCount = (sortBy !== "forYou" ? 1 : 0) + (selectedAuthor !== "all" ? 1 : 0);
-  const shouldShowLibrarySkeleton = !isLoaded || isCatalogLoading;
+  const shouldShowLibrarySkeleton = !isLoaded || isCatalogLoading || isBookMetadataLoading;
 
   function toggleRefineMenu() {
     if (menuAnchor) {
@@ -1124,10 +1129,18 @@ export default function LibraryScreen() {
 
   // Load metadata for all books to get language information
   useEffect(() => {
+    let isMounted = true;
+
     const loadAllMetadata = async () => {
+      if (remoteBooks.length === 0) {
+        setIsBookMetadataLoading(false);
+        return;
+      }
+
+      setIsBookMetadataLoading(true);
       const metadataPromises = remoteBooks.map(async (book) => {
-        if (!book.metadataUrl) return null;
         try {
+          if (!book.metadataUrl) return null;
           const response = await fetch(withCacheBust(book.metadataUrl, catalogCacheKey), {
             headers: {
               Accept: "application/json",
@@ -1205,12 +1218,19 @@ export default function LibraryScreen() {
           metadataMap[result.bookId] = { languages: result.languages };
         }
       });
-      setBookMetadataMap(metadataMap);
+      if (isMounted) {
+        setBookMetadataMap(metadataMap);
+        setIsBookMetadataLoading(false);
+      }
     };
 
     if (remoteBooks.length > 0) {
       void loadAllMetadata();
     }
+
+    return () => {
+      isMounted = false;
+    };
   }, [catalogCacheKey, remoteBooks]);
 
   // Extract unique categories

@@ -30,6 +30,18 @@ function slugifyTitle(value: string) {
     .slice(0, 120);
 }
 
+function normalizeLanguageId(value: string) {
+  return value
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
+function normalizeCategory(value: string) {
+  return value.trim().toLowerCase() === "seerah" ? "Seerat" : value;
+}
+
 type SubmissionState = {
   error?: string;
   message?: string;
@@ -195,7 +207,12 @@ export function AdminConsole({ initialSnapshot }: { initialSnapshot: MonitoringS
       const current = groups.get(key);
       if (current) {
         current.editions.push(book);
-        if (!current.book.metadataUrl && book.metadataUrl) {
+        // The exact logical slug is the canonical/root record. Do not let Appwrite's
+        // document order decide which edition title appears in the shared editor.
+        if (
+          book.slug === key ||
+          (!current.book.metadataUrl && book.metadataUrl)
+        ) {
           current.book = book;
         }
       } else {
@@ -254,10 +271,11 @@ export function AdminConsole({ initialSnapshot }: { initialSnapshot: MonitoringS
     setMetadataBookId(book.$id);
     setMetadataDraft({
       title: book.title || "",
+      description: book.description || "",
       author: book.author || "",
-      category: book.category || "",
+      category: normalizeCategory(book.category || ""),
       nextRecommendedBookId: book.nextRecommendedBookId || "",
-      defaultLanguageId: book.defaultLanguageId || book.languageId || "",
+      defaultLanguageId: normalizeLanguageId(book.defaultLanguageId || book.languageId || ""),
       recommendations: (book.recommendations || []).map((recommendation) => ({
         bookId: recommendation.bookId,
         reason: recommendation.reason || "",
@@ -419,6 +437,7 @@ export function AdminConsole({ initialSnapshot }: { initialSnapshot: MonitoringS
           result?: {
             draft?: {
               author?: string;
+              description?: string;
               category?: string;
               nextRecommendedBookId?: string;
               recommendations?: MetadataEditInput["recommendations"];
@@ -434,6 +453,7 @@ export function AdminConsole({ initialSnapshot }: { initialSnapshot: MonitoringS
           setMetadataDraft((current) => current ? {
             ...current,
             author: draft.author || current.author,
+            description: draft.description || current.description,
             category: draft.category || current.category,
             nextRecommendedBookId: draft.nextRecommendedBookId || current.nextRecommendedBookId,
             recommendations: draft.recommendations || current.recommendations,
@@ -1058,6 +1078,13 @@ export function AdminConsole({ initialSnapshot }: { initialSnapshot: MonitoringS
                           </li>
                         ))}
                       </ul>
+                    </div>
+                  ) : null}
+
+                  {metadataDraft.description ? (
+                    <div className="rounded-2xl border border-stone-800 bg-stone-950/60 p-4">
+                      <p className="text-xs uppercase tracking-[0.24em] text-stone-400">About draft</p>
+                      <p className="mt-3 text-sm leading-6 text-stone-300">{metadataDraft.description}</p>
                     </div>
                   ) : null}
 

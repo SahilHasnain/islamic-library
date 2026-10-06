@@ -20,6 +20,7 @@ export async function POST(request: Request, context: Params) {
     const payload = (await request.json()) as Partial<MetadataEditInput>;
     const input: MetadataEditInput = {
       title: readText(payload.title),
+      description: readText(payload.description),
       author: readText(payload.author),
       category: readText(payload.category),
     nextRecommendedBookId: readText(payload.nextRecommendedBookId),

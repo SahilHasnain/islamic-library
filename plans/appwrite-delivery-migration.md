@@ -72,6 +72,40 @@ Purpose: lets anyone with the two server credentials re-create / repair the sche
 
 ## 3. Implementation steps
 
+### Step 0 — Normalized metadata model
+
+The existing `books` collection remains compatible with ingestion and existing admin
+records. New normalized collections are added as the source of truth for logical book
+metadata:
+
+- `logical_books` — one record per public book slug.
+- `book_editions` — one record per language/volume pair.
+- `book_toc_entries` — ordered TOC entries for an edition.
+- `book_recommendations` — normalized recommendation edges.
+
+The importer is idempotent and preserves the current public JSON contract:
+
+```text
+npm run appwrite:migrate-catalog:dry
+npm run appwrite:migrate-catalog
+```
+
+It reads the existing catalog and metadata URLs, normalizes legacy `Seerah` and
+language IDs such as `Roman Urdu`, and writes deterministic Appwrite document IDs.
+The worker will consume this model in a later step; until then, JSON remains the
+production read projection for existing Play Store versions.
+
+The reverse projection is available for verification and controlled rollout:
+
+```text
+npm run appwrite:project-catalog:dry
+npm run appwrite:project-catalog
+```
+
+The dry run only reads normalized collections. The apply command regenerates the
+existing `metadata.json` and `catalog.json` file contract in `public_assets`; it does
+not change book IDs, language IDs, volume IDs, or mobile reading-progress keys.
+
 ### Step 1 — Appwrite infra (per §1.1 + §2)
 
 1. `scripts/appwrite-config.mjs`: add `publicBucketId: "public_assets"`.
@@ -103,9 +137,10 @@ Purpose: lets anyone with the two server credentials re-create / repair the sche
 ### Phase 4 — Mobile app
 
 - Root `.env` (+ `.env.example`): `EXPO_PUBLIC_APPWRITE_ENDPOINT`, `EXPO_PUBLIC_APPWRITE_PROJECT_ID`, `EXPO_PUBLIC_APPWRITE_PUBLIC_BUCKET_ID`, `EXPO_PUBLIC_APPWRITE_CATALOG_FILE_ID` (`catalog`).
-- `hooks/useRemoteCatalog.ts`: build the catalog view URL from envs (env-with-fallback).
-- `hooks/useRemoteBookData.ts`: remove the jsDelivr→rawGitHub normalizer (URLs pass through).
-- Reader, prefetch, offline download, covers (`expo-image`) unchanged — manifests keep `pages[].url` / `baseUrl`.
+- `lib/appwrite-catalog.ts`: read the public normalized collections and adapt them to the existing mobile types.
+- `hooks/useRemoteCatalog.ts`: use normalized Appwrite data first, with the public JSON catalog as a release-safe fallback.
+- `hooks/useRemoteBookData.ts`: load book metadata directly from normalized Appwrite data, while retaining JSON metadata fallback.
+- Reader, prefetch, offline download, and covers (`expo-image`) remain unchanged — manifests keep `pages[].url` / `baseUrl`.
 
 ### Phase 5 — Backfill existing content
 

@@ -149,6 +149,19 @@ async function ensureCollection(collection) {
     },
   );
   log("collection", collection.id, result.conflict ? "exists" : "created");
+  if (result.conflict && collection.permissions) {
+    await appwriteRequest(
+      "PUT",
+      `/databases/${database.id}/collections/${collection.id}`,
+      {
+        name: collection.name,
+        permissions: collection.permissions,
+        documentSecurity: Boolean(collection.documentSecurity),
+        enabled: true,
+      },
+    );
+    log("collection", collection.id, "settings converged");
+  }
 }
 
 function buildAttributePayload(attribute) {

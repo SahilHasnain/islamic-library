@@ -7,6 +7,7 @@ import {
   deleteBucketFile,
   downloadBucketFileText,
   publicFileViewUrl,
+  upsertNormalizedDocument,
   uploadBucketFile,
 } from "./appwrite.mjs";
 
@@ -269,6 +270,8 @@ export async function publishWorkspace({
     "catalog.json",
   );
 
+  await syncNormalizedMetadata({ metadata: publishedMetadata, bookSlug: assetsBookSlug, version });
+
   return {
     catalogPath: "catalog.json",
     metadataPath: `books/${assetsBookSlug}/metadata.json`,
@@ -309,6 +312,7 @@ export async function republishBookMetadata({
 }) {
   const normalizedLanguageId = normalizeLanguageId(languageId);
   const normalizedDefaultLanguageId = normalizeLanguageId(defaultLanguageId);
+  const normalizedCategory = String(category || "").trim().toLowerCase() === "seerah" ? "Seerat" : category;
   const assetsBookSlug = canonicalBookSlug || bookSlug;
 
   const metadataFileId = fileIdFor(`${assetsBookSlug}:metadata`);
@@ -384,7 +388,7 @@ export async function republishBookMetadata({
     subtitle,
     author,
     description,
-    category,
+    category: normalizedCategory,
     nextRecommendedBookId,
     recommendations,
     coverImage: existingMetadata.coverImage || publicFileViewUrl(publicBucketId, coverFileId),
@@ -428,6 +432,8 @@ export async function republishBookMetadata({
     "catalog.json",
   );
 
+  await syncNormalizedMetadata({ metadata: publishedMetadata, bookSlug: assetsBookSlug, version });
+
   return {
     catalogPath: "catalog.json",
     metadataPath: `books/${assetsBookSlug}/metadata.json`,
@@ -439,4 +445,123 @@ export async function republishBookMetadata({
     pushError: "",
     pushSummary: "Files uploaded to Appwrite public bucket.",
   };
+}
+
+function normalizedDocumentId(seed) {
+  return fileIdFor(seed).slice(0, 32);
+}
+
+function normalizeCategory(value) {
+  const category = String(value || "").trim();
+  return category.toLowerCase() === "seerah" ? "Seerat" : category;
+}
+
+async function syncNormalizedMetadata({ metadata, bookSlug, version }) {
+  const timestamp = new Date().toISOString();
+  const category = normalizeCategory(metadata.category);
+
+  await upsertNormalizedDocument(
+    appwriteConfig.APPWRITE_LOGICAL_BOOKS_COLLECTION_ID,
+    normalizedDocumentId(`book:${bookSlug}`),
+    {
+      slug: bookSlug,
+      title: metadata.title || bookSlug,
+      subtitle: metadata.subtitle || undefined,
+      author: metadata.author || undefined,
+      description: metadata.description || undefined,
+      category: category || undefined,
+      categoryLabel: metadata.categoryLabel || undefined,
+      coverImage: metadata.coverImage || undefined,
+      defaultLanguageId: normalizeLanguageId(metadata.defaultLanguageId),
+      nextRecommendedBookId: metadata.nextRecommendedBookId || undefined,
+      status: "published",
+      sourceVersion: version,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    },
+  );
+
+  for (const language of metadata.languages || []) {
+    const languageId = normalizeLanguageId(language.id);
+    await upsertNormalizedDocument(
+      appwriteConfig.APPWRITE_BOOK_LANGUAGES_COLLECTION_ID,
+      normalizedDocumentId(`language:${bookSlug}:${languageId}`),
+      {
+        bookSlug,
+        languageId,
+        title: language.title || languageTitleFromId(languageId),
+        nativeTitle: language.nativeTitle || undefined,
+        summary: language.summary || undefined,
+        order: language.order,
+        defaultVolumeId: language.defaultVolumeId || undefined,
+        createdAt: timestamp,
+        updatedAt: timestamp,
+      },
+    );
+
+    for (const volume of language.volumes || []) {
+      const volumeId = String(volume.id || "").trim();
+      if (!volumeId) continue;
+      await upsertNormalizedDocument(
+        appwriteConfig.APPWRITE_BOOK_EDITIONS_COLLECTION_ID,
+        normalizedDocumentId(`edition:${bookSlug}:${languageId}:${volumeId}`),
+        {
+          bookSlug,
+          languageId,
+          languageTitle: language.title || languageTitleFromId(languageId),
+          volumeId,
+          volumeTitle: volume.title || volumeId,
+          order: volume.order,
+          subtitle: volume.subtitle || undefined,
+          manifestUrl: volume.manifestUrl || undefined,
+          printedPageStartPage: volume.printedPageStartPage || undefined,
+          introNote: volume.introNote || undefined,
+          todayTarget: volume.todayTarget || undefined,
+          status: "published",
+          sourceVersion: version,
+          createdAt: timestamp,
+          updatedAt: timestamp,
+        },
+      );
+
+      for (const [position, entry] of (volume.tocEntries || volume.sections || []).entries()) {
+        await upsertNormalizedDocument(
+          appwriteConfig.APPWRITE_BOOK_TOC_COLLECTION_ID,
+          normalizedDocumentId(`toc:${bookSlug}:${languageId}:${volumeId}:${position}`),
+          {
+            bookSlug,
+            languageId,
+            volumeId,
+            entryId: String(entry.id || `${volumeId}-${position + 1}`),
+            title: String(entry.title || "Untitled").slice(0, 255),
+            subtitle: entry.subtitle || undefined,
+            printedPage: entry.printedPage || entry.startPage || undefined,
+            renderedPage: entry.renderedPage || undefined,
+            level: entry.level || undefined,
+            position,
+            createdAt: timestamp,
+            updatedAt: timestamp,
+          },
+        );
+      }
+    }
+  }
+
+  for (const [position, recommendation] of (metadata.recommendations || []).entries()) {
+    if (!recommendation.bookId) continue;
+    await upsertNormalizedDocument(
+      appwriteConfig.APPWRITE_BOOK_RECOMMENDATIONS_COLLECTION_ID,
+      normalizedDocumentId(`recommendation:${bookSlug}:${recommendation.bookId}:${position}`),
+      {
+        bookSlug,
+        recommendedBookId: recommendation.bookId,
+        reason: recommendation.reason || undefined,
+        type: recommendation.type || undefined,
+        score: Number.isFinite(recommendation.score) ? Math.max(0, Math.min(100, Math.round(recommendation.score))) : undefined,
+        position,
+        createdAt: timestamp,
+        updatedAt: timestamp,
+      },
+    );
+  }
 }
