@@ -1012,8 +1012,6 @@ export default function LibraryScreen() {
   const [sortBy, setSortBy] = useState<LibrarySortMode>("forYou");
   const [searchQuery, setSearchQuery] = useState<string>("");
   const [isSearchVisible, setIsSearchVisible] = useState<boolean>(false);
-  const [bookMetadataMap, setBookMetadataMap] = useState<Record<string, { languages: LibraryLanguageOption[] }>>({});
-  const [isBookMetadataLoading, setIsBookMetadataLoading] = useState(false);
   const [resumeIndex, setResumeIndex] = useState(0);
   const hasLoadedLanguagePreferenceRef = useRef(false);
   const searchInputRef = useRef<TextInput>(null);
@@ -1022,7 +1020,7 @@ export default function LibraryScreen() {
     colors,
   });
   const refineCount = (sortBy !== "forYou" ? 1 : 0) + (selectedAuthor !== "all" ? 1 : 0);
-  const shouldShowLibrarySkeleton = !isLoaded || isCatalogLoading || isBookMetadataLoading;
+  const shouldShowLibrarySkeleton = !isLoaded || isCatalogLoading;
 
   function toggleRefineMenu() {
     if (menuAnchor) {
@@ -1102,7 +1100,6 @@ export default function LibraryScreen() {
   }, [router, searchParams.search]);
 
   const remoteBooks = useMemo(() => catalog?.books ?? [], [catalog?.books]);
-  const catalogCacheKey = catalog?.version ?? catalog?.generatedAt ?? "library";
   const completedBookIdSet = useMemo(() => new Set(completedBookIds), [completedBookIds]);
   const inProgressBooks = useMemo(
     () =>
@@ -1127,111 +1124,15 @@ export default function LibraryScreen() {
 
   // In-progress content is surfaced via the resume hero carousel.
 
-  // Load metadata for all books to get language information
-  useEffect(() => {
-    let isMounted = true;
-
-    const loadAllMetadata = async () => {
-      if (remoteBooks.length === 0) {
-        setIsBookMetadataLoading(false);
-        return;
+  const bookMetadataMap = useMemo(() => {
+    const metadataMap: Record<string, { languages: LibraryLanguageOption[] }> = {};
+    remoteBooks.forEach((book) => {
+      if (book.languages?.length) {
+        metadataMap[book.id] = { languages: book.languages };
       }
-
-      setIsBookMetadataLoading(true);
-      const metadataPromises = remoteBooks.map(async (book) => {
-        try {
-          if (!book.metadataUrl) return null;
-          const response = await fetch(withCacheBust(book.metadataUrl, catalogCacheKey), {
-            headers: {
-              Accept: "application/json",
-              "Cache-Control": "no-cache",
-            },
-          });
-          const metadata = await response.json();
-          const languages = await Promise.all(
-            (metadata.languages ?? []).map(
-              async (language: {
-                id: string;
-                title: string;
-                defaultVolumeId?: string;
-                volumes?: { id: string; manifestUrl?: string; order?: number }[];
-              }) => {
-                const orderedVolumes = [...(language.volumes ?? [])].sort((left, right) => {
-                  const leftOrder = left.order ?? Number.MAX_SAFE_INTEGER;
-                  const rightOrder = right.order ?? Number.MAX_SAFE_INTEGER;
-                  if (leftOrder !== rightOrder) {
-                    return leftOrder - rightOrder;
-                  }
-
-                  return left.id.localeCompare(right.id);
-                });
-                const volume =
-                  orderedVolumes.find((candidate) => candidate.id === language.defaultVolumeId) ??
-                  orderedVolumes[0];
-
-                if (!volume?.manifestUrl) {
-                  return { id: language.id, title: language.title };
-                }
-
-                try {
-                  const manifestResponse = await fetch(
-                    withCacheBust(volume.manifestUrl, catalogCacheKey),
-                    {
-                      headers: {
-                        Accept: "application/json",
-                        "Cache-Control": "no-cache",
-                      },
-                    },
-                  );
-                  const manifest = await manifestResponse.json();
-                  const coverImage = manifest.coverImage
-                    ? withCacheBust(
-                        manifest.coverImage as string,
-                        `${manifest.version ?? catalogCacheKey}-${language.id}`,
-                      )
-                    : undefined;
-                  return {
-                    id: language.id,
-                    title: language.title,
-                    coverImage,
-                  };
-                } catch {
-                  return { id: language.id, title: language.title };
-                }
-              },
-            ),
-          );
-
-          return {
-            bookId: book.id,
-            languages,
-          };
-        } catch {
-          return null;
-        }
-      });
-
-      const results = await Promise.all(metadataPromises);
-      const metadataMap: Record<string, { languages: LibraryLanguageOption[] }> = {};
-      results.forEach((result) => {
-        if (result) {
-          metadataMap[result.bookId] = { languages: result.languages };
-        }
-      });
-      if (isMounted) {
-        setBookMetadataMap(metadataMap);
-        setIsBookMetadataLoading(false);
-      }
-    };
-
-    if (remoteBooks.length > 0) {
-      void loadAllMetadata();
-    }
-
-    return () => {
-      isMounted = false;
-    };
-  }, [catalogCacheKey, remoteBooks]);
+    });
+    return metadataMap;
+  }, [remoteBooks]);
 
   // Extract unique categories
   const uniqueCategories = useMemo(() => {

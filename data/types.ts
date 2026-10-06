@@ -77,6 +77,11 @@ export type PublicCatalogBook = {
   metadataUrl: string;
   nextRecommendedBookId?: string;
   recommendations?: PublicBookRecommendation[];
+  languages?: Array<{
+    id: string;
+    title: string;
+    coverImage?: string;
+  }>;
 };
 
 export type PublicBookRecommendation = {

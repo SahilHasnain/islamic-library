@@ -252,6 +252,10 @@ export async function publishWorkspace({
     category: publishedMetadata.category,
     nextRecommendedBookId: publishedMetadata.nextRecommendedBookId,
     recommendations: publishedMetadata.recommendations,
+    languages: (publishedMetadata.languages || []).map((language) => ({
+      id: normalizeLanguageId(language.id),
+      title: language.title,
+    })),
     coverImage: publishedMetadata.coverImage,
     status: "published",
     metadataUrl,

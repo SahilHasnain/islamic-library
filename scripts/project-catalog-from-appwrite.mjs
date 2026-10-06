@@ -206,6 +206,10 @@ for (const book of books.filter((entry) => entry.status !== "archived")) {
     metadataUrl: publicFileUrl(metadataFileId),
     nextRecommendedBookId: book.nextRecommendedBookId || undefined,
     recommendations: bookRecommendations,
+    languages: metadataLanguages.map((language) => ({
+      id: language.id,
+      title: language.title,
+    })),
   });
 }
 
