@@ -40,7 +40,7 @@ function getContinueLine(page?: number) {
 function normalizeCategoryLabel(category?: string) {
   const trimmed = category?.trim();
   if (!trimmed) {
-    return "Uncategorized";
+    return "Other";
   }
 
   return trimmed.toLowerCase() === "seerah" ? "Seerat" : trimmed;
@@ -1243,7 +1243,11 @@ export default function LibraryScreen() {
       });
       categories.add(category);
     });
-    return Array.from(categories).sort();
+    return Array.from(categories).sort((left, right) => {
+      if (left === "Other") return 1;
+      if (right === "Other") return -1;
+      return left.localeCompare(right);
+    });
   }, [remoteBooks]);
 
   const uniqueAuthors = useMemo(() => {

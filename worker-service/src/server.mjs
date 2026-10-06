@@ -93,6 +93,7 @@ function normalizeLanguageId(value) {
 
 function normalizeCategory(value) {
   const category = String(value || "").trim();
+  if (!category) return "Other";
   return category.toLowerCase() === "seerah" ? "Seerat" : category;
 }
 

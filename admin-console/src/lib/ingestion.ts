@@ -268,6 +268,7 @@ export async function updateBookMetadata(bookId: string, input: MetadataEditInpu
   }
 
   const title = input.title.trim();
+  const normalizedCategory = input.category.trim() || "Other";
   if (!title) {
     throw new Error("Title is required.");
   }
@@ -361,7 +362,7 @@ export async function updateBookMetadata(bookId: string, input: MetadataEditInpu
     subtitle: canonicalBook.subtitle || "",
     author: input.author.trim(),
     description: input.description.trim(),
-    category: input.category.trim(),
+    category: normalizedCategory,
     nextRecommendedBookId: input.nextRecommendedBookId.trim(),
     recommendations: input.recommendations,
     defaultLanguageId: input.defaultLanguageId.trim(),
@@ -383,7 +384,7 @@ export async function updateBookMetadata(bookId: string, input: MetadataEditInpu
           subtitle: siblingBook.subtitle || "",
           author: input.author.trim(),
           description: input.description.trim(),
-          category: input.category.trim(),
+           category: normalizedCategory,
           nextRecommendedBookId: input.nextRecommendedBookId.trim(),
           recommendations: input.recommendations,
           defaultLanguageId: input.defaultLanguageId.trim() || siblingBook.defaultLanguageId || "",
@@ -401,7 +402,7 @@ export async function updateBookMetadata(bookId: string, input: MetadataEditInpu
     title,
     description: input.description.trim(),
     author: input.author.trim(),
-    category: input.category.trim(),
+    category: normalizedCategory,
     nextRecommendedBookId: input.nextRecommendedBookId.trim(),
     recommendations: input.recommendations,
     defaultLanguageId: input.defaultLanguageId.trim(),

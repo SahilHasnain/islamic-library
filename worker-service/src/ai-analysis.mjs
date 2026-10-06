@@ -10,6 +10,7 @@ import {
 } from "./appwrite.mjs";
 
 const allowedCategories = [
+  "Other",
   "Aqaid",
   "Baghare Tehreer",
   "Dua",

@@ -26,6 +26,7 @@ function normalizeLanguageId(input: string) {
 }
 
 function normalizeCategory(input: string) {
+  if (!input) return "Other";
   return input.toLowerCase() === "seerah" ? "Seerat" : input;
 }
 

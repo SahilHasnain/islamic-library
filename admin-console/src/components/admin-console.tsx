@@ -39,7 +39,9 @@ function normalizeLanguageId(value: string) {
 }
 
 function normalizeCategory(value: string) {
-  return value.trim().toLowerCase() === "seerah" ? "Seerat" : value;
+  const category = value.trim();
+  if (!category) return "Other";
+  return category.toLowerCase() === "seerah" ? "Seerat" : category;
 }
 
 type SubmissionState = {
