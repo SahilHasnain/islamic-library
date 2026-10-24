@@ -4,9 +4,9 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "node api.js && node --watch src/server.mjs",
+    "dev": "node --watch src/server.mjs",
     "repair-volume-covers": "node scripts/repair-volume-covers.mjs",
     "repair-pdf-page-labels": "node scripts/repair-pdf-page-labels.mjs",
-    "start": "node api.js && node src/server.mjs"
+    "start": "node src/server.mjs"
   }
 }
