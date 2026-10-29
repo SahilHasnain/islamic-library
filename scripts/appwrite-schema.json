@@ -8,6 +8,7 @@
     {
       "id": "books",
       "name": "Books",
+      "permissions": ["create(\"any\")", "update(\"any\")"],
       "documentSecurity": false,
       "attributes": [
         {
@@ -148,6 +149,7 @@
     {
       "id": "ingestion_jobs",
       "name": "Ingestion Jobs",
+      "permissions": ["create(\"any\")", "update(\"any\")"],
       "documentSecurity": false,
       "attributes": [
         {
@@ -305,6 +307,7 @@
     {
       "id": "publish_events",
       "name": "Publish Events",
+      "permissions": ["create(\"any\")"],
       "documentSecurity": false,
       "attributes": [
         {
@@ -371,6 +374,7 @@
     {
       "id": "ai_analysis_drafts",
       "name": "AI Analysis Drafts",
+      "permissions": ["create(\"any\")"],
       "documentSecurity": false,
       "attributes": [
         {
@@ -580,9 +584,9 @@
     {
       "id": "source_pdfs",
       "name": "Source PDFs",
-      "permissions": [],
+      "permissions": ["create(\"any\")", "update(\"any\")"],
       "fileSecurity": false,
-      "maximumFileSize": 30000000,
+      "maximumFileSize": 200000000,
       "allowedFileExtensions": [],
       "compression": "none",
       "encryption": true,

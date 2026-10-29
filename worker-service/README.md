@@ -8,7 +8,7 @@ Current scope:
 - download source PDF from Appwrite
 - create a local workspace in `runs/<jobId>/`
 - write `source.pdf`
-- render page images into `pages/`
+- render page images into `pages/` as WebP
 - write `cover.webp`
 - write `metadata.json`
 - write `manifest.json`
@@ -40,11 +40,14 @@ Default port: `4010`
 
 ## Dependency
 
-This worker expects `PyMuPDF` to be installed for PDF rendering:
+This worker expects `PyMuPDF` and `Pillow` (with WebP support) to be installed for PDF rendering:
 
 ```bash
 python -m pip install PyMuPDF
+python -m pip install Pillow
 ```
+
+Pages and covers are encoded as WebP. Tune lossy quality with `PDF_WEBP_QUALITY` (default `82`).
 
 ## Mock Test Mode
 

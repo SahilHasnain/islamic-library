@@ -6,6 +6,22 @@ import sys
 from pathlib import Path
 
 import fitz
+from PIL import Image
+
+
+DEFAULT_WEBP_QUALITY = 82
+WEBP_METHOD = int(os.environ.get("PDF_WEBP_METHOD", "4"))
+
+
+def pixmap_to_image(pixmap):
+    mode = {1: "L", 3: "RGB", 4: "RGBA"}.get(pixmap.n)
+    if mode is None:
+        raise RuntimeError(f"Unsupported pixmap component count: {pixmap.n}")
+    return Image.frombytes(mode, (pixmap.width, pixmap.height), pixmap.samples)
+
+
+def save_webp(image, path, quality):
+    image.save(path, "WEBP", quality=quality, method=WEBP_METHOD)
 
 
 def get_pdf_page_label(document, page, index):
@@ -29,9 +45,9 @@ def get_pdf_page_label(document, page, index):
 
 
 def main() -> int:
-    if len(sys.argv) != 6:
+    if len(sys.argv) not in (6, 7):
         raise SystemExit(
-            "Usage: python render_pdf.py <source_pdf> <pages_dir> <cover_path> <manifest_path> <dpi>"
+            "Usage: python render_pdf.py <source_pdf> <pages_dir> <cover_path> <manifest_path> <dpi> [webp_quality]"
         )
 
     source_pdf = Path(sys.argv[1])
@@ -39,6 +55,8 @@ def main() -> int:
     cover_path = Path(sys.argv[3])
     manifest_path = Path(sys.argv[4])
     dpi = int(sys.argv[5])
+    quality = int(sys.argv[6]) if len(sys.argv) == 7 else DEFAULT_WEBP_QUALITY
+    quality = max(1, min(quality, 100))
 
     pages_dir.mkdir(parents=True, exist_ok=True)
     cover_path.parent.mkdir(parents=True, exist_ok=True)
@@ -55,9 +73,10 @@ def main() -> int:
           page = document.load_page(index)
           printed_page_label = get_pdf_page_label(document, page, index)
           pixmap = page.get_pixmap(matrix=matrix, alpha=False)
-          page_name = f"page-{index + 1:03d}.png"
+          page_image = pixmap_to_image(pixmap)
+          page_name = f"page-{index + 1:03d}.webp"
           page_path = pages_dir / page_name
-          pixmap.save(page_path)
+          save_webp(page_image, page_path, quality)
 
           page_entry = {
               "page": index + 1,
@@ -73,7 +92,7 @@ def main() -> int:
           pages.append(page_entry)
 
           if index == 0:
-              pixmap.save(cover_path)
+              save_webp(page_image, cover_path, quality)
     finally:
         document.close()
 
@@ -82,6 +101,8 @@ def main() -> int:
         "coverFileName": cover_path.name,
         "pages": pages,
         "dpi": dpi,
+        "format": "webp",
+        "webpQuality": quality,
     }
     manifest_path.write_text(json.dumps(output, indent=2), encoding="utf-8")
     return 0

@@ -341,7 +341,7 @@ async function main() {
   await setupJobsCollection();
   await setupPublishEventsCollection();
   await setupAiAnalysisDraftsCollection();
-  await ensureBucket(APPWRITE_IDS.sourcePdfsBucketId, "Source PDFs", 100_000_000);
+  await ensureBucket(APPWRITE_IDS.sourcePdfsBucketId, "Source PDFs", 200_000_000);
   await ensureBucket(APPWRITE_IDS.generatedPreviewsBucketId, "Generated Previews", 100_000_000);
   await ensureBucket(APPWRITE_IDS.workerLogsBucketId, "Worker Logs", 20_000_000);
   console.log("Bootstrap complete.");

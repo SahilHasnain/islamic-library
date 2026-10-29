@@ -31,6 +31,7 @@ type ViewerManifest = {
   totalPages: number;
   baseUrl?: string;
   filePattern?: string;
+  extension?: string;
   pages?: {
     page: number;
     fileName: string;
@@ -56,7 +57,8 @@ function getPageImageUrl(manifest: ViewerManifest, page: number) {
   const manifestPage = manifest.pages?.find((entry) => entry.page === page);
   if (manifestPage?.url) return manifestPage.url;
 
-  const fileName = manifestPage?.fileName ?? `page-${String(page).padStart(3, "0")}.png`;
+  const extension = manifest.extension ?? "png";
+  const fileName = manifestPage?.fileName ?? `page-${String(page).padStart(3, "0")}.${extension}`;
   if (manifest.baseUrl) return `${manifest.baseUrl.replace(/\/$/, "")}/${fileName}`;
 
   return "";

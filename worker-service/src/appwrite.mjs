@@ -181,7 +181,11 @@ async function appwriteListDocuments(collectionId, queries) {
 }
 
 function equalQuery(key, value) {
-  return `equal("${key}",[${JSON.stringify(value)}])`;
+  return JSON.stringify({ method: "equal", attribute: key, values: [value] });
+}
+
+function limitQuery(value) {
+  return JSON.stringify({ method: "limit", values: [value] });
 }
 
 function extractionChunkDocumentId(chunkKey) {
@@ -192,7 +196,7 @@ export async function listExtractionCache(sourceFileId, extractorVersion) {
   return appwriteListDocuments(appwriteConfig.APPWRITE_EXTRACTION_CACHE_COLLECTION_ID, [
     equalQuery("sourceFileId", sourceFileId),
     equalQuery("extractorVersion", extractorVersion),
-    "limit(5000)",
+    limitQuery(5000),
   ]);
 }
 
@@ -255,15 +259,21 @@ export async function downloadSourcePdf(sourceFileId) {
 }
 
 export async function findJobDocument(jobId) {
-  const result = await appwriteListDocuments(appwriteConfig.APPWRITE_JOBS_COLLECTION_ID, []);
+  const result = await appwriteListDocuments(appwriteConfig.APPWRITE_JOBS_COLLECTION_ID, [
+    equalQuery("jobId", jobId),
+    limitQuery(1),
+  ]);
 
-  return result.documents?.find((document) => document.jobId === jobId);
+  return result.documents?.[0];
 }
 
 export async function findBookBySlug(bookSlug) {
-  const result = await appwriteListDocuments(appwriteConfig.APPWRITE_BOOKS_COLLECTION_ID, []);
+  const result = await appwriteListDocuments(appwriteConfig.APPWRITE_BOOKS_COLLECTION_ID, [
+    equalQuery("slug", bookSlug),
+    limitQuery(1),
+  ]);
 
-  return result.documents?.find((document) => document.slug === bookSlug);
+  return result.documents?.[0];
 }
 
 export async function updateJobDocument(documentId, data) {

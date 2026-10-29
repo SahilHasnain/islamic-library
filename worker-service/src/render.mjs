@@ -8,6 +8,7 @@ function requireEnv(name, fallback) {
 
 const mockRenderEnabled = requireEnv("MOCK_RENDER_ENABLED", "false") === "true";
 const mockRenderPageCount = Number(requireEnv("MOCK_RENDER_PAGE_COUNT", "6"));
+const webpQuality = Number(requireEnv("PDF_WEBP_QUALITY", "82"));
 
 function normalizeLanguageId(value) {
   return String(value || "")
@@ -73,7 +74,15 @@ export async function renderPdfWorkspace({
 
   const scriptPath = path.resolve(process.cwd(), "src", "render_pdf.py");
 
-  await runPythonRenderer([scriptPath, sourcePdfPath, pagesDir, coverImagePath, renderSummaryPath, String(dpi)]);
+  await runPythonRenderer([
+    scriptPath,
+    sourcePdfPath,
+    pagesDir,
+    coverImagePath,
+    renderSummaryPath,
+    String(dpi),
+    String(webpQuality),
+  ]);
 
   const summary = JSON.parse(await fs.readFile(renderSummaryPath, "utf8"));
   return summary;
@@ -86,13 +95,12 @@ async function createMockRenderOutput({
   pageCount,
   dpi,
 }) {
-  const pixel =
-    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Y9l9J4AAAAASUVORK5CYII=";
+  const pixel = "UklGRioAAABXRUJQVlA4IB4AAABwAQCdASoBAAEAAUAmJZwCdAF1AAD+/CK7M5agAAA=";
   const fileBuffer = Buffer.from(pixel, "base64");
   const pages = [];
 
   for (let index = 0; index < pageCount; index += 1) {
-    const fileName = `page-${String(index + 1).padStart(3, "0")}.png`;
+    const fileName = `page-${String(index + 1).padStart(3, "0")}.webp`;
     const pagePath = path.join(pagesDir, fileName);
     await fs.writeFile(pagePath, fileBuffer);
 
@@ -142,7 +150,7 @@ export function buildPublicMetadata({
     description: description || undefined,
     category: category || undefined,
     nextRecommendedBookId: nextRecommendedBookId || undefined,
-    coverImage: "cover.png",
+    coverImage: "cover.webp",
     languages: [
       {
         id: normalizedLanguageId,
@@ -172,8 +180,8 @@ export function buildVolumeManifest({
   coverImage,
   pages,
 }) {
-  const firstPageFileName = pages[0]?.fileName ?? "page-001.png";
-  const extension = firstPageFileName.split(".").pop() ?? "png";
+  const firstPageFileName = pages[0]?.fileName ?? "page-001.webp";
+  const extension = firstPageFileName.split(".").pop() ?? "webp";
   return {
     bookId: bookSlug,
     languageId,

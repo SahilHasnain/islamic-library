@@ -44,6 +44,27 @@ function normalizeCategory(value: string) {
   return category.toLowerCase() === "seerah" ? "Seerat" : category;
 }
 
+const bookCategories = [
+  "Other",
+  "Aqaid",
+  "Baghare Tehreer",
+  "Dua",
+  "Fazail",
+  "Fiqh",
+  "Hadees",
+  "Islahe Aamaal",
+  "Kalaam",
+  "Knowledge",
+  "Mahnama",
+  "Radde Bid'aat",
+  "Safarname",
+  "Seerat",
+  "Tarikh",
+  "Tasawwuf",
+  "Tehqeeq",
+  "Zubaano Bayaan",
+] as const;
+
 type SubmissionState = {
   error?: string;
   message?: string;
@@ -548,10 +569,10 @@ export function AdminConsole({ initialSnapshot }: { initialSnapshot: MonitoringS
         slug: autoSlug,
         subtitle: "",
         author: "",
-        category: "",
         createdBy: "admin-console",
         languageId: String(formData.get("languageId") || ""),
         volumeId: String(formData.get("volumeId") || ""),
+        category: String(formData.get("category") || "Other"),
         printedPageStartPage: String(formData.get("printedPageStartPage") || ""),
         description: "",
         sourceFileId,
@@ -701,6 +722,14 @@ export function AdminConsole({ initialSnapshot }: { initialSnapshot: MonitoringS
                 <label className="space-y-2">
                   <span className="text-sm text-stone-200">Volume ID <span className="text-rose-300">*</span></span>
                   <input required name="volumeId" defaultValue="volume1" className="w-full rounded-2xl border border-stone-700 bg-stone-950 px-4 py-3 text-sm outline-none transition focus:border-amber-300" placeholder="volume1, volume2" />
+                </label>
+                <label className="space-y-2">
+                  <span className="text-sm text-stone-200">Category <span className="text-rose-300">*</span></span>
+                  <select required name="category" defaultValue="Other" className="w-full rounded-2xl border border-stone-700 bg-stone-950 px-4 py-3 text-sm outline-none transition focus:border-amber-300">
+                    {bookCategories.map((category) => (
+                      <option key={category} value={category}>{category}</option>
+                    ))}
+                  </select>
                 </label>
                 <label className="space-y-2">
                   <span className="text-sm text-stone-200">Printed page 1 starts at rendered page</span>

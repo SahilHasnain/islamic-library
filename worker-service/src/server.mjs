@@ -298,6 +298,7 @@ async function runIngest({
     requestedBy,
     publishMode,
   } = payload || {};
+  const normalizedCategory = normalizeCategory(category);
 
   try {
     // Claim now that a concurrency slot is actually ours. The 202 was already sent, so a
