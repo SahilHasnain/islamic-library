@@ -26,9 +26,11 @@ import hashlib
 import io
 import json
 import os
+import random
 import re
 import sys
 import threading
+import time
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -41,8 +43,10 @@ ENV_CANDIDATES = [
     REPO_ROOT / ".env.local",
 ]
 
-RETRYABLE_STATUS = {408, 425, 429, 500, 502, 503, 504}
-MAX_ATTEMPTS = 6
+# 499 is Fastly/Appwrite dropping a connection when concurrency spikes; it is safe to
+# retry because writes use deterministic IDs and are delete-then-create overwrites.
+RETRYABLE_STATUS = {408, 425, 429, 499, 500, 502, 503, 504}
+MAX_ATTEMPTS = 8
 
 _thread_local = threading.local()
 
@@ -105,8 +109,6 @@ def session() -> requests.Session:
 
 
 def request_with_retry(method: str, url: str, **kwargs) -> requests.Response:
-    import time
-
     last_error: Exception | None = None
     for attempt in range(1, MAX_ATTEMPTS + 1):
         try:
@@ -118,7 +120,11 @@ def request_with_retry(method: str, url: str, **kwargs) -> requests.Response:
             last_error = error
         if attempt == MAX_ATTEMPTS:
             break
-        time.sleep(min(0.5 * (2 ** (attempt - 1)), 8))
+        # Jitter keeps retries from re-colliding on the CDN concurrency ceiling.
+        delay = min(0.5 * (2 ** (attempt - 1)), 8) + random.uniform(0, 0.5)
+        if getattr(last_error, "args", None) and "499" in str(last_error):
+            delay += 1.0
+        time.sleep(delay)
     raise RuntimeError(f"{method} {url} failed after {MAX_ATTEMPTS} attempts: {last_error}")
 
 
@@ -146,18 +152,27 @@ def get_file_info(file_id: str) -> dict | None:
 
 
 def upload_file(file_id: str, content: bytes, file_name: str, content_type: str) -> None:
-    request_with_retry(
-        "DELETE", f"{ENDPOINT}/storage/buckets/{BUCKET_ID}/files/{file_id}"
-    )
     files = {"file": (file_name, content, content_type)}
     data = {"fileId": file_id}
-    response = request_with_retry(
-        "POST", f"{ENDPOINT}/storage/buckets/{BUCKET_ID}/files", data=data, files=files
-    )
-    if not response.ok:
-        raise RuntimeError(
-            f"upload {file_name} ({file_id}) failed ({response.status_code}): {response.text[:300]}"
+    last_error = ""
+
+    for attempt in range(1, 4):
+        request_with_retry(
+            "DELETE", f"{ENDPOINT}/storage/buckets/{BUCKET_ID}/files/{file_id}"
         )
+        response = request_with_retry(
+            "POST", f"{ENDPOINT}/storage/buckets/{BUCKET_ID}/files", data=data, files=files
+        )
+        if response.ok:
+            return
+        last_error = f"{response.status_code}: {response.text[:300]}"
+        # A dropped response can still have created the file; delete and try again.
+        if response.status_code in (409, 500):
+            time.sleep(1.0 + random.uniform(0, 0.5))
+            continue
+        break
+
+    raise RuntimeError(f"upload {file_name} ({file_id}) failed ({last_error})")
 
 
 def delete_file(file_id: str) -> None:
@@ -396,12 +411,10 @@ def migrate_book(
     new_cover_url = convert_cover(book_slug, cover_source, quality, dry_run, stats)
 
     old_ids: list[str] = []
-    cover_source_id = file_id_from_url(cover_source)
     if delete_png and not dry_run:
-        # Covers published so far always used the deterministic `cover.png` seed.
+        # Only deterministic PNG seeds are ever deleted. Never derive a deletion target
+        # from a manifest URL: after a first pass those URLs point at WebP files.
         old_ids.append(file_id_for(f"{book_slug}:cover:cover.png"))
-        if cover_source_id:
-            old_ids.append(cover_source_id)
 
     changed = False
     for language in metadata.get("languages", []):
@@ -424,9 +437,6 @@ def migrate_book(
                                 f":page:page-{page_number:03d}.png"
                             )
                         )
-                    old_url_id = file_id_from_url(page.get("url", ""))
-                    if old_url_id:
-                        old_ids.append(old_url_id)
 
             already_webp = (
                 manifest.get("extension") == "webp"
@@ -505,11 +515,17 @@ def main() -> int:
 
     stats = Stats()
     updated_books: dict[str, dict] = {}
+    failures: list[tuple[str, str]] = []
     for index, book in enumerate(selected, start=1):
-        print(f"[{index}/{len(selected)}] {book.get('id')}")
-        updated_book, old_ids = migrate_book(
-            book, quality, args.dry_run, args.delete_png, args.force, stats, args.concurrency
-        )
+        print(f"[{index}/{len(selected)}] {book.get('id')}", flush=True)
+        try:
+            updated_book, old_ids = migrate_book(
+                book, quality, args.dry_run, args.delete_png, args.force, stats, args.concurrency
+            )
+        except Exception as error:  # keep the batch moving; re-runs resume this book
+            print(f"  FAILED {book.get('id')}: {error}", flush=True)
+            failures.append((book.get("id", "?"), str(error)))
+            continue
         updated_books[book["id"]] = updated_book
 
         if not args.dry_run:
@@ -519,12 +535,25 @@ def main() -> int:
             upload_json(CATALOG_FILE_ID, catalog, "catalog.json")
 
             # Only drop the originals after every JSON file points at the WebP copies.
-            for old_id in dict.fromkeys(old_ids):
-                if old_id != file_id_for(f"{book.get('id')}:cover:cover.webp"):
-                    delete_file(old_id)
+            pending = [
+                old_id
+                for old_id in dict.fromkeys(old_ids)
+                if old_id != file_id_for(f"{book.get('id')}:cover:cover.webp")
+            ]
+            if pending:
+                print(f"  deleting {len(pending)} old PNG files", flush=True)
+            for deleted, old_id in enumerate(pending, start=1):
+                delete_file(old_id)
+                if deleted % 200 == 0:
+                    print(f"    deleted {deleted}/{len(pending)}", flush=True)
 
     print("\nDone.")
     print(f"  {stats.summary()}")
+    if failures:
+        print(f"\n{len(failures)} book(s) failed; re-run to resume:")
+        for slug, message in failures:
+            print(f"  {slug}: {message}")
+        return 1
     return 0
 
 

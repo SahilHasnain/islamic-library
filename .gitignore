@@ -29,6 +29,7 @@ npm-debug.*
 yarn-debug.*
 yarn-error.*
 worker-service/*.log
+*.log
 
 # macOS
 .DS_Store
@@ -49,3 +50,7 @@ app-example
 worker-service/runs/
 config.bat
 .opencode
+
+# python build artifacts
+__pycache__/
+*.pyc

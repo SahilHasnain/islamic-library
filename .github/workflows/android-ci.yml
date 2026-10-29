@@ -1,0 +1,222 @@
+name: Android CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      build_target:
+        description: Select a debug APK, preview APK, or production Play Store release
+        required: true
+        default: debug-apk
+        type: choice
+        options:
+          - debug-apk
+          - preview
+          - production
+      increment_version_code:
+        description: Increment Android versionCode before building
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: write
+
+concurrency:
+  group: android-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  increment-versions:
+    name: Increment Android versionCode
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.increment_version_code == true }}
+    runs-on: ubuntu-latest
+    outputs:
+      commit_sha: ${{ steps.commit.outputs.sha }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Increment versionCode and commit
+        id: commit
+        run: |
+          if [[ "$GITHUB_REF" != refs/heads/* ]]; then
+            echo "VersionCode increments can only be committed from a branch, not $GITHUB_REF"
+            exit 1
+          fi
+          node << 'EOF'
+          const fs = require('fs');
+          const path = require('path');
+          const gradleFile = path.join('android', 'app', 'build.gradle');
+          if (!fs.existsSync(gradleFile)) {
+            console.log('No app/build.gradle found, skipping versionCode increment');
+            process.exit(0);
+          }
+          let content = fs.readFileSync(gradleFile, 'utf8');
+          const pattern = /(versionCodes+)(d+)/;
+          const match = content.match(pattern);
+          if (!match) {
+            console.log('No versionCode found in build.gradle, skipping');
+            process.exit(0);
+          }
+          const current = parseInt(match[2], 10);
+          const next = current + 1;
+          content = content.replace(pattern, '$1' + next);
+          fs.writeFileSync(gradleFile, content);
+          console.log('Incremented versionCode: ' + current + ' -> ' + next);
+          EOF
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add android/app/build.gradle
+          git diff --cached --quiet && echo "No changes to commit" && exit 0
+          git commit -m "chore: increment Android versionCode [skip ci]"
+          git push origin "HEAD:$GITHUB_REF"
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+  build-android:
+    name: Android ${{ inputs.build_target || 'debug-apk' }}
+    needs: [increment-versions]
+    if: ${{ always() && (needs.increment-versions.result == 'success' || needs.increment-versions.result == 'skipped') }}
+    runs-on: ubuntu-latest
+    env:
+      BUILD_TARGET: ${{ inputs.build_target || 'debug-apk' }}
+      ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
+      ANDROID_HOME: /usr/local/lib/android/sdk
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.increment-versions.outputs.commit_sha || github.sha }}
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Setup Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Setup Ruby for Fastlane
+        if: ${{ env.BUILD_TARGET == 'production' && true }}
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: "3.2"
+          bundler-cache: false
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Configure Firebase for Android push when app config requires it
+        env:
+          GOOGLE_SERVICES_JSON_BASE64: ${{ secrets.GOOGLE_SERVICES_JSON_BASE64 }}
+        run: |
+          if node -e 'process.exit(require("./app.json").expo?.android?.googleServicesFile ? 0 : 1)'; then
+            : "${GOOGLE_SERVICES_JSON_BASE64:?Missing GOOGLE_SERVICES_JSON_BASE64 secret}"
+            printf '%s' "$GOOGLE_SERVICES_JSON_BASE64" | base64 --decode > google-services.json
+          fi
+
+      - name: Generate Android project
+        env:
+          CI: "1"
+        run: npx expo prebuild --platform android --no-install
+
+      - name: Prepare production credentials
+        if: ${{ env.BUILD_TARGET == 'production' }}
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          PLAY_STORE_JSON_BASE64: ${{ secrets.PLAY_STORE_JSON_BASE64 }}
+        run: |
+          required=(ANDROID_KEYSTORE_BASE64 ANDROID_KEYSTORE_PASSWORD ANDROID_KEY_ALIAS ANDROID_KEY_PASSWORD)
+          for name in "${required[@]}"; do
+            if [ -z "${!name}" ]; then
+              echo "Missing required GitHub Actions secret: $name"
+              exit 1
+            fi
+          done
+          printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 --decode > /tmp/release.keystore
+          : "${PLAY_STORE_JSON_BASE64:?Missing PLAY_STORE_JSON_BASE64 secret}"
+          printf '%s' "$PLAY_STORE_JSON_BASE64" | base64 --decode > /tmp/play-store-key.json
+          keytool -list -keystore /tmp/release.keystore -storepass "$ANDROID_KEYSTORE_PASSWORD" -alias "$ANDROID_KEY_ALIAS" >/dev/null
+
+      - name: Configure release signing
+        if: ${{ env.BUILD_TARGET == 'production' }}
+        env:
+          ANDROID_KEYSTORE_PATH: /tmp/release.keystore
+          ANDROID_VERSION_CODE: ${{ github.run_number }}
+        run: node scripts/patch-android-release-signing.mjs
+
+      - name: Build debug APK
+        if: ${{ env.BUILD_TARGET == 'debug-apk' }}
+        run: |
+          cd android
+          chmod +x ./gradlew
+          ./gradlew assembleDebug
+
+      - name: Build preview APK
+        if: ${{ env.BUILD_TARGET == 'preview' }}
+        run: |
+          cd android
+          chmod +x ./gradlew
+          if [ ! -f "$HOME/.android/debug.keystore" ]; then
+            keytool -genkey -v -keystore "$HOME/.android/debug.keystore" -storepass android -alias androiddebugkey -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Android Debug,O=Android,C=US"
+          fi
+          ./gradlew assembleRelease -Pandroid.injected.signing.store.file=$HOME/.android/debug.keystore -Pandroid.injected.signing.store.password=android -Pandroid.injected.signing.store.type=JKS -Pandroid.injected.signing.key.alias=androiddebugkey -Pandroid.injected.signing.key.password=android
+
+      - name: Build production App Bundle
+        if: ${{ env.BUILD_TARGET == 'production' }}
+        env:
+          ANDROID_KEYSTORE_PATH: /tmp/release.keystore
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          cd android
+          chmod +x ./gradlew
+          ./gradlew bundleRelease
+
+      - name: Upload debug APK artifact
+        if: ${{ env.BUILD_TARGET == 'debug-apk' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-debug-apk-${{ github.run_number }}
+          path: android/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload preview APK artifact
+        if: ${{ env.BUILD_TARGET == 'preview' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-preview-apk-${{ github.run_number }}
+          path: android/app/build/outputs/apk/release/app-release.apk
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload production AAB artifact
+        if: ${{ env.BUILD_TARGET == 'production' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-production-aab-${{ github.run_number }}
+          path: android/app/build/outputs/bundle/release/app-release.aab
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Deploy production bundle to Google Play
+        if: ${{ env.BUILD_TARGET == 'production' }}
+        env:
+          SUPPLY_JSON_KEY: /tmp/play-store-key.json
+          ANDROID_APPLICATION_ID: com.islamiclib
+          PLAY_TRACK: ${{ vars.PLAY_TRACK || 'production' }}
+          AAB_PATH: android/app/build/outputs/bundle/release/app-release.aab
+        run: |
+          bundle install --gemfile Gemfile
+          bundle exec fastlane android deploy

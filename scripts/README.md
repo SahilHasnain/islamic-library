@@ -30,6 +30,25 @@ Notes:
 - `--quality` (default `82`), `--concurrency` (default `4`), `--limit N` and `--force`
   are available for tuning.
 
+### Restoring accidentally deleted WebP pages
+
+`restore-missing-webp.py` rebuilds pages for books whose manifests already say `webp`
+but whose page files are gone (for example after a bad `--delete-png` pass). It re-encodes
+the original PNG renders from `worker-service/runs/*/pages` (or, as a fallback, from an
+assets checkout) and re-uploads them under the exact file IDs the manifests already point
+at, so no JSON changes are needed beyond refreshed sizes.
+
+```bash
+npm run appwrite:webp:restore -- --book achhi-betiyan
+npm run appwrite:webp:restore -- --book achhi-betiyan --book bahar-e-shariat
+npm run appwrite:webp:restore -- --book achhi-betiyan --dry-run
+```
+
+- `--assets-root` (default `D:/Projects/islamic-library-assets`) points at the fallback
+  `books/<slug>/<language>/<volume>/page-NNN.png` tree.
+- Every restored volume is verified by fetching its first, middle and last page.
+
+
 ## Add Missing Attributes
 
 This script adds the missing `defaultLanguageId` and `defaultVolumeId` attributes to the `books` collection in your Appwrite database.

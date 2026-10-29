@@ -35,7 +35,10 @@
     "appwrite:migrate-catalog": "node ./scripts/migrate-catalog-to-appwrite.mjs",
     "appwrite:migrate-catalog:dry": "node ./scripts/migrate-catalog-to-appwrite.mjs --dry-run",
     "appwrite:project-catalog": "node ./scripts/project-catalog-from-appwrite.mjs --apply",
-    "appwrite:project-catalog:dry": "node ./scripts/project-catalog-from-appwrite.mjs"
+    "appwrite:project-catalog:dry": "node ./scripts/project-catalog-from-appwrite.mjs",
+    "appwrite:webp": "python ./scripts/migrate-images-to-webp.py",
+    "appwrite:webp:dry": "python ./scripts/migrate-images-to-webp.py --dry-run",
+    "appwrite:webp:restore": "python ./scripts/restore-missing-webp.py"
   },
   "dependencies": {
     "@expo/vector-icons": "^15.0.3",
