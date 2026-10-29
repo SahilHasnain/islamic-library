@@ -25,7 +25,7 @@
     "submit:android": "eas submit --platform android --latest",
     "submit:ios": "eas submit --platform ios --latest",
     "typecheck": "npx tsc --noEmit",
-"appwrite:bootstrap": "node ./scripts/bootstrap-appwrite.mjs",
+    "appwrite:bootstrap": "node ./scripts/bootstrap-appwrite.mjs",
     "appwrite:provision": "node ./scripts/provision-appwrite.mjs",
     "appwrite:provision:dry": "node ./scripts/provision-appwrite.mjs --dry-run",
     "appwrite:add-attributes": "node ./scripts/add-missing-attributes.mjs",
@@ -43,6 +43,7 @@
   "dependencies": {
     "@expo/vector-icons": "^15.0.3",
     "@react-native-async-storage/async-storage": "2.2.0",
+    "@react-native-community/netinfo": "11.4.1",
     "@react-navigation/bottom-tabs": "^7.4.0",
     "@react-navigation/elements": "^2.6.3",
     "@react-navigation/native": "^7.1.8",

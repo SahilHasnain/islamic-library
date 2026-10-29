@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useSyncExternalStore } from "react";
 
 import type { PublicVolumeManifest } from "../data/types";
+import { invalidateOfflineLibrary } from "../lib/offline-library";
 import { getCachedPageCount, removeVolumeCache } from "../lib/page-asset-cache";
 import { downloadVolumeAssets } from "../lib/page-asset-resolver";
 
@@ -195,6 +196,7 @@ export function useVolumeDownload(manifest: PublicVolumeManifest | null | undefi
           isDownloading: false,
         }));
         await refreshSharedState(manifest);
+        invalidateOfflineLibrary();
       }
     })().finally(() => {
       inFlightDownloads.delete(key);
@@ -211,6 +213,7 @@ export function useVolumeDownload(manifest: PublicVolumeManifest | null | undefi
 
     await removeVolumeCache(manifest.bookId, manifest.languageId, manifest.volumeId);
     await refreshSharedState(manifest);
+    invalidateOfflineLibrary();
   }, [key, manifest]);
 
   const isFullyDownloaded = state.cachedPages >= state.totalPages && state.totalPages > 0;

@@ -11,10 +11,13 @@ import {
   MetaText,
   Screen
 } from "../../components/ui";
+import { ConnectivityBanner } from "../../components/connectivity-banner";
 import { radii, spacing, typography } from "../../constants/theme";
 import type { PublicCatalogBook, ReadingProgress } from "../../data/types";
 import { useAppTheme } from "../../hooks/useAppTheme";
 import { useBookCompletions } from "../../hooks/useBookCompletions";
+import { useNetworkStatus } from "../../hooks/useNetworkStatus";
+import { useOfflineLibrary } from "../../hooks/useOfflineLibrary";
 import { useReadingProgress } from "../../hooks/useReadingProgress";
 import { useRemoteBookData } from "../../hooks/useRemoteBookData";
 import { useRemoteCatalog } from "../../hooks/useRemoteCatalog";
@@ -76,6 +79,9 @@ const REFINE_FAB_MARGIN = 16;
 const TAB_BAR_HEIGHT = 56;
 
 const IS_WEB = Platform.OS === "web";
+// Offline availability is derived from the native file cache; the web build
+// cannot verify it, so the library keeps showing the cached catalog there.
+const CAN_FILTER_OFFLINE_LIBRARY = !IS_WEB;
 
 const LIBRARY_LAYOUT = {
   contentMaxWidth: 760,
@@ -963,7 +969,7 @@ function LibraryBookCard({
 export default function LibraryScreen() {
   const { colors } = useAppTheme();
   const router = useRouter();
-  const searchParams = useLocalSearchParams<{ search?: string }>();
+  const searchParams = useLocalSearchParams<{ search?: string; downloaded?: string }>();
   const { error, isLoaded, latestProgressByBook, refreshProgress } = useReadingProgress();
   const { completedBookIds, completionMap, refreshCompletions } = useBookCompletions();
   const {
@@ -973,6 +979,12 @@ export default function LibraryScreen() {
     isConfigured: isCatalogConfigured,
     isLoading: isCatalogLoading,
   } = useRemoteCatalog();
+  const { isInitialized: isNetworkInitialized, isOffline, isOnline } = useNetworkStatus();
+  const {
+    isLoading: isOfflineLibraryLoading,
+    offlineBookIds,
+    refresh: refreshOfflineLibrary,
+  } = useOfflineLibrary();
   const insets = useSafeAreaInsets();
   const { height: windowHeight, width: windowWidth } = useWindowDimensions();
   const isWideLayout = IS_WEB && windowWidth >= LIBRARY_LAYOUT.wideMinViewportWidth;
@@ -1013,6 +1025,11 @@ export default function LibraryScreen() {
   const [searchQuery, setSearchQuery] = useState<string>("");
   const [isSearchVisible, setIsSearchVisible] = useState<boolean>(false);
   const [resumeIndex, setResumeIndex] = useState(0);
+  const [showOfflineOnly, setShowOfflineOnly] = useState(false);
+  const [isOfflineBannerDismissed, setIsOfflineBannerDismissed] = useState(false);
+  const [showBackOnlineBanner, setShowBackOnlineBanner] = useState(false);
+  const [hasAppliedInitialNetworkState, setHasAppliedInitialNetworkState] = useState(false);
+  const wasOfflineRef = useRef<boolean | null>(null);
   const hasLoadedLanguagePreferenceRef = useRef(false);
   const searchInputRef = useRef<TextInput>(null);
   const allCategoryPillColors = getSelectablePillColors({
@@ -1020,7 +1037,16 @@ export default function LibraryScreen() {
     colors,
   });
   const refineCount = (sortBy !== "forYou" ? 1 : 0) + (selectedAuthor !== "all" ? 1 : 0);
-  const shouldShowLibrarySkeleton = !isLoaded || isCatalogLoading;
+  // Cold-start offline must filter before the first render to avoid flashing
+  // the full catalog for a frame while the effect below catches up.
+  const shouldApplyOfflineFilter =
+    CAN_FILTER_OFFLINE_LIBRARY &&
+    (showOfflineOnly || (isOffline && !hasAppliedInitialNetworkState));
+  const shouldShowLibrarySkeleton =
+    !isLoaded ||
+    isCatalogLoading ||
+    !isNetworkInitialized ||
+    (shouldApplyOfflineFilter && isOfflineLibraryLoading);
 
   function toggleRefineMenu() {
     if (menuAnchor) {
@@ -1055,8 +1081,71 @@ export default function LibraryScreen() {
     useCallback(() => {
       void refreshProgress();
       void refreshCompletions();
-    }, [refreshCompletions, refreshProgress]),
+      void refreshOfflineLibrary();
+    }, [refreshCompletions, refreshOfflineLibrary, refreshProgress]),
   );
+
+  useEffect(() => {
+    if (!isNetworkInitialized) {
+      return;
+    }
+
+    if (!hasAppliedInitialNetworkState) {
+      setHasAppliedInitialNetworkState(true);
+      wasOfflineRef.current = isOffline;
+
+      // Opening the app while offline should start in downloaded-only mode.
+      if (isOffline && CAN_FILTER_OFFLINE_LIBRARY) {
+        setShowOfflineOnly(true);
+      }
+
+      return;
+    }
+
+    const wasOffline = wasOfflineRef.current;
+    wasOfflineRef.current = isOffline;
+
+    if (wasOffline === null || wasOffline === isOffline) {
+      return;
+    }
+
+    // Mid-session drops keep the current list and only show the banner; the
+    // user can opt into downloaded-only mode from there.
+    if (isOffline) {
+      setIsOfflineBannerDismissed(false);
+      setShowBackOnlineBanner(false);
+      return;
+    }
+
+    setIsOfflineBannerDismissed(false);
+    setShowBackOnlineBanner(true);
+  }, [hasAppliedInitialNetworkState, isNetworkInitialized, isOffline]);
+
+  useEffect(() => {
+    // The "not available offline" screen sends people here with this flag so the
+    // button lands on a list they can actually open.
+    if (!CAN_FILTER_OFFLINE_LIBRARY || searchParams.downloaded !== "1") {
+      return;
+    }
+
+    setShowOfflineOnly(true);
+    // Clear the flag so a later visit with the same flag filters again.
+    router.setParams({ downloaded: "" });
+  }, [router, searchParams.downloaded]);
+
+  useEffect(() => {
+    // If the library is already showing every book, the "you're online" banner
+    // is purely informational and can get out of the way on its own.
+    if (!showBackOnlineBanner || showOfflineOnly) {
+      return;
+    }
+
+    const timeout = setTimeout(() => {
+      setShowBackOnlineBanner(false);
+    }, 5000);
+
+    return () => clearTimeout(timeout);
+  }, [showBackOnlineBanner, showOfflineOnly]);
 
   useEffect(() => {
     let isMounted = true;
@@ -1100,20 +1189,28 @@ export default function LibraryScreen() {
   }, [router, searchParams.search]);
 
   const remoteBooks = useMemo(() => catalog?.books ?? [], [catalog?.books]);
+  const visibleRemoteBooks = useMemo(() => {
+    if (!shouldApplyOfflineFilter) {
+      return remoteBooks;
+    }
+
+    return remoteBooks.filter((book) => offlineBookIds.has(book.id));
+  }, [offlineBookIds, remoteBooks, shouldApplyOfflineFilter]);
   const completedBookIdSet = useMemo(() => new Set(completedBookIds), [completedBookIds]);
   const inProgressBooks = useMemo(
     () =>
-      remoteBooks.filter(
+      visibleRemoteBooks.filter(
         (book) => latestProgressByBook[book.id] && !completedBookIdSet.has(book.id),
       ),
-    [completedBookIdSet, latestProgressByBook, remoteBooks],
+    [completedBookIdSet, latestProgressByBook, visibleRemoteBooks],
   );
 
   const sortedInProgressBooks = useMemo(() => {
     return sortBooksByRecentProgress(inProgressBooks, latestProgressByBook);
   }, [inProgressBooks, latestProgressByBook]);
 
-  const resumeCandidates = sortedInProgressBooks.length > 0 ? sortedInProgressBooks : remoteBooks;
+  const resumeCandidates =
+    sortedInProgressBooks.length > 0 ? sortedInProgressBooks : visibleRemoteBooks;
 
   useEffect(() => {
     // Keep index valid when the candidate list changes (e.g. after progress refresh).
@@ -1126,18 +1223,18 @@ export default function LibraryScreen() {
 
   const bookMetadataMap = useMemo(() => {
     const metadataMap: Record<string, { languages: LibraryLanguageOption[] }> = {};
-    remoteBooks.forEach((book) => {
+    visibleRemoteBooks.forEach((book) => {
       if (book.languages?.length) {
         metadataMap[book.id] = { languages: book.languages };
       }
     });
     return metadataMap;
-  }, [remoteBooks]);
+  }, [visibleRemoteBooks]);
 
   // Extract unique categories
   const uniqueCategories = useMemo(() => {
     const categories = new Set<string>();
-    remoteBooks.forEach((book) => {
+    visibleRemoteBooks.forEach((book) => {
       const category = getCategoryDisplayLabel({
         category: book.category,
         categoryLabel: book.categoryLabel,
@@ -1149,18 +1246,18 @@ export default function LibraryScreen() {
       if (right === "Other") return -1;
       return left.localeCompare(right);
     });
-  }, [remoteBooks]);
+  }, [visibleRemoteBooks]);
 
   const uniqueAuthors = useMemo(() => {
     const authors = new Set<string>();
-    remoteBooks.forEach((book) => {
+    visibleRemoteBooks.forEach((book) => {
       const author = book.author?.trim();
       if (author) {
         authors.add(author);
       }
     });
     return Array.from(authors).sort();
-  }, [remoteBooks]);
+  }, [visibleRemoteBooks]);
 
   // Extract unique languages from loaded metadata
   const uniqueLanguages = useMemo(() => {
@@ -1190,7 +1287,7 @@ export default function LibraryScreen() {
 
   // Filter and sort books
   const filteredAndSortedBooks = useMemo(() => {
-    let books = remoteBooks;
+    let books = visibleRemoteBooks;
 
     // Search filter
     if (searchQuery.trim()) {
@@ -1251,6 +1348,7 @@ export default function LibraryScreen() {
     return books;
   }, [
     remoteBooks,
+    visibleRemoteBooks,
     searchQuery,
     selectedAuthor,
     selectedCategory,
@@ -1261,6 +1359,14 @@ export default function LibraryScreen() {
     completedBookIdSet,
     bookMetadataMap,
   ]);
+
+  const showOfflineBanner = !isSearchVisible && isOffline && !isOfflineBannerDismissed;
+  const showOnlineBanner = !isSearchVisible && isOnline && showBackOnlineBanner;
+  const shouldShowConnectivityBanner = showOfflineBanner || showOnlineBanner;
+  const downloadedBooksSummary =
+    offlineBookIds.size === 1
+      ? "Showing 1 downloaded book."
+      : `Showing ${offlineBookIds.size} downloaded books.`;
 
   return (
     <Screen>
@@ -1321,10 +1427,70 @@ export default function LibraryScreen() {
           </View>
         </View>
       ) : null}
+
+      {shouldShowConnectivityBanner ? (
+        <View
+          style={{
+            width: "100%",
+            maxWidth: contentMaxWidth,
+            alignSelf: "center",
+            paddingHorizontal: contentGutter,
+            paddingTop: insets.top + 8,
+          }}
+        >
+          {showOfflineBanner ? (
+            <ConnectivityBanner
+              tone="offline"
+              title="You're offline"
+              message={
+                !CAN_FILTER_OFFLINE_LIBRARY
+                  ? "Showing the cached library. Pages you have already opened may still be available."
+                  : showOfflineOnly
+                    ? offlineBookIds.size > 0
+                      ? downloadedBooksSummary
+                      : "No downloaded books yet. Download a book while online to read it offline."
+                    : "Only downloaded books can be opened right now."
+              }
+              actionLabel={
+                CAN_FILTER_OFFLINE_LIBRARY && !showOfflineOnly
+                  ? "Show downloaded books"
+                  : undefined
+              }
+              onAction={
+                CAN_FILTER_OFFLINE_LIBRARY && !showOfflineOnly
+                  ? () => setShowOfflineOnly(true)
+                  : undefined
+              }
+              onDismiss={() => setIsOfflineBannerDismissed(true)}
+            />
+          ) : (
+            <ConnectivityBanner
+              tone="online"
+              title="You're online now"
+              message={
+                showOfflineOnly
+                  ? "Switch back to the full library."
+                  : "All books are available again."
+              }
+              actionLabel={showOfflineOnly ? "Show all books" : undefined}
+              onAction={
+                showOfflineOnly
+                  ? () => {
+                      setShowOfflineOnly(false);
+                      setShowBackOnlineBanner(false);
+                    }
+                  : undefined
+              }
+              onDismiss={() => setShowBackOnlineBanner(false)}
+            />
+          )}
+        </View>
+      ) : null}
+
       <ScrollView
         contentContainerStyle={{
           ...pageContentContainer,
-          paddingTop: insets.top + 5,
+          paddingTop: shouldShowConnectivityBanner ? 12 : insets.top + 5,
           paddingBottom: 40,
         }}
         showsVerticalScrollIndicator={false}
@@ -1340,7 +1506,11 @@ export default function LibraryScreen() {
         {catalogError ? (
           <ErrorCard
             title="Library unavailable"
-            message="The library could not be loaded right now."
+            message={
+              isOffline
+                ? "You're offline and no library has been saved on this device yet. Connect to the internet once to load it."
+                : "The library could not be loaded right now."
+            }
           />
         ) : null}
         {!isCatalogConfigured ? (
@@ -1409,6 +1579,44 @@ export default function LibraryScreen() {
               </Text>
               <Text style={{ color: colors.textMuted, fontSize: typography.caption }}>▾</Text>
             </Pressable>
+
+            {CAN_FILTER_OFFLINE_LIBRARY ? (
+              <Pressable
+                onPress={() => setShowOfflineOnly((value) => !value)}
+                style={{
+                  flexDirection: "row",
+                  alignItems: "center",
+                  gap: 8,
+                  borderRadius: radii.pill,
+                  backgroundColor: showOfflineOnly ? colors.accent : colors.surfaceMuted,
+                  paddingHorizontal: 14,
+                  paddingVertical: 9,
+                }}
+                accessibilityRole="button"
+                accessibilityLabel={
+                  showOfflineOnly
+                    ? "Show all books"
+                    : "Show downloaded books only"
+                }
+              >
+                <Ionicons
+                  name={showOfflineOnly ? "download" : "download-outline"}
+                  size={15}
+                  color={showOfflineOnly ? colors.text : colors.accent}
+                />
+                <Text
+                  style={{
+                    color: showOfflineOnly ? colors.text : colors.textMuted,
+                    fontSize: typography.control,
+                    fontWeight: "800",
+                  }}
+                >
+                  {isOfflineLibraryLoading
+                    ? "Downloaded"
+                    : `Downloaded (${offlineBookIds.size})`}
+                </Text>
+              </Pressable>
+            ) : null}
 
             {refineCount > 0 ? (
               <Pressable
@@ -1523,8 +1731,29 @@ export default function LibraryScreen() {
                 gap: 12,
               }}
               ListEmptyComponent={
-                <View style={{ alignItems: "center", paddingVertical: spacing.gapXl }}>
-                  <MetaText>No books found in this category.</MetaText>
+                <View style={{ alignItems: "center", paddingVertical: spacing.gapXl, gap: 6 }}>
+                  {showOfflineOnly &&
+                  CAN_FILTER_OFFLINE_LIBRARY &&
+                  (isOfflineLibraryLoading || offlineBookIds.size === 0) ? (
+                    <>
+                      <MetaText>
+                        {isOfflineLibraryLoading ? "Checking downloads…" : "No downloaded books yet"}
+                      </MetaText>
+                      {!isOfflineLibraryLoading ? (
+                        <Text
+                          style={{
+                            color: colors.textMuted,
+                            fontSize: typography.caption,
+                            textAlign: "center",
+                          }}
+                        >
+                          Download a book while online to read it offline.
+                        </Text>
+                      ) : null}
+                    </>
+                  ) : (
+                    <MetaText>No books found in this category.</MetaText>
+                  )}
                 </View>
               }
               renderItem={({ item: book }: { item: PublicCatalogBook }) => (

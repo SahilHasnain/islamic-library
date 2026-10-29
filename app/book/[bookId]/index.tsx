@@ -10,6 +10,8 @@ import { ErrorCard } from "../../../components/ui";
 import type { PublicBookTocEntry, PublicCatalogBook } from "../../../data/types";
 import { useAppTheme } from "../../../hooks/useAppTheme";
 import { useBookCompletions } from "../../../hooks/useBookCompletions";
+import { useNetworkStatus } from "../../../hooks/useNetworkStatus";
+import { useOfflineLibrary } from "../../../hooks/useOfflineLibrary";
 import { useRemoteBookData } from "../../../hooks/useRemoteBookData";
 import { useReadingProgress } from "../../../hooks/useReadingProgress";
 import { useVolumeDownload } from "../../../hooks/useVolumeDownload";
@@ -210,6 +212,11 @@ export default function BookHomeScreen() {
     volumeId?: string;
   }>();
   const readingBookId = Array.isArray(bookId) ? bookId[0] : bookId ?? "";
+  const { isInitialized: isNetworkInitialized, isOffline } = useNetworkStatus();
+  const {
+    isLoading: isOfflineLibraryLoading,
+    offlineBookIds,
+  } = useOfflineLibrary();
   const { isLoaded: isProgressLoaded, progress } = useReadingProgress(readingBookId);
   const [selectedLanguageId, setSelectedLanguageId] = useState<string | undefined>(
     Array.isArray(routeLanguageId) ? routeLanguageId[0] : routeLanguageId,
@@ -391,7 +398,16 @@ export default function BookHomeScreen() {
   const shouldShowInitialSkeleton =
     !isProgressLoaded ||
     !isLanguagePreferenceLoaded ||
+    !isNetworkInitialized ||
+    (isOffline && isOfflineLibraryLoading) ||
     (isBookDataLoading && !metadata && !manifest && !metadataError && !manifestError);
+  const isUnavailableOffline =
+    !IS_WEB &&
+    isNetworkInitialized &&
+    isOffline &&
+    !isOfflineLibraryLoading &&
+    Boolean(readingBookId) &&
+    !offlineBookIds.has(readingBookId);
   const toggleBookCompletion = async () => {
     if (isCompleted) {
       await removeCompletion(readingBookId, resolvedLanguageId, resolvedVolumeId);
@@ -612,6 +628,48 @@ export default function BookHomeScreen() {
                 <SkeletonBlock width="100%" height={54} color={skeletonBody} />
                 <SkeletonBlock width="100%" height={54} color={skeletonBody} />
               </View>
+            </View>
+          </ScrollView>
+        ) : isUnavailableOffline ? (
+          <ScrollView
+            showsVerticalScrollIndicator={false}
+            contentContainerStyle={{
+              ...pageContentContainer,
+              paddingTop: insets.top + 16,
+              paddingBottom: insets.bottom + 40,
+            }}
+          >
+            <View
+              style={{
+                backgroundColor: colors.surface,
+                borderRadius: 24,
+                padding: 24,
+                gap: 12,
+                alignItems: "flex-start",
+              }}
+            >
+              <Ionicons name="cloud-offline-outline" size={30} color={colors.accentStrong} />
+              <Text style={{ color: colors.text, fontSize: 22, fontWeight: "800" }}>
+                Not available offline
+              </Text>
+              <Text style={{ color: colors.textMuted, fontSize: 14, lineHeight: 22 }}>
+                This book isn&apos;t downloaded on this device. Connect to the internet to read it, or
+                open one of your downloaded books from the library.
+              </Text>
+              <Pressable
+                onPress={() => router.replace({ pathname: "/library", params: { downloaded: "1" } })}
+                style={{
+                  marginTop: 4,
+                  borderRadius: 999,
+                  backgroundColor: colors.accent,
+                  paddingHorizontal: 18,
+                  paddingVertical: 11,
+                }}
+              >
+                <Text style={{ color: colors.text, fontSize: 13, fontWeight: "800" }}>
+                  Back to downloaded books
+                </Text>
+              </Pressable>
             </View>
           </ScrollView>
         ) : (
@@ -1114,7 +1172,7 @@ export default function BookHomeScreen() {
         </ScrollView>
         )}
 
-        {!shouldShowInitialSkeleton ? (
+        {!shouldShowInitialSkeleton && !isUnavailableOffline ? (
           <View
             style={{
               position: "absolute",

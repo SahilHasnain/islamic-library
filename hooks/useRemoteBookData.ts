@@ -8,6 +8,7 @@ import type {
   PublicVolumeManifest,
 } from "../data/types";
 import { useRemoteCatalog } from "./useRemoteCatalog";
+import { useNetworkStatus } from "./useNetworkStatus";
 import { loadJsonEntry, saveJsonEntry } from "../lib/library-data-cache";
 
 function getMetadataCacheKey(bookId: string) {
@@ -66,6 +67,7 @@ export function useRemoteBookData(
   volumeId?: string,
 ) {
   const { catalog, error: catalogError, isLoading: isCatalogLoading, source } = useRemoteCatalog();
+  const { reconnectEpoch } = useNetworkStatus();
   const [metadata, setMetadata] = useState<PublicBookMetadata | null>(null);
   const [manifest, setManifest] = useState<PublicVolumeManifest | null>(null);
   const [metadataError, setMetadataError] = useState<string | null>(null);
@@ -207,7 +209,7 @@ export function useRemoteBookData(
     return () => {
       isMounted = false;
     };
-  }, [catalog?.generatedAt, catalog?.version, catalogBook?.metadataUrl]);
+  }, [catalog?.generatedAt, catalog?.version, catalogBook?.metadataUrl, reconnectEpoch]);
 
   useEffect(() => {
     let isMounted = true;
@@ -271,7 +273,7 @@ export function useRemoteBookData(
     return () => {
       isMounted = false;
     };
-  }, [bookId, catalog?.generatedAt, catalog?.version, metadata?.defaultLanguageId, metadata?.id, selectedVolume?.manifestUrl]);
+  }, [bookId, catalog?.generatedAt, catalog?.version, metadata?.defaultLanguageId, metadata?.id, selectedVolume?.manifestUrl, reconnectEpoch]);
 
   return {
     catalogBooks: catalog?.books ?? [],

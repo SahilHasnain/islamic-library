@@ -26,6 +26,7 @@ import { getReaderColors } from "../../../../../constants/theme";
 import { ZoomableReaderImage } from "../../../../../components/zoomable-reader-image";
 import { useAppTheme } from "../../../../../hooks/useAppTheme";
 import { useBookCompletions } from "../../../../../hooks/useBookCompletions";
+import { useNetworkStatus } from "../../../../../hooks/useNetworkStatus";
 import { useReadingProgress } from "../../../../../hooks/useReadingProgress";
 import { useRemoteBookData } from "../../../../../hooks/useRemoteBookData";
 import { useResolvedManifestPageAsset } from "../../../../../hooks/useResolvedManifestPageAsset";
@@ -130,6 +131,9 @@ function ReaderPageSurface({
   onZoomChange: (isZoomed: boolean) => void;
 }) {
   const { asset } = useResolvedManifestPageAsset(manifest, pageNum);
+  const { isInitialized: isNetworkInitialized, isOffline } = useNetworkStatus();
+  const isUnavailableOffline =
+    isNetworkInitialized && isOffline && asset?.kind === "remote";
   const manifestPage = manifest?.pages?.find((entry) => entry.page === pageNum);
   const imageAspectRatio =
     manifestPage?.width && manifestPage?.height
@@ -190,9 +194,11 @@ function ReaderPageSurface({
           textAlign: "center",
         }}
       >
-        {remoteState === "ready"
-          ? "This page is not ready yet."
-          : "Preparing this page for reading."}
+        {isUnavailableOffline
+          ? "This page isn't downloaded. Connect to the internet to read it."
+          : remoteState === "ready"
+            ? "This page is not ready yet."
+            : "Preparing this page for reading."}
       </Text>
     </View>
   );

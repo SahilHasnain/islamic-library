@@ -3,11 +3,14 @@ import { StatusBar } from "expo-status-bar";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 
 import { AppThemeProvider, useAppTheme } from "../hooks/useAppTheme";
+import { NetworkStatusProvider } from "../hooks/useNetworkStatus";
 
 export default function RootLayout() {
   return (
     <AppThemeProvider>
-      <ThemedRootLayout />
+      <NetworkStatusProvider>
+        <ThemedRootLayout />
+      </NetworkStatusProvider>
     </AppThemeProvider>
   );
 }

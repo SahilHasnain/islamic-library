@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 
 import type { PublicCatalog } from "../data/types";
 import { loadJsonEntry, saveJsonEntry } from "../lib/library-data-cache";
+import { useNetworkStatus } from "./useNetworkStatus";
 
 const DEFAULT_ENDPOINT = "https://sgp.cloud.appwrite.io/v1";
 const DEFAULT_BUCKET_ID = "public_assets";
@@ -34,6 +35,7 @@ function buildCatalogUrl(): string {
 
 export function useRemoteCatalog() {
   const catalogUrl = buildCatalogUrl();
+  const { reconnectEpoch } = useNetworkStatus();
   const [catalog, setCatalog] = useState<PublicCatalog | null>(null);
   const [isLoading, setIsLoading] = useState(Boolean(catalogUrl));
   const [error, setError] = useState<string | null>(null);
@@ -109,7 +111,8 @@ export function useRemoteCatalog() {
     return () => {
       isMounted = false;
     };
-  }, [catalogUrl]);
+    // Re-run once connectivity returns so cached catalog data is refreshed.
+  }, [catalogUrl, reconnectEpoch]);
 
   return {
     catalog,
