@@ -11,7 +11,6 @@ import {
   Platform,
   Pressable,
   ScrollView,
-  StatusBar,
   Text,
   TextInput,
   useWindowDimensions,
@@ -640,17 +639,6 @@ export default function ReaderScreen() {
     setIsFocusMode(false);
   }, []);
 
-  useEffect(() => {
-    if (Platform.OS === "web") {
-      return;
-    }
-
-    StatusBar.setHidden(isFocusMode, "fade");
-
-    return () => {
-      StatusBar.setHidden(false, "fade");
-    };
-  }, [isFocusMode]);
   const submitPageInput = useCallback(() => {
     const trimmedInput = pageInput.trim();
     const parsedPage = Number(pageInput.replace(/[^0-9]/g, ""));
